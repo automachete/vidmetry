@@ -1,6 +1,38 @@
+mod ffmpeg;
+mod media;
+
+use tauri::Manager;
+
 #[tauri::command]
 fn health_check() -> &'static str {
     "Vidmetry media service is ready"
+}
+
+#[tauri::command]
+async fn probe_video(
+    app: tauri::AppHandle,
+    path: String,
+) -> Result<media::MediaDescriptor, String> {
+    let source = ffmpeg::canonical_source(&path).map_err(|error| error.to_string())?;
+    let descriptor = ffmpeg::probe(&app, &source)
+        .await
+        .map_err(|error| error.to_string())?;
+    app.asset_protocol_scope()
+        .allow_file(&source)
+        .map_err(|error| format!("Unable to authorize video preview: {error}"))?;
+    Ok(descriptor)
+}
+
+#[tauri::command]
+async fn create_preview(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    let source = ffmpeg::canonical_source(&path).map_err(|error| error.to_string())?;
+    let preview = ffmpeg::create_preview(&app, &source)
+        .await
+        .map_err(|error| error.to_string())?;
+    app.asset_protocol_scope()
+        .allow_file(&preview)
+        .map_err(|error| format!("Unable to authorize proxy preview: {error}"))?;
+    Ok(preview.to_string_lossy().into_owned())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -8,7 +40,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![health_check])
+        .invoke_handler(tauri::generate_handler![
+            health_check,
+            probe_video,
+            create_preview
+        ])
         .run(tauri::generate_context!())
         .expect("failed to run Vidmetry");
 }
