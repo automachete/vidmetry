@@ -58,6 +58,17 @@ npm run tauri build
 
 `test:ui`はPlaywrightのChromium実描画で、ランチャー、設定、保存メニュー、ナビゲーションアイコン、通知配置を操作・画像比較します。`test:integration`は生成動画から各方式を実際に書き出し、カスタムHEVC設定、コーデックと寸法、可逆出力のフレームハッシュ、上書き置換、元テスト動画のSHA-256不変を検証します。Windowsインストーラーは`src-tauri\target\release\bundle`以下に生成されます。
 
+## リリース
+
+`package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`のバージョンを揃えてから、同じバージョンの`vX.Y.Z`タグをプッシュします。
+
+```powershell
+git tag -a v0.2.1 -m "Vidmetry v0.2.1"
+git push origin v0.2.1
+```
+
+タグを契機にGitHub Actionsが全テストを再実行し、GitHub Releaseとリリースノートを作成して、Windows用MSI／セットアップEXEを添付します。タグとアプリのバージョンが一致しない場合は公開されません。ハイフンを含むタグ（例: `v0.3.0-beta.1`）はプレリリースとして扱います。
+
 詳細な要件と設計は[docs/SDD.md](docs/SDD.md)、今回の検証結果は[docs/VERIFICATION.md](docs/VERIFICATION.md)を参照してください。
 
 ## License

@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v7
+
+      - name: Verify release version
+        shell: pwsh
+        run: ./scripts/check-release-version.ps1 -Tag "${{ github.ref_name }}"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up Rust
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup component add clippy
+
+      - name: Restore Rust build cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~\.cargo\registry
+            ~\.cargo\git
+            src-tauri\target
+          key: windows-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install chromium
+
+      - name: Prepare verified FFmpeg sidecars
+        shell: pwsh
+        run: ./scripts/setup-ffmpeg.ps1
+
+      - name: Verify frontend
+        run: npm run verify
+
+      - name: Verify desktop UI
+        run: npm run test:ui
+
+      - name: Verify Rust backend
+        shell: pwsh
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml
+          cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Verify media exports
+        run: npm run test:integration
+
+      - name: Build and publish GitHub Release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Vidmetry ${{ github.ref_name }}
+          releaseBody: |
+            Windows x64向けインストーラーは、通常はセットアップEXEを使用してください。MSIも選択できます。
+          generateReleaseNotes: true
+          releaseDraft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          includeUpdaterJson: false

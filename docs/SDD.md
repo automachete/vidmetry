@@ -252,6 +252,7 @@ Proxy cache entries are stored under the operating-system cache directory and ke
 - FFmpeg is invoked as an allowlisted sidecar with structured arguments.
 - Sidecar archives are verified against the publisher-provided SHA-256 checksum by the setup script.
 - FFmpeg binaries are not committed to Git. Distribution must include the applicable FFmpeg license, build configuration, copyright notices, and corresponding-source obligations for the selected build.
+- A pushed `vX.Y.Z` tag must match every application version file. The release workflow reruns verification, builds on Windows, creates a GitHub Release with generated notes, and attaches MSI and NSIS installers. Hyphenated versions are marked as prereleases.
 
 ## 12. Performance requirements
 
