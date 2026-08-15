@@ -10,6 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:integration": "pwsh -NoProfile -File scripts/test-integration.ps1",
+    "verify": "npm run check && npm test && npm run build",
     "tauri": "tauri"
   },
   "dependencies": {

@@ -4,7 +4,7 @@
 |---|---|
 | Document version | 1.0 |
 | Product version | 0.1.0 |
-| Status | Implementation baseline |
+| Status | Implemented and verified baseline |
 | Primary platform | Windows 11 x64 |
 | UI languages | Japanese, English-ready architecture |
 | Last updated | 2026-08-15 |
@@ -125,20 +125,20 @@ vidmetry/
   scripts/setup-ffmpeg.ps1
   src/
     lib/
-      components/
       crop.ts
+      export.ts
       media.ts
     App.svelte
   src-tauri/
     binaries/
     src/
-      commands.rs
-      crop.rs
+      export.rs
       ffmpeg.rs
       media.rs
-      state.rs
       lib.rs
-  tests/
+  scripts/
+    setup-ffmpeg.ps1
+    test-integration.ps1
 ```
 
 ## 6. Domain model
@@ -160,7 +160,7 @@ CropRect
   x/y/width/height: integer display-oriented source pixels
 
 ExportRequest
-  inputPath/outputPath: string
+  sourcePath/outputPath: string
   crop: CropRect
   profile: compatible | lossless | metadata
   overwrite: false
@@ -196,7 +196,7 @@ The first-run state is an accessible drop target with a primary Open Video butto
 
 The application first exposes the selected file through Tauri's scoped asset protocol and asks the native WebView media element to play it. If decoding fails, `create_preview` produces an orientation-normalized, square-pixel, maximum-1280-pixel H.264 MP4 proxy with frequent keyframes. The proxy is for interaction only; final export always reads the original.
 
-Proxy cache entries are stored under the operating-system cache directory and keyed by canonical path, file size, and last-write timestamp. Version 0.1.0 removes its temporary proxy on normal application exit; bounded LRU cleanup is deferred.
+Proxy cache entries are stored under the operating-system cache directory and keyed by canonical path, file size, and last-write timestamp. Entries are reusable across sessions; bounded LRU cleanup is deferred.
 
 ## 10. Error handling and recovery
 
@@ -276,3 +276,7 @@ Generated fixtures cover landscape H.264/AAC, rotated portrait, no-audio, and od
 3. Probe, direct preview, proxy fallback, and crop interaction.
 4. Export profiles, progress, cancellation, and safe finalization.
 5. Automated integration fixtures, package build, and documentation polish.
+
+## 16. Verification status
+
+The 0.1.0 baseline satisfies AC-001 through AC-007 at automated or implementation-inspection level. Native file-picker interaction and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.
