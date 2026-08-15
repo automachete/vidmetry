@@ -1,0 +1,37 @@
+# Frontend
+node_modules/
+dist/
+.svelte-kit/
+coverage/
+
+# Rust / Tauri
+target/
+src-tauri/target/
+src-tauri/binaries/*.exe
+src-tauri/binaries/ffmpeg-*
+src-tauri/binaries/ffprobe-*
+!src-tauri/binaries/.gitkeep
+
+# Generated media and caches
+.vidmetry-cache/
+test-results/
+playwright-report/
+*.tmp
+*.part
+
+# Local configuration
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+
