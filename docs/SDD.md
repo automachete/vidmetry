@@ -214,7 +214,7 @@ Proxy cache entries are stored under the operating-system cache directory and ke
 - The source is opened read-only.
 - File access is limited to user-selected paths and the app cache.
 - FFmpeg is invoked as an allowlisted sidecar with structured arguments.
-- Sidecar checksums are pinned by the setup script.
+- Sidecar archives are verified against the publisher-provided SHA-256 checksum by the setup script.
 - FFmpeg binaries are not committed to Git. Distribution must include the applicable FFmpeg license, build configuration, copyright notices, and corresponding-source obligations for the selected build.
 
 ## 12. Performance requirements
@@ -276,4 +276,3 @@ Generated fixtures cover landscape H.264/AAC, rotated portrait, no-audio, and od
 3. Probe, direct preview, proxy fallback, and crop interaction.
 4. Export profiles, progress, cancellation, and safe finalization.
 5. Automated integration fixtures, package build, and documentation polish.
-

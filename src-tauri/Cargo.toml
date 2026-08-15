@@ -1,0 +1,26 @@
+[package]
+name = "vidmetry"
+version = "0.1.0"
+description = "A focused desktop video cropper"
+authors = ["Vidmetry contributors"]
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/automachete/vidmetry"
+
+[lib]
+name = "vidmetry_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tauri = { version = "2.11.5", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2.7.2"
+tauri-plugin-shell = "2.3.5"
+thiserror = "2.0.20"
+tokio = { version = "1.53.1", features = ["process", "sync", "time"] }
+uuid = { version = "1.24.1", features = ["v4"] }
+
