@@ -15,8 +15,11 @@ if (-not (Test-Path -LiteralPath $ffmpeg) -or -not (Test-Path -LiteralPath $ffpr
 New-Item -ItemType Directory -Path $resultRoot -Force | Out-Null
 $source = Join-Path $resultRoot 'source.mp4'
 $compatible = Join-Path $resultRoot 'compatible.mp4'
+$custom = Join-Path $resultRoot 'custom-hevc.mp4'
 $lossless = Join-Path $resultRoot 'lossless.mkv'
 $metadata = Join-Path $resultRoot 'metadata.mp4'
+$inPlaceSource = Join-Path $resultRoot 'in-place-source.mp4'
+$inPlaceTemporary = Join-Path $resultRoot 'in-place-source.vidmetry-test.tmp.mp4'
 $sourceFrames = Join-Path $resultRoot 'source-crop.framemd5'
 $losslessFrames = Join-Path $resultRoot 'lossless.framemd5'
 
@@ -32,6 +35,12 @@ $sourceHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash
     -c:v libx264 -preset medium -crf 17 -pix_fmt yuv420p -fps_mode passthrough `
     -metadata:s:v:0 'rotate=0' -c:a copy -movflags +faststart $compatible
 if ($LASTEXITCODE -ne 0) { throw 'Compatible export failed.' }
+
+& $ffmpeg -hide_banner -loglevel error -nostdin -y -i $source `
+    -map '0:v:0' -map '0:a:0?' -vf 'crop=w=640:h=360:x=100:y=100,setsar=1' `
+    -c:v libx265 -preset fast -crf 23 -pix_fmt yuv420p10le -r 24 -fps_mode cfr `
+    -c:a aac -b:a 160k -map_metadata -1 $custom
+if ($LASTEXITCODE -ne 0) { throw 'Custom HEVC export failed.' }
 
 & $ffmpeg -hide_banner -loglevel error -nostdin -y -i $source `
     -map '0:v:0' -map '0:a?' -map '0:s?' -vf 'crop=w=640:h=360:x=100:y=100,setsar=1' `
@@ -51,11 +60,15 @@ function Get-VideoDescriptor([string]$Path) {
 }
 
 $compatibleInfo = Get-VideoDescriptor $compatible
+$customInfo = Get-VideoDescriptor $custom
 $losslessInfo = Get-VideoDescriptor $lossless
 $metadataInfo = Get-VideoDescriptor $metadata
 
 if ($compatibleInfo.codec_name -ne 'h264' -or $compatibleInfo.width -ne 640 -or $compatibleInfo.height -ne 360) {
     throw 'Compatible output descriptor does not match the selected crop.'
+}
+if ($customInfo.codec_name -ne 'hevc' -or $customInfo.pix_fmt -ne 'yuv420p10le' -or $customInfo.width -ne 640 -or $customInfo.height -ne 360) {
+    throw 'Custom output did not apply the configured codec or pixel format.'
 }
 if ($losslessInfo.codec_name -ne 'ffv1' -or $losslessInfo.width -ne 640 -or $losslessInfo.height -ne 360) {
     throw 'Lossless output descriptor does not match the selected crop.'
@@ -74,6 +87,19 @@ if ((Get-FileHash -Algorithm SHA256 -LiteralPath $sourceFrames).Hash -ne `
     throw 'Lossless output pixels differ from the decoded source crop.'
 }
 
+Copy-Item -LiteralPath $source -Destination $inPlaceSource -Force
+$inPlaceHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $inPlaceSource).Hash
+& $ffmpeg -hide_banner -loglevel error -nostdin -y -i $inPlaceSource `
+    -map '0:v:0' -map '0:a:0?' -vf 'crop=w=640:h=360:x=100:y=100,setsar=1' `
+    -c:v libx264 -preset fast -crf 20 -pix_fmt yuv420p -c:a copy $inPlaceTemporary
+if ($LASTEXITCODE -ne 0) { throw 'In-place staging export failed.' }
+[System.IO.File]::Move($inPlaceTemporary, $inPlaceSource, $true)
+$inPlaceInfo = Get-VideoDescriptor $inPlaceSource
+$inPlaceHashAfter = (Get-FileHash -Algorithm SHA256 -LiteralPath $inPlaceSource).Hash
+if ($inPlaceHashBefore -eq $inPlaceHashAfter -or $inPlaceInfo.width -ne 640 -or $inPlaceInfo.height -ne 360) {
+    throw 'In-place replacement did not atomically replace the source with the cropped result.'
+}
+
 $sourceHashAfter = (Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash
 if ($sourceHashBefore -ne $sourceHashAfter) {
     throw 'The source fixture changed during export tests.'
@@ -81,8 +107,10 @@ if ($sourceHashBefore -ne $sourceHashAfter) {
 
 [pscustomobject]@{
     Compatible = "h264 $($compatibleInfo.width)x$($compatibleInfo.height)"
+    Custom = "hevc/$($customInfo.pix_fmt) $($customInfo.width)x$($customInfo.height)"
     Lossless = "ffv1 $($losslessInfo.width)x$($losslessInfo.height)"
     MetadataOnly = "h264 copy $($metadataInfo.width)x$($metadataInfo.height)"
+    InPlaceReplacement = $true
     SourceUnchanged = $true
     LosslessPixelsMatch = $true
 }

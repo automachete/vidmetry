@@ -48,6 +48,93 @@ pub enum ExportProfile {
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub enum VideoCodec {
+    H264,
+    H265,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EncoderPreset {
+    Ultrafast,
+    Superfast,
+    Veryfast,
+    Faster,
+    Fast,
+    Medium,
+    Slow,
+    Slower,
+    Veryslow,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PixelFormat {
+    Source,
+    Yuv420p,
+    Yuv420p10le,
+    Yuv422p,
+    Yuv422p10le,
+    Yuv444p,
+    Yuv444p10le,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AudioMode {
+    Auto,
+    Copy,
+    Aac,
+    Flac,
+    Pcm,
+    None,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum FrameRateMode {
+    Passthrough,
+    Constant,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ExportSettings {
+    pub profile: ExportProfile,
+    pub video_codec: VideoCodec,
+    pub crf: u8,
+    pub preset: EncoderPreset,
+    pub pixel_format: PixelFormat,
+    pub audio_mode: AudioMode,
+    pub audio_bitrate_kbps: u16,
+    pub frame_rate_mode: FrameRateMode,
+    pub constant_frame_rate: f64,
+    pub fast_start: bool,
+    pub preserve_metadata: bool,
+    pub copy_subtitles: bool,
+}
+
+impl Default for ExportSettings {
+    fn default() -> Self {
+        Self {
+            profile: ExportProfile::Compatible,
+            video_codec: VideoCodec::H264,
+            crf: 17,
+            preset: EncoderPreset::Medium,
+            pixel_format: PixelFormat::Yuv420p,
+            audio_mode: AudioMode::Auto,
+            audio_bitrate_kbps: 192,
+            frame_rate_mode: FrameRateMode::Passthrough,
+            constant_frame_rate: 30.0,
+            fast_start: true,
+            preserve_metadata: true,
+            copy_subtitles: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct CropRect {
     pub x: u32,
     pub y: u32,
@@ -61,9 +148,12 @@ pub struct ExportRequest {
     pub source_path: String,
     pub output_path: String,
     pub crop: CropRect,
-    pub profile: ExportProfile,
+    #[serde(default)]
+    pub settings: ExportSettings,
     #[serde(default)]
     pub overwrite: bool,
+    #[serde(default)]
+    pub in_place: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -98,18 +188,17 @@ pub async fn start(
     let output = validated_output(
         &source,
         &request.output_path,
-        request.profile,
+        request.settings.profile,
         request.overwrite,
+        request.in_place,
     )?;
     let media = ffmpeg::probe(&app, &source).await.map_err(error_text)?;
     validate_crop(request.crop, &media)?;
-    if request.profile == ExportProfile::Metadata && !media.metadata_crop_supported {
-        return Err("メタデータ方式はH.264またはHEVCの動画だけで使用できます。".into());
-    }
+    validate_export_settings(&request.settings, &media)?;
 
     let job_id = Uuid::new_v4().to_string();
     let temporary = temporary_output(&output, &job_id)?;
-    let args = build_export_args(&source, &temporary, request.crop, request.profile, &media);
+    let args = build_export_args(&source, &temporary, request.crop, &request.settings, &media);
     let (mut receiver, child) = app
         .shell()
         .sidecar("ffmpeg")
@@ -222,7 +311,7 @@ fn build_export_args(
     source: &Path,
     output: &Path,
     crop: CropRect,
-    profile: ExportProfile,
+    settings: &ExportSettings,
     media: &MediaDescriptor,
 ) -> Vec<String> {
     let mut args = vec![
@@ -233,12 +322,12 @@ fn build_export_args(
         "pipe:1".into(),
         "-nostats".into(),
     ];
-    if profile == ExportProfile::Metadata {
+    if settings.profile == ExportProfile::Metadata {
         args.push("-noautorotate".into());
     }
     args.extend(["-i".into(), source.to_string_lossy().into_owned()]);
 
-    match profile {
+    match settings.profile {
         ExportProfile::Compatible => {
             args.extend([
                 "-map".into(),
@@ -248,53 +337,49 @@ fn build_export_args(
                 "-vf".into(),
                 crop_filter(crop),
                 "-c:v".into(),
-                "libx264".into(),
+                video_encoder(settings.video_codec).into(),
                 "-preset".into(),
-                "medium".into(),
+                encoder_preset(settings.preset).into(),
                 "-crf".into(),
-                "17".into(),
-                "-pix_fmt".into(),
-                "yuv420p".into(),
-                "-fps_mode".into(),
-                "passthrough".into(),
-                "-metadata:s:v:0".into(),
-                "rotate=0".into(),
+                settings.crf.to_string(),
             ]);
-            if media.audio_codec.as_deref() == Some("aac") {
-                args.extend(["-c:a".into(), "copy".into()]);
-            } else {
-                args.extend(["-c:a".into(), "aac".into(), "-b:a".into(), "192k".into()]);
+            add_pixel_format(&mut args, settings.pixel_format);
+            add_frame_rate(&mut args, settings);
+            add_audio(&mut args, settings, media, true);
+            add_metadata_mapping(&mut args, settings.preserve_metadata);
+            args.extend(["-metadata:s:v:0".into(), "rotate=0".into()]);
+            if settings.fast_start {
+                args.extend(["-movflags".into(), "+faststart".into()]);
             }
-            args.extend(["-movflags".into(), "+faststart".into()]);
         }
-        ExportProfile::Lossless => args.extend([
-            "-map".into(),
-            "0:v:0".into(),
-            "-map".into(),
-            "0:a?".into(),
-            "-map".into(),
-            "0:s?".into(),
-            "-vf".into(),
-            crop_filter(crop),
-            "-c:v".into(),
-            "ffv1".into(),
-            "-level".into(),
-            "3".into(),
-            "-coder".into(),
-            "1".into(),
-            "-context".into(),
-            "1".into(),
-            "-slicecrc".into(),
-            "1".into(),
-            "-c:a".into(),
-            "copy".into(),
-            "-c:s".into(),
-            "copy".into(),
-            "-fps_mode".into(),
-            "passthrough".into(),
-            "-metadata:s:v:0".into(),
-            "rotate=0".into(),
-        ]),
+        ExportProfile::Lossless => {
+            args.extend(["-map".into(), "0:v:0".into(), "-map".into(), "0:a?".into()]);
+            if settings.copy_subtitles {
+                args.extend(["-map".into(), "0:s?".into()]);
+            }
+            args.extend([
+                "-vf".into(),
+                crop_filter(crop),
+                "-c:v".into(),
+                "ffv1".into(),
+                "-level".into(),
+                "3".into(),
+                "-coder".into(),
+                "1".into(),
+                "-context".into(),
+                "1".into(),
+                "-slicecrc".into(),
+                "1".into(),
+            ]);
+            add_pixel_format(&mut args, settings.pixel_format);
+            add_frame_rate(&mut args, settings);
+            add_audio(&mut args, settings, media, false);
+            if settings.copy_subtitles {
+                args.extend(["-c:s".into(), "copy".into()]);
+            }
+            add_metadata_mapping(&mut args, settings.preserve_metadata);
+            args.extend(["-metadata:s:v:0".into(), "rotate=0".into()]);
+        }
         ExportProfile::Metadata => {
             let edges = coded_crop_edges(crop, media);
             let filter = if media.video_codec == "hevc" {
@@ -318,6 +403,102 @@ fn build_export_args(
 
     args.push(output.to_string_lossy().into_owned());
     args
+}
+
+fn video_encoder(codec: VideoCodec) -> &'static str {
+    match codec {
+        VideoCodec::H264 => "libx264",
+        VideoCodec::H265 => "libx265",
+    }
+}
+
+fn encoder_preset(preset: EncoderPreset) -> &'static str {
+    match preset {
+        EncoderPreset::Ultrafast => "ultrafast",
+        EncoderPreset::Superfast => "superfast",
+        EncoderPreset::Veryfast => "veryfast",
+        EncoderPreset::Faster => "faster",
+        EncoderPreset::Fast => "fast",
+        EncoderPreset::Medium => "medium",
+        EncoderPreset::Slow => "slow",
+        EncoderPreset::Slower => "slower",
+        EncoderPreset::Veryslow => "veryslow",
+    }
+}
+
+fn pixel_format(format: PixelFormat) -> Option<&'static str> {
+    match format {
+        PixelFormat::Source => None,
+        PixelFormat::Yuv420p => Some("yuv420p"),
+        PixelFormat::Yuv420p10le => Some("yuv420p10le"),
+        PixelFormat::Yuv422p => Some("yuv422p"),
+        PixelFormat::Yuv422p10le => Some("yuv422p10le"),
+        PixelFormat::Yuv444p => Some("yuv444p"),
+        PixelFormat::Yuv444p10le => Some("yuv444p10le"),
+    }
+}
+
+fn add_pixel_format(args: &mut Vec<String>, format: PixelFormat) {
+    if let Some(format) = pixel_format(format) {
+        args.extend(["-pix_fmt".into(), format.into()]);
+    }
+}
+
+fn add_frame_rate(args: &mut Vec<String>, settings: &ExportSettings) {
+    match settings.frame_rate_mode {
+        FrameRateMode::Passthrough => {
+            args.extend(["-fps_mode".into(), "passthrough".into()]);
+        }
+        FrameRateMode::Constant => {
+            args.extend([
+                "-r".into(),
+                format_float(settings.constant_frame_rate),
+                "-fps_mode".into(),
+                "cfr".into(),
+            ]);
+        }
+    }
+}
+
+fn add_audio(
+    args: &mut Vec<String>,
+    settings: &ExportSettings,
+    media: &MediaDescriptor,
+    compatible: bool,
+) {
+    let mode = match settings.audio_mode {
+        AudioMode::Auto if compatible && media.audio_codec.as_deref() == Some("aac") => {
+            AudioMode::Copy
+        }
+        AudioMode::Auto if compatible => AudioMode::Aac,
+        AudioMode::Auto => AudioMode::Copy,
+        selected => selected,
+    };
+    match mode {
+        AudioMode::Auto => unreachable!("automatic audio mode is resolved above"),
+        AudioMode::Copy => args.extend(["-c:a".into(), "copy".into()]),
+        AudioMode::Aac => args.extend([
+            "-c:a".into(),
+            "aac".into(),
+            "-b:a".into(),
+            format!("{}k", settings.audio_bitrate_kbps),
+        ]),
+        AudioMode::Flac => args.extend(["-c:a".into(), "flac".into()]),
+        AudioMode::Pcm => args.extend(["-c:a".into(), "pcm_s24le".into()]),
+        AudioMode::None => args.push("-an".into()),
+    }
+}
+
+fn add_metadata_mapping(args: &mut Vec<String>, preserve: bool) {
+    args.extend([
+        "-map_metadata".into(),
+        if preserve { "0" } else { "-1" }.into(),
+    ]);
+}
+
+fn format_float(value: f64) -> String {
+    let text = format!("{value:.3}");
+    text.trim_end_matches('0').trim_end_matches('.').to_owned()
 }
 
 fn crop_filter(crop: CropRect) -> String {
@@ -392,11 +573,39 @@ fn validate_crop(crop: CropRect, media: &MediaDescriptor) -> Result<(), String> 
     Ok(())
 }
 
+fn validate_export_settings(
+    settings: &ExportSettings,
+    media: &MediaDescriptor,
+) -> Result<(), String> {
+    if settings.profile == ExportProfile::Metadata && !media.metadata_crop_supported {
+        return Err("メタデータ方式はH.264またはHEVCの動画だけで使用できます。".into());
+    }
+    if settings.crf > 51 {
+        return Err("CRFは0から51の範囲で指定してください。".into());
+    }
+    if !(32..=1024).contains(&settings.audio_bitrate_kbps) {
+        return Err("音声ビットレートは32から1024 kbpsの範囲で指定してください。".into());
+    }
+    if settings.frame_rate_mode == FrameRateMode::Constant
+        && (!settings.constant_frame_rate.is_finite()
+            || !(1.0..=240.0).contains(&settings.constant_frame_rate))
+    {
+        return Err("固定フレームレートは1から240 fpsの範囲で指定してください。".into());
+    }
+    if settings.profile == ExportProfile::Compatible
+        && matches!(settings.audio_mode, AudioMode::Flac | AudioMode::Pcm)
+    {
+        return Err("互換MP4ではFLACまたはPCM音声を選択できません。".into());
+    }
+    Ok(())
+}
+
 fn validated_output(
     source: &Path,
     requested: &str,
     profile: ExportProfile,
     overwrite: bool,
+    in_place: bool,
 ) -> Result<PathBuf, String> {
     let output = PathBuf::from(requested);
     if !output.is_absolute() {
@@ -414,15 +623,20 @@ fn validated_output(
         .file_name()
         .ok_or_else(|| "保存ファイル名を指定してください。".to_owned())?;
     let output = canonical_parent.join(file_name);
+    let mut matches_source = false;
     if output.exists() {
         let existing = fs::canonicalize(&output)
             .map_err(|error| format!("保存先ファイルを確認できません: {error}"))?;
-        if existing == source {
-            return Err("元動画と同じファイルには保存できません。".into());
+        matches_source = existing == source;
+        if matches_source && !in_place {
+            return Err("元動画を置き換えるには「保存」を使用してください。".into());
         }
-        if !overwrite {
+        if !matches_source && !overwrite {
             return Err("保存先のファイルは既に存在します。".into());
         }
+    }
+    if in_place && !matches_source {
+        return Err("「保存」の出力先は現在の元動画と一致する必要があります。".into());
     }
     let extension = output
         .extension()
@@ -652,7 +866,7 @@ mod tests {
                 width: 800,
                 height: 600,
             },
-            ExportProfile::Compatible,
+            &ExportSettings::default(),
             &media(0),
         );
         assert!(args.windows(2).any(|pair| pair == ["-c:v", "libx264"]));
@@ -666,6 +880,11 @@ mod tests {
 
     #[test]
     fn builds_lossless_ffv1_without_forcing_eight_bit_pixels() {
+        let settings = ExportSettings {
+            profile: ExportProfile::Lossless,
+            pixel_format: PixelFormat::Source,
+            ..ExportSettings::default()
+        };
         let args = build_export_args(
             Path::new("input.mov"),
             Path::new("output.mkv"),
@@ -675,7 +894,7 @@ mod tests {
                 width: 1920,
                 height: 1080,
             },
-            ExportProfile::Lossless,
+            &settings,
             &media(0),
         );
         assert!(args.windows(2).any(|pair| pair == ["-c:v", "ffv1"]));
@@ -684,6 +903,10 @@ mod tests {
 
     #[test]
     fn metadata_profile_uses_copy_and_codec_crop_filter() {
+        let settings = ExportSettings {
+            profile: ExportProfile::Metadata,
+            ..ExportSettings::default()
+        };
         let args = build_export_args(
             Path::new("input.mp4"),
             Path::new("output.mp4"),
@@ -693,7 +916,7 @@ mod tests {
                 width: 800,
                 height: 600,
             },
-            ExportProfile::Metadata,
+            &settings,
             &media(0),
         );
         assert!(args.windows(2).any(|pair| pair == ["-c", "copy"]));
@@ -701,5 +924,60 @@ mod tests {
             value == "h264_metadata=crop_left=100:crop_right=1020:crop_top=80:crop_bottom=400"
         }));
         assert!(!args.contains(&"-vf".to_owned()));
+    }
+
+    #[test]
+    fn applies_custom_codec_quality_audio_and_frame_rate() {
+        let settings = ExportSettings {
+            video_codec: VideoCodec::H265,
+            crf: 23,
+            preset: EncoderPreset::Slow,
+            pixel_format: PixelFormat::Yuv420p10le,
+            audio_mode: AudioMode::Aac,
+            audio_bitrate_kbps: 256,
+            frame_rate_mode: FrameRateMode::Constant,
+            constant_frame_rate: 29.97,
+            fast_start: false,
+            preserve_metadata: false,
+            ..ExportSettings::default()
+        };
+        let args = build_export_args(
+            Path::new("input.mp4"),
+            Path::new("output.mp4"),
+            CropRect {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080,
+            },
+            &settings,
+            &media(0),
+        );
+        assert!(args.windows(2).any(|pair| pair == ["-c:v", "libx265"]));
+        assert!(args.windows(2).any(|pair| pair == ["-crf", "23"]));
+        assert!(args.windows(2).any(|pair| pair == ["-preset", "slow"]));
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["-pix_fmt", "yuv420p10le"])
+        );
+        assert!(args.windows(2).any(|pair| pair == ["-b:a", "256k"]));
+        assert!(args.windows(2).any(|pair| pair == ["-r", "29.97"]));
+        assert!(args.windows(2).any(|pair| pair == ["-map_metadata", "-1"]));
+        assert!(!args.contains(&"+faststart".to_owned()));
+    }
+
+    #[test]
+    fn rejects_invalid_detailed_settings() {
+        let descriptor = media(0);
+        let invalid_crf = ExportSettings {
+            crf: 52,
+            ..ExportSettings::default()
+        };
+        assert!(validate_export_settings(&invalid_crf, &descriptor).is_err());
+        let invalid_mp4_audio = ExportSettings {
+            audio_mode: AudioMode::Flac,
+            ..ExportSettings::default()
+        };
+        assert!(validate_export_settings(&invalid_mp4_audio, &descriptor).is_err());
     }
 }

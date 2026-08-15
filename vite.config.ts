@@ -5,6 +5,9 @@ const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig({
   plugins: [svelte()],
+  resolve: {
+    conditions: ['browser'],
+  },
   clearScreen: false,
   server: {
     host: host || false,

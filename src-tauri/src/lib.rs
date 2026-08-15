@@ -1,6 +1,7 @@
 mod export;
 mod ffmpeg;
 mod media;
+mod selection;
 
 use tauri::Manager;
 
@@ -53,6 +54,11 @@ fn cancel_export(
     export::cancel(state, job_id)
 }
 
+#[tauri::command]
+fn inspect_selection(path: String) -> Result<selection::SelectionDescriptor, String> {
+    selection::inspect(&path)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -64,7 +70,8 @@ pub fn run() {
             probe_video,
             create_preview,
             start_export,
-            cancel_export
+            cancel_export,
+            inspect_selection
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Vidmetry");
