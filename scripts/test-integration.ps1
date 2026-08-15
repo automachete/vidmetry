@@ -18,6 +18,7 @@ $compatible = Join-Path $resultRoot 'compatible.mp4'
 $custom = Join-Path $resultRoot 'custom-hevc.mp4'
 $lossless = Join-Path $resultRoot 'lossless.mkv'
 $metadata = Join-Path $resultRoot 'metadata.mp4'
+$trimmed = Join-Path $resultRoot 'time-trimmed.mp4'
 $inPlaceSource = Join-Path $resultRoot 'in-place-source.mp4'
 $inPlaceTemporary = Join-Path $resultRoot 'in-place-source.vidmetry-test.tmp.mp4'
 $sourceFrames = Join-Path $resultRoot 'source-crop.framemd5'
@@ -52,9 +53,17 @@ if ($LASTEXITCODE -ne 0) { throw 'Lossless export failed.' }
     -map 0 -c copy -bsf:v:0 'h264_metadata=crop_left=100:crop_right=540:crop_top=100:crop_bottom=260' $metadata
 if ($LASTEXITCODE -ne 0) { throw 'Metadata-only export failed.' }
 
+& $ffmpeg -hide_banner -loglevel error -nostdin -y -i $source `
+    -map '0:v:0' -map '0:a:0?' `
+    -vf 'crop=w=640:h=360:x=100:y=100,setsar=1,trim=start_frame=30:end_frame=90,setpts=PTS-STARTPTS' `
+    -af 'atrim=start=1:end=3,asetpts=PTS-STARTPTS' `
+    -c:v libx264 -preset medium -crf 17 -pix_fmt yuv420p -fps_mode passthrough `
+    -c:a aac -b:a 192k -t 2 $trimmed
+if ($LASTEXITCODE -ne 0) { throw 'Frame-accurate time trim export failed.' }
+
 function Get-VideoDescriptor([string]$Path) {
     $json = & $ffprobe -v error -select_streams 'v:0' `
-        -show_entries 'stream=codec_name,width,height,pix_fmt' -of json $Path
+        -show_entries 'stream=codec_name,width,height,pix_fmt,nb_frames,duration' -of json $Path
     if ($LASTEXITCODE -ne 0) { throw "ffprobe failed for $Path" }
     return ($json | ConvertFrom-Json).streams[0]
 }
@@ -63,6 +72,7 @@ $compatibleInfo = Get-VideoDescriptor $compatible
 $customInfo = Get-VideoDescriptor $custom
 $losslessInfo = Get-VideoDescriptor $lossless
 $metadataInfo = Get-VideoDescriptor $metadata
+$trimmedInfo = Get-VideoDescriptor $trimmed
 
 if ($compatibleInfo.codec_name -ne 'h264' -or $compatibleInfo.width -ne 640 -or $compatibleInfo.height -ne 360) {
     throw 'Compatible output descriptor does not match the selected crop.'
@@ -75,6 +85,9 @@ if ($losslessInfo.codec_name -ne 'ffv1' -or $losslessInfo.width -ne 640 -or $los
 }
 if ($metadataInfo.codec_name -ne 'h264' -or $metadataInfo.width -ne 640 -or $metadataInfo.height -ne 360) {
     throw 'Metadata-only output did not expose the intended display crop.'
+}
+if ([int]$trimmedInfo.nb_frames -ne 60 -or [Math]::Abs([double]$trimmedInfo.duration - 2.0) -gt 0.05) {
+    throw 'Time-trimmed output is not the selected 60-frame, two-second range.'
 }
 
 & $ffmpeg -hide_banner -loglevel error -y -i $source -an `
@@ -110,6 +123,7 @@ if ($sourceHashBefore -ne $sourceHashAfter) {
     Custom = "hevc/$($customInfo.pix_fmt) $($customInfo.width)x$($customInfo.height)"
     Lossless = "ffv1 $($losslessInfo.width)x$($losslessInfo.height)"
     MetadataOnly = "h264 copy $($metadataInfo.width)x$($metadataInfo.height)"
+    TimeTrim = "$($trimmedInfo.nb_frames) frames / $($trimmedInfo.duration)s"
     InPlaceReplacement = $true
     SourceUnchanged = $true
     LosslessPixelsMatch = $true

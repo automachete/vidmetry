@@ -74,6 +74,7 @@ async function installTauriMock(page: Page): Promise<void> {
           sourcePath: path,
           fileName: path.slice(path.lastIndexOf('\\') + 1),
           durationSeconds: 8,
+          frameCount: 240,
           codedWidth: 1920,
           codedHeight: 1080,
           displayWidth: 1920,
@@ -91,6 +92,7 @@ async function installTauriMock(page: Page): Promise<void> {
         };
       }
       if (command === 'create_preview') return 'C:\\cache\\preview.mp4';
+      if (command === 'create_timeline_strip') return 'C:\\cache\\timeline.jpg';
       if (command === 'start_export') return 'job-1';
       if (command === 'reveal_in_explorer') return null;
       return null;
@@ -142,6 +144,7 @@ test('launcher is concise and keeps only the settings command in its header', as
   await expect(page.locator('header button')).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
   await expect(page.getByText('Drop or select a video or folder')).toBeVisible();
+  await expect(page.locator('.brand-icon')).toBeVisible();
   await expect(page.getByText('Local video cropper')).toHaveCount(0);
   await expect(page.getByText('Keep precisely the part of the frame you need.')).toHaveCount(0);
   await expect(page.locator('.app-shell')).toHaveScreenshot('launcher.png', { animations: 'disabled' });
@@ -202,7 +205,7 @@ test('folder navigation, save options, success alignment, and Explorer selection
     animations: 'disabled',
   });
 
-  await page.getByRole('button', { name: /Show saved file in File Explorer:/ }).click();
+  await page.getByRole('link', { name: /Show saved file in File Explorer:/ }).click();
   const revealed = await page.evaluate(() =>
     (window as any).__vidmetryInvocations.some(
       (item: { command: string; args: { path?: string } }) =>
@@ -223,4 +226,42 @@ test('different extensions use direct Save a copy and Space starts playback', as
   await expect(saveCopy).not.toHaveAttribute('aria-haspopup', 'menu');
   await page.keyboard.press('Space');
   await expect.poll(() => page.evaluate(() => (window as any).__vidmetryPlayCount)).toBe(1);
+});
+
+test('time trim handles use exact frame steps and export the selected range', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open video' }).click();
+
+  const start = page.getByRole('slider', { name: 'Adjust start frame' });
+  const end = page.getByRole('slider', { name: 'Adjust end frame' });
+  await expect(start).toHaveAttribute('aria-valuenow', '0');
+  await expect(end).toHaveAttribute('aria-valuenow', '240');
+  await start.press('ArrowRight');
+  await expect(start).toHaveAttribute('aria-valuenow', '1');
+
+  await page.getByRole('button', { name: 'Save options' }).click();
+  await page.getByRole('menuitem', { name: 'Save a copy' }).click();
+  const trim = await page.evaluate(() => {
+    const invocation = (window as any).__vidmetryInvocations.find(
+      (item: { command: string }) => item.command === 'start_export',
+    );
+    return invocation.args.request.trim;
+  });
+  expect(trim).toEqual({ startFrame: 1, endFrame: 240 });
+});
+
+test('save notice closes automatically after three seconds', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open video' }).click();
+  await page.getByRole('button', { name: 'Save options' }).click();
+  await page.getByRole('menuitem', { name: 'Save a copy' }).click();
+  await page.evaluate(() =>
+    (window as any).__emitTauri('export-complete', {
+      jobId: 'job-1',
+      outputPath: 'C:\\clips\\sample_cropped.mp4',
+    }),
+  );
+  await expect(page.getByRole('status')).toBeVisible();
+  await page.waitForTimeout(3100);
+  await expect(page.getByRole('status')).toHaveCount(0);
 });

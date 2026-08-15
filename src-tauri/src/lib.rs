@@ -39,6 +39,22 @@ async fn create_preview(app: tauri::AppHandle, path: String) -> Result<String, S
 }
 
 #[tauri::command]
+async fn create_timeline_strip(
+    app: tauri::AppHandle,
+    path: String,
+    duration_seconds: f64,
+) -> Result<String, String> {
+    let source = ffmpeg::canonical_source(&path).map_err(|error| error.to_string())?;
+    let strip = ffmpeg::create_timeline_strip(&app, &source, duration_seconds)
+        .await
+        .map_err(|error| error.to_string())?;
+    app.asset_protocol_scope()
+        .allow_file(&strip)
+        .map_err(|error| format!("Unable to authorize timeline preview: {error}"))?;
+    Ok(strip.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
 async fn start_export(
     app: tauri::AppHandle,
     state: tauri::State<'_, export::ExportState>,
@@ -75,6 +91,7 @@ pub fn run() {
             health_check,
             probe_video,
             create_preview,
+            create_timeline_strip,
             start_export,
             cancel_export,
             inspect_selection,

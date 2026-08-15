@@ -4,6 +4,7 @@
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import { open, save } from '@tauri-apps/plugin-dialog';
+  import appIconUrl from '../assets/app-icon.svg';
 
   import {
     aspectRatio,
@@ -45,6 +46,19 @@
     type Language,
     type LanguageMode,
   } from './lib/settings';
+  import {
+    adaptiveFramesPerPixel,
+    frameToSeconds,
+    fullTrimRange,
+    isFullTrim,
+    sanitizeTrimRange,
+    secondsToFrame,
+    totalVideoFrames,
+    trimDuration,
+    updateTrimHandle,
+    type TrimHandle,
+    type TrimRange,
+  } from './lib/trim';
 
   const handles: Array<{ value: CropHandle; ja: string; en: string }> = [
     { value: 'north-west', ja: '左上を調整', en: 'Resize from top left' },
@@ -94,6 +108,14 @@
     renderedHeight: number;
   }
 
+  interface TimeTrimDragState {
+    handle: TrimHandle;
+    framePosition: number;
+    lastPointerX: number;
+    lastTimestamp: number;
+    renderedWidth: number;
+  }
+
   interface SelectionDescriptor {
     kind: 'file' | 'directory';
     rootPath: string;
@@ -115,7 +137,9 @@
   let usingProxy = false;
   let errorMessage = '';
   let successPath = '';
+  let successTimer: ReturnType<typeof setTimeout> | null = null;
   let dragState: DragState | null = null;
+  let timeTrimDragState: TimeTrimDragState | null = null;
   let seekFrame: number | null = null;
   let unlistenDragDrop: UnlistenFn | undefined;
   let unlistenExportEvents: UnlistenFn[] = [];
@@ -129,6 +153,8 @@
   let isStartingExport = false;
   let inPlaceExportPath: string | null = null;
   let showSettings = false;
+  let trim: TrimRange = fullTrimRange(1);
+  let timelineStripSrc = '';
   let settings: AppSettings = cloneSettings(defaultSettings);
   let settingsDraft: AppSettings = cloneSettings(defaultSettings);
   let systemLanguage = 'en-US';
@@ -144,16 +170,28 @@
   $: boxStyle = cropStyle(crop, bounds);
   $: activeRatio = aspectRatio(aspect, bounds);
   $: duration = Math.max(media?.durationSeconds ?? 0, videoElement?.duration || 0);
+  $: totalFrames = media
+    ? totalVideoFrames(duration, media.frameRate, media.frameCount)
+    : 1;
+  $: safeTrim = sanitizeTrimRange(trim, totalFrames);
+  $: trimStartSeconds = frameToSeconds(safeTrim.startFrame, totalFrames, duration);
+  $: trimEndSeconds = frameToSeconds(safeTrim.endFrame, totalFrames, duration);
+  $: selectedDuration = trimDuration(safeTrim, totalFrames, duration);
+  $: timeTrimmed = !isFullTrim(safeTrim, totalFrames);
+  $: trimSelectionStyle = `left:${(safeTrim.startFrame / totalFrames) * 100}%;right:${100 - (safeTrim.endFrame / totalFrames) * 100}%`;
+  $: trimLeftMaskStyle = `width:${(safeTrim.startFrame / totalFrames) * 100}%`;
+  $: trimRightMaskStyle = `width:${100 - (safeTrim.endFrame / totalFrames) * 100}%`;
+  $: playheadStyle = `left:${duration > 0 ? (Math.min(duration, Math.max(0, currentTime)) / duration) * 100 : 0}%`;
+  $: timelineStripStyle = timelineStripSrc ? `background-image:url("${timelineStripSrc}")` : '';
   $: language = resolveLanguage(showSettings ? settingsDraft : settings, systemLanguage);
   $: text = (key: TranslationKey, values: Record<string, string | number> = {}) =>
     translate(language, key, values);
   $: if (typeof document !== 'undefined') document.documentElement.lang = language;
   $: profileSupported =
     media !== null &&
-    (settings.export.profile !== 'metadata' || media.metadataCropSupported);
+    (settings.export.profile !== 'metadata' || (media.metadataCropSupported && !timeTrimmed));
   $: canOverwrite =
     media !== null &&
-    profileSupported &&
     canSaveInPlace(media.sourcePath, settings.export.profile);
   $: profileLabel = profileName(settings.export.profile);
 
@@ -205,16 +243,20 @@
     });
 
     window.addEventListener('keydown', handleKeyboard);
-    window.addEventListener('pointerdown', closeSaveMenuFromOutside);
+    window.addEventListener('pointerdown', handleGlobalPointerDown);
+    window.addEventListener('wheel', handleGlobalWheel, { passive: true });
   });
 
   onDestroy(() => {
     unlistenDragDrop?.();
     for (const unlisten of unlistenExportEvents) unlisten();
     window.removeEventListener('keydown', handleKeyboard);
-    window.removeEventListener('pointerdown', closeSaveMenuFromOutside);
+    window.removeEventListener('pointerdown', handleGlobalPointerDown);
+    window.removeEventListener('wheel', handleGlobalWheel);
     endCropDrag();
+    endTimeTrimDrag();
     if (seekFrame !== null) cancelAnimationFrame(seekFrame);
+    if (successTimer !== null) clearTimeout(successTimer);
   });
 
   function observeStage(node: HTMLElement) {
@@ -277,8 +319,9 @@
     if (isLoading || isPreparingProxy || exportJobId) return;
     isLoading = true;
     errorMessage = '';
-    successPath = '';
+    dismissSuccess();
     usingProxy = false;
+    timelineStripSrc = '';
     currentTime = 0;
     isPlaying = false;
     showSaveMenu = false;
@@ -287,6 +330,9 @@
     try {
       const descriptor = await invoke<MediaDescriptor>('probe_video', { path });
       media = descriptor;
+      trim = fullTrimRange(
+        totalVideoFrames(descriptor.durationSeconds, descriptor.frameRate, descriptor.frameCount),
+      );
       crop = fullFrame({ width: descriptor.displayWidth, height: descriptor.displayHeight });
       aspect = 'free';
       videoSrc = convertFileSrc(descriptor.sourcePath);
@@ -302,10 +348,25 @@
       }
       await tick();
       videoElement?.load();
+      void loadTimelineStrip(descriptor);
     } catch (error) {
       errorMessage = readableError(error);
     } finally {
       isLoading = false;
+    }
+  }
+
+  async function loadTimelineStrip(descriptor: MediaDescriptor) {
+    try {
+      const stripPath = await invoke<string>('create_timeline_strip', {
+        path: descriptor.sourcePath,
+        durationSeconds: descriptor.durationSeconds,
+      });
+      if (media?.sourcePath === descriptor.sourcePath) {
+        timelineStripSrc = convertFileSrc(stripPath);
+      }
+    } catch {
+      // The timeline remains fully usable with its lightweight fallback pattern.
     }
   }
 
@@ -344,6 +405,9 @@
   function handleLoadedMetadata() {
     if (media && media.durationSeconds <= 0 && Number.isFinite(videoElement.duration)) {
       media = { ...media, durationSeconds: videoElement.duration };
+      trim = fullTrimRange(
+        totalVideoFrames(videoElement.duration, media.frameRate, media.frameCount),
+      );
     }
   }
 
@@ -351,6 +415,9 @@
     if (!videoElement || !media) return;
     if (videoElement.paused) {
       try {
+        if (currentTime < trimStartSeconds || currentTime >= trimEndSeconds) {
+          seekToFrame(safeTrim.startFrame);
+        }
         await videoElement.play();
       } catch (error) {
         errorMessage = readableError(error);
@@ -361,13 +428,58 @@
   }
 
   function scrubTo(event: Event) {
-    const next = Number((event.currentTarget as HTMLInputElement).value);
-    currentTime = next;
+    const requested = Number((event.currentTarget as HTMLInputElement).value);
+    const frame = Math.min(
+      safeTrim.endFrame,
+      Math.max(safeTrim.startFrame, secondsToFrame(requested, totalFrames, duration)),
+    );
+    const next = frameToSeconds(frame, totalFrames, duration);
+    seekToTime(next);
+  }
+
+  function seekToTime(next: number) {
+    currentTime = Math.min(trimEndSeconds, Math.max(trimStartSeconds, next));
     if (seekFrame !== null) cancelAnimationFrame(seekFrame);
     seekFrame = requestAnimationFrame(() => {
-      if (videoElement && Number.isFinite(next)) videoElement.currentTime = next;
+      if (videoElement && Number.isFinite(currentTime)) videoElement.currentTime = currentTime;
       seekFrame = null;
     });
+  }
+
+  function seekToFrame(frame: number) {
+    seekToTime(frameToSeconds(frame, totalFrames, duration));
+  }
+
+  function handleTimeUpdate() {
+    if (!videoElement) return;
+    const next = videoElement.currentTime;
+    const frameSeconds = duration / Math.max(1, totalFrames);
+    if (next + frameSeconds / 2 < trimStartSeconds) {
+      seekToFrame(safeTrim.startFrame);
+      return;
+    }
+    if (next >= trimEndSeconds - frameSeconds / 3) {
+      if (settings.loopPlayback) {
+        const shouldResume = !videoElement.paused;
+        seekToFrame(safeTrim.startFrame);
+        if (shouldResume) void videoElement.play();
+      } else {
+        videoElement.pause();
+        currentTime = trimEndSeconds;
+      }
+      return;
+    }
+    currentTime = next;
+  }
+
+  function handleVideoEnded() {
+    isPlaying = false;
+    if (settings.loopPlayback) {
+      seekToFrame(safeTrim.startFrame);
+      void videoElement.play();
+    } else {
+      currentTime = trimEndSeconds;
+    }
   }
 
   function toggleMute() {
@@ -378,10 +490,10 @@
   function toggleLoop() {
     settings = { ...settings, loopPlayback: !settings.loopPlayback };
     persistSettings(settings);
-    if (videoElement) videoElement.loop = settings.loopPlayback;
   }
 
   function handleKeyboard(event: KeyboardEvent) {
+    if (successPath) dismissSuccess();
     const target = event.target instanceof Element ? event.target : null;
     if (event.code === 'Escape') {
       showSaveMenu = false;
@@ -405,15 +517,21 @@
       event.preventDefault();
       const direction = event.code === 'ArrowRight' ? 1 : -1;
       const amount = event.shiftKey ? 10 : 1;
-      const next = Math.min(duration, Math.max(0, currentTime + direction * amount));
-      currentTime = next;
-      if (videoElement) videoElement.currentTime = next;
+      const currentFrame = secondsToFrame(currentTime, totalFrames, duration);
+      seekToFrame(
+        Math.min(safeTrim.endFrame, Math.max(safeTrim.startFrame, currentFrame + direction * amount)),
+      );
     }
   }
 
-  function closeSaveMenuFromOutside(event: PointerEvent) {
-    if (!(event.target instanceof Element) || event.target.closest('.save-options')) return;
-    showSaveMenu = false;
+  function handleGlobalPointerDown(event: PointerEvent) {
+    if (!(event.target instanceof Element)) return;
+    if (!event.target.closest('.save-options')) showSaveMenu = false;
+    if (successPath && !event.target.closest('.success-banner')) dismissSuccess();
+  }
+
+  function handleGlobalWheel() {
+    if (successPath) dismissSuccess();
   }
 
   function beginCropDrag(event: PointerEvent, handle: CropHandle) {
@@ -448,6 +566,80 @@
     dragState = null;
     window.removeEventListener('pointermove', continueCropDrag);
     window.removeEventListener('pointerup', endCropDrag);
+  }
+
+  function beginTimeTrimDrag(event: PointerEvent, handle: TrimHandle) {
+    if (!media || event.button !== 0 || exportJobId) return;
+    const timeline = (event.currentTarget as Element).closest('.trim-timeline');
+    if (!(timeline instanceof HTMLElement)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    videoElement?.pause();
+    const framePosition = handle === 'start' ? safeTrim.startFrame : safeTrim.endFrame;
+    timeTrimDragState = {
+      handle,
+      framePosition,
+      lastPointerX: event.clientX,
+      lastTimestamp: event.timeStamp,
+      renderedWidth: timeline.getBoundingClientRect().width,
+    };
+    seekToFrame(handle === 'start' ? safeTrim.startFrame : Math.max(0, safeTrim.endFrame - 1));
+    window.addEventListener('pointermove', continueTimeTrimDrag);
+    window.addEventListener('pointerup', endTimeTrimDrag, { once: true });
+  }
+
+  function continueTimeTrimDrag(event: PointerEvent) {
+    if (!timeTrimDragState) return;
+    const coalesced = event.getCoalescedEvents?.() ?? [];
+    const samples = coalesced.length > 0 ? coalesced : [event];
+    for (const sample of samples) {
+      const elapsed = Math.max(1, sample.timeStamp - timeTrimDragState.lastTimestamp);
+      const deltaX = sample.clientX - timeTrimDragState.lastPointerX;
+      const velocity = Math.abs(deltaX) / elapsed;
+      timeTrimDragState.framePosition +=
+        deltaX *
+        adaptiveFramesPerPixel(
+          totalFrames,
+          timeTrimDragState.renderedWidth,
+          velocity,
+        );
+      timeTrimDragState.lastPointerX = sample.clientX;
+      timeTrimDragState.lastTimestamp = sample.timeStamp;
+    }
+    trim = updateTrimHandle(
+      safeTrim,
+      timeTrimDragState.handle,
+      timeTrimDragState.framePosition,
+      totalFrames,
+    );
+    const previewFrame =
+      timeTrimDragState.handle === 'start' ? trim.startFrame : Math.max(trim.startFrame, trim.endFrame - 1);
+    seekToFrame(previewFrame);
+  }
+
+  function endTimeTrimDrag() {
+    timeTrimDragState = null;
+    window.removeEventListener('pointermove', continueTimeTrimDrag);
+    window.removeEventListener('pointerup', endTimeTrimDrag);
+  }
+
+  function handleTrimKey(event: KeyboardEvent, handle: TrimHandle) {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const current = handle === 'start' ? safeTrim.startFrame : safeTrim.endFrame;
+    const amount = event.shiftKey ? 10 : 1;
+    let requested = current;
+    if (event.key === 'ArrowLeft') requested -= amount;
+    if (event.key === 'ArrowRight') requested += amount;
+    if (event.key === 'Home') requested = handle === 'start' ? 0 : safeTrim.startFrame + 1;
+    if (event.key === 'End') requested = handle === 'start' ? safeTrim.endFrame - 1 : totalFrames;
+    trim = updateTrimHandle(safeTrim, handle, requested, totalFrames);
+    seekToFrame(handle === 'start' ? trim.startFrame : Math.max(trim.startFrame, trim.endFrame - 1));
+  }
+
+  function resetTimeTrim() {
+    trim = fullTrimRange(totalFrames);
+    seekToFrame(0);
   }
 
   function setAspect(event: Event) {
@@ -495,7 +687,7 @@
     const sourcePath = media.sourcePath;
     isStartingExport = true;
     errorMessage = '';
-    successPath = '';
+    dismissSuccess();
     try {
       videoElement?.pause();
       if (inPlace) {
@@ -511,6 +703,7 @@
           sourcePath,
           outputPath,
           crop,
+          trim: safeTrim,
           settings: settings.export,
           overwrite: true,
           inPlace,
@@ -531,13 +724,32 @@
     const replacedSource = inPlaceExportPath !== null;
     inPlaceExportPath = null;
     if (replacedSource) await loadVideo(event.outputPath, true);
-    successPath = event.outputPath;
+    showSuccess(event.outputPath);
+  }
+
+  function showSuccess(path: string) {
+    dismissSuccess();
+    successPath = path;
+    successTimer = setTimeout(() => {
+      successPath = '';
+      successTimer = null;
+    }, 3000);
+  }
+
+  function dismissSuccess() {
+    if (successTimer !== null) {
+      clearTimeout(successTimer);
+      successTimer = null;
+    }
+    successPath = '';
   }
 
   async function revealSavedFile() {
     if (!successPath) return;
+    const path = successPath;
     try {
-      await invoke('reveal_in_explorer', { path: successPath });
+      await invoke('reveal_in_explorer', { path });
+      dismissSuccess();
     } catch (error) {
       errorMessage = `${text('revealFailed')}${readableError(error)}`;
     }
@@ -574,7 +786,6 @@
     settings = normalizeSettings(settingsDraft);
     persistSettings(settings);
     showSettings = false;
-    if (videoElement) videoElement.loop = settings.loopPlayback;
   }
 
   function updateDraft<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
@@ -621,12 +832,12 @@
 
 <div class="app-shell" class:has-media={media !== null}>
   <header class="app-header" class:launcher-header={media === null}>
-    {#if media}
-      <div class="brand" aria-label="Vidmetry">
-        <span class="brand-mark" aria-hidden="true">V</span>
-        <span>Vidmetry</span>
-      </div>
+    <div class="brand" aria-label="Vidmetry">
+      <img class="brand-icon" src={appIconUrl} alt="" aria-hidden="true" />
+      <span>Vidmetry</span>
+    </div>
 
+    {#if media}
       <div class="source-summary" title={media.sourcePath}>
         <strong>{media.fileName}</strong>
         <span>{media.displayWidth} × {media.displayHeight} · {formatFrameRate(media.frameRate)} · {media.videoCodec.toUpperCase()}</span>
@@ -634,9 +845,15 @@
       </div>
 
       <div class="header-actions">
-        <button class="button secondary" type="button" onclick={chooseVideo} disabled={isLoading || isPreparingProxy || exportJobId !== null}>{text('openAnother')}</button>
-        <button class="square-button" type="button" aria-label={text('openFolder')} title={text('openFolder')} onclick={chooseDirectory} disabled={isLoading || isPreparingProxy || exportJobId !== null}>▣</button>
-        <button class="square-button settings-button" type="button" aria-label={text('settings')} title={text('settings')} onclick={openSettingsDialog}>⚙</button>
+        <button class="square-button" type="button" aria-label={text('openAnother')} title={text('openAnother')} onclick={chooseVideo} disabled={isLoading || isPreparingProxy || exportJobId !== null}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 3.5h8l4 4v5.2M5.5 3.5v17h7M13.5 3.5v4h4M16.5 16.5h5M19 14v5" /></svg>
+        </button>
+        <button class="square-button" type="button" aria-label={text('openFolder')} title={text('openFolder')} onclick={chooseDirectory} disabled={isLoading || isPreparingProxy || exportJobId !== null}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l2 2h9v10.5a1.5 1.5 0 0 1-1.5 1.5h-14A1.5 1.5 0 0 1 3.5 19z" /><path d="M3.5 9h17" /></svg>
+        </button>
+        <button class="square-button settings-button" type="button" aria-label={text('settings')} title={text('settings')} onclick={openSettingsDialog}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.06.06-2.78 2.78-.06-.06A1.8 1.8 0 0 0 15 19.4a1.8 1.8 0 0 0-1.08 1.65V21h-3.84v-.08A1.8 1.8 0 0 0 9 19.4a1.8 1.8 0 0 0-1.98.36l-.06.06-2.78-2.78.06-.06A1.8 1.8 0 0 0 4.6 15a1.8 1.8 0 0 0-1.65-1.08H3v-3.84h.08A1.8 1.8 0 0 0 4.6 9a1.8 1.8 0 0 0-.36-1.98l-.06-.06 2.78-2.78.06.06A1.8 1.8 0 0 0 9 4.6a1.8 1.8 0 0 0 1.08-1.65V3h3.84v.08A1.8 1.8 0 0 0 15 4.6a1.8 1.8 0 0 0 1.98-.36l.06-.06 2.78 2.78-.06.06A1.8 1.8 0 0 0 19.4 9a1.8 1.8 0 0 0 1.65 1.08H21v3.84h-.08A1.8 1.8 0 0 0 19.4 15Z" /></svg>
+        </button>
         {#if canOverwrite}
           <div class="save-options">
             <button
@@ -644,6 +861,7 @@
               type="button"
               aria-haspopup="menu"
               aria-expanded={showSaveMenu}
+              title={!profileSupported ? (timeTrimmed ? text('timeTrimMetadataUnavailable') : text('metadataUnavailable')) : text('saveOptions')}
               disabled={!profileSupported || exportJobId !== null || isStartingExport}
               onclick={() => (showSaveMenu = !showSaveMenu)}
             >
@@ -658,13 +876,15 @@
             {/if}
           </div>
         {:else}
-          <button class="button primary" type="button" disabled={!profileSupported || exportJobId !== null || isStartingExport} onclick={saveCopy} title={!profileSupported ? text('metadataUnavailable') : text('copySave')}>
+          <button class="button primary" type="button" disabled={!profileSupported || exportJobId !== null || isStartingExport} onclick={saveCopy} title={!profileSupported ? (timeTrimmed ? text('timeTrimMetadataUnavailable') : text('metadataUnavailable')) : text('copySave')}>
             {text('copySave')}
           </button>
         {/if}
       </div>
     {:else}
-      <button class="square-button settings-button launcher-settings" type="button" aria-label={text('settings')} title={text('settings')} onclick={openSettingsDialog}>⚙</button>
+      <button class="square-button settings-button launcher-settings" type="button" aria-label={text('settings')} title={text('settings')} onclick={openSettingsDialog}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.06.06-2.78 2.78-.06-.06A1.8 1.8 0 0 0 15 19.4a1.8 1.8 0 0 0-1.08 1.65V21h-3.84v-.08A1.8 1.8 0 0 0 9 19.4a1.8 1.8 0 0 0-1.98.36l-.06.06-2.78-2.78.06-.06A1.8 1.8 0 0 0 4.6 15a1.8 1.8 0 0 0-1.65-1.08H3v-3.84h.08A1.8 1.8 0 0 0 4.6 9a1.8 1.8 0 0 0-.36-1.98l-.06-.06 2.78-2.78.06.06A1.8 1.8 0 0 0 9 4.6a1.8 1.8 0 0 0 1.08-1.65V3h3.84v.08A1.8 1.8 0 0 0 15 4.6a1.8 1.8 0 0 0 1.98-.36l.06-.06 2.78 2.78-.06.06A1.8 1.8 0 0 0 19.4 9a1.8 1.8 0 0 0 1.65 1.08H21v3.84h-.08A1.8 1.8 0 0 0 19.4 15Z" /></svg>
+      </button>
     {/if}
   </header>
 
@@ -694,13 +914,12 @@
               src={videoSrc}
               playsinline
               preload="metadata"
-              loop={settings.loopPlayback}
               onerror={handleVideoError}
               onloadedmetadata={handleLoadedMetadata}
-              ontimeupdate={() => (currentTime = videoElement.currentTime)}
+              ontimeupdate={handleTimeUpdate}
               onplay={() => (isPlaying = true)}
               onpause={() => (isPlaying = false)}
-              onended={() => (isPlaying = false)}
+              onended={handleVideoEnded}
             ><track kind="captions" /></video>
 
             <div class="crop-layer">
@@ -762,12 +981,70 @@
     </main>
 
     <footer class="transport">
-      <button class="icon-button" type="button" aria-label={isPlaying ? text('pause') : text('play')} onclick={togglePlayback}>{isPlaying ? 'Ⅱ' : '▶'}</button>
-      <span class="time current">{formatTime(currentTime)}</span>
-      <input class="scrubber" type="range" aria-label={text('seek')} min="0" max={duration || 0} step="0.001" value={currentTime} oninput={scrubTo} />
-      <span class="time">{formatTime(duration)}</span>
-      <button class="icon-button transport-option" class:active={settings.loopPlayback} type="button" aria-label={settings.loopPlayback ? text('disableLoop') : text('enableLoop')} title={settings.loopPlayback ? text('disableLoop') : text('enableLoop')} onclick={toggleLoop}>↻</button>
-      <button class="icon-button transport-option" type="button" aria-label={isMuted ? text('unmute') : text('mute')} onclick={toggleMute}>{isMuted ? '×' : '♪'}</button>
+      <div class="transport-playback">
+        <button class="icon-button" type="button" aria-label={isPlaying ? text('pause') : text('play')} title={`${isPlaying ? text('pause') : text('play')} (Space)`} onclick={togglePlayback}>{isPlaying ? 'Ⅱ' : '▶'}</button>
+        <span class="time current">{formatTime(currentTime)}</span>
+      </div>
+
+      <section class="trim-editor" aria-label={text('timeRange')}>
+        <div class="trim-readout">
+          <span>{text('trimStart')} <strong>{formatTime(trimStartSeconds)}</strong> · F{safeTrim.startFrame}</span>
+          <span class="selected-duration">{text('selectedDuration')} <strong>{formatTime(selectedDuration)}</strong></span>
+          <span>{text('trimEnd')} <strong>{formatTime(trimEndSeconds)}</strong> · F{safeTrim.endFrame}</span>
+          {#if timeTrimmed}<button class="trim-reset" type="button" onclick={resetTimeTrim}>{text('resetTrim')}</button>{/if}
+        </div>
+        <div class="trim-timeline" class:is-dragging={timeTrimDragState !== null} style={timelineStripStyle}>
+          <div class="timeline-fallback" aria-hidden="true"></div>
+          <div class="trim-mask left" style={trimLeftMaskStyle} aria-hidden="true"></div>
+          <div class="trim-mask right" style={trimRightMaskStyle} aria-hidden="true"></div>
+          <div class="trim-selection" style={trimSelectionStyle} aria-hidden="true"></div>
+          <input
+            class="timeline-scrubber"
+            type="range"
+            aria-label={text('seek')}
+            min={trimStartSeconds}
+            max={trimEndSeconds}
+            step={duration / Math.max(1, totalFrames)}
+            value={currentTime}
+            oninput={scrubTo}
+          />
+          <span class="timeline-playhead" style={playheadStyle} aria-hidden="true"></span>
+          <button
+            class="trim-handle start"
+            class:active={timeTrimDragState?.handle === 'start'}
+            style={`left:${(safeTrim.startFrame / totalFrames) * 100}%`}
+            type="button"
+            role="slider"
+            aria-label={text('startTrimHandle')}
+            aria-valuemin="0"
+            aria-valuemax={safeTrim.endFrame - 1}
+            aria-valuenow={safeTrim.startFrame}
+            aria-valuetext={formatTime(trimStartSeconds)}
+            onpointerdown={(event) => beginTimeTrimDrag(event, 'start')}
+            onkeydown={(event) => handleTrimKey(event, 'start')}
+          ><span aria-hidden="true"></span></button>
+          <button
+            class="trim-handle end"
+            class:active={timeTrimDragState?.handle === 'end'}
+            style={`left:${(safeTrim.endFrame / totalFrames) * 100}%`}
+            type="button"
+            role="slider"
+            aria-label={text('endTrimHandle')}
+            aria-valuemin={safeTrim.startFrame + 1}
+            aria-valuemax={totalFrames}
+            aria-valuenow={safeTrim.endFrame}
+            aria-valuetext={formatTime(trimEndSeconds)}
+            onpointerdown={(event) => beginTimeTrimDrag(event, 'end')}
+            onkeydown={(event) => handleTrimKey(event, 'end')}
+          ><span aria-hidden="true"></span></button>
+        </div>
+      </section>
+
+      <div class="transport-options">
+        <span class="time total">{formatTime(duration)}</span>
+        <button class="icon-button transport-option" class:active={settings.loopPlayback} type="button" aria-label={settings.loopPlayback ? text('disableLoop') : text('enableLoop')} title={settings.loopPlayback ? text('disableLoop') : text('enableLoop')} onclick={toggleLoop}>↻</button>
+        <button class="icon-button transport-option" type="button" aria-label={isMuted ? text('unmute') : text('mute')} title={isMuted ? text('unmute') : text('mute')} onclick={toggleMute}>{isMuted ? '×' : '♪'}</button>
+      </div>
     </footer>
   {:else}
     <main class="empty-state" use:observeStage>
@@ -786,7 +1063,7 @@
 
   {#if exportJobId && media}
     <div class="inline-export" role="status">
-      <div><strong>{text('exporting')}</strong><span>{Math.round(exportProgress * 100)}% · {formatTime(exportOutTime)} / {formatTime(media.durationSeconds)}</span></div>
+      <div><strong>{text('exporting')}</strong><span>{Math.round(exportProgress * 100)}% · {formatTime(exportOutTime)} / {formatTime(selectedDuration)}</span></div>
       <div class="inline-progress"><span style={`width:${exportProgress * 100}%`}></span></div>
       <button type="button" onclick={cancelExport}>{text('cancel')}</button>
     </div>
@@ -880,8 +1157,8 @@
   {#if successPath}
     <div class="success-banner" role="status">
       <span class="success-label">{text('saved')}</span>
-      <button class="success-path" type="button" title={text('openSavedLocation')} aria-label={`${text('openSavedLocation')}: ${successPath}`} onclick={revealSavedFile}>{successPath}</button>
-      <button class="notice-close" type="button" aria-label={text('closeNotice')} onclick={() => (successPath = '')}>×</button>
+      <a class="success-path" href={successPath} title={text('openSavedLocation')} aria-label={`${text('openSavedLocation')}: ${successPath}`} onclick={(event) => { event.preventDefault(); void revealSavedFile(); }}>{successPath}</a>
+      <button class="notice-close" type="button" aria-label={text('closeNotice')} onclick={dismissSuccess}>×</button>
     </div>
   {/if}
 </div>

@@ -44,6 +44,7 @@ function mediaDescriptor(sourcePath: string) {
     sourcePath,
     fileName: sourcePath.slice(sourcePath.lastIndexOf('\\') + 1),
     durationSeconds: 4,
+    frameCount: 120,
     codedWidth: 1280,
     codedHeight: 720,
     displayWidth: 1280,
@@ -104,7 +105,7 @@ describe('application shell', () => {
 
   it('keeps only Settings in the launcher header and uses the concise prompt', () => {
     useEnglish();
-    render(App);
+    const { container } = render(App);
 
     const header = screen.getByRole('banner');
     expect(within(header).getAllByRole('button')).toHaveLength(1);
@@ -113,6 +114,7 @@ describe('application shell', () => {
     expect(screen.queryByText('Local video cropper')).toBeNull();
     expect(screen.queryByText('Keep precisely the part of the frame you need.')).toBeNull();
     expect(screen.queryByText(/WebM and more/)).toBeNull();
+    expect(container.querySelector('.brand-icon')).toBeTruthy();
   });
 
   it('opens common settings with the language section last', async () => {
@@ -227,7 +229,7 @@ describe('application shell', () => {
       payload: { jobId: 'job-1', outputPath: 'C:\\clips\\a_cropped.mp4' } as never,
     });
 
-    const savedLink = await screen.findByRole('button', {
+    const savedLink = await screen.findByRole('link', {
       name: 'Show saved file in File Explorer: C:\\clips\\a_cropped.mp4',
     });
     expect(screen.getByRole('status').textContent).toContain('Saved:');
@@ -235,5 +237,53 @@ describe('application shell', () => {
     expect(invoke).toHaveBeenCalledWith('reveal_in_explorer', {
       path: 'C:\\clips\\a_cropped.mp4',
     });
+  });
+
+  it('adjusts the time range by one frame and sends the exclusive range to export', async () => {
+    useEnglish();
+    vi.mocked(dialogOpen).mockResolvedValue(videoPaths[0]);
+    vi.mocked(dialogSave).mockResolvedValue('C:\\clips\\a_cropped.mp4');
+    mockSelection();
+    render(App);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Open video' }));
+    await screen.findByText('a.mp4');
+    const startHandle = screen.getByRole('slider', { name: 'Adjust start frame' });
+    const endHandle = screen.getByRole('slider', { name: 'Adjust end frame' });
+    expect(startHandle.getAttribute('aria-valuenow')).toBe('0');
+    expect(endHandle.getAttribute('aria-valuenow')).toBe('120');
+
+    await fireEvent.keyDown(startHandle, { key: 'ArrowRight', code: 'ArrowRight' });
+    expect(startHandle.getAttribute('aria-valuenow')).toBe('1');
+    await fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Save a copy' }));
+
+    expect(invoke).toHaveBeenCalledWith(
+      'start_export',
+      expect.objectContaining({
+        request: expect.objectContaining({ trim: { startFrame: 1, endFrame: 120 } }),
+      }),
+    );
+  });
+
+  it('dismisses the save notice when another control is used', async () => {
+    useEnglish();
+    vi.mocked(dialogOpen).mockResolvedValue(videoPaths[0]);
+    vi.mocked(dialogSave).mockResolvedValue('C:\\clips\\a_cropped.mp4');
+    mockSelection();
+    render(App);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Open video' }));
+    await screen.findByText('a.mp4');
+    await fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Save a copy' }));
+    await waitFor(() => expect(eventState.handlers.has('export-complete')).toBe(true));
+    eventState.handlers.get('export-complete')?.({
+      payload: { jobId: 'job-1', outputPath: 'C:\\clips\\a_cropped.mp4' } as never,
+    });
+    expect(await screen.findByRole('status')).toBeTruthy();
+
+    await fireEvent.pointerDown(screen.getByRole('button', { name: 'Enable loop playback' }));
+    expect(screen.queryByRole('status')).toBeNull();
   });
 });

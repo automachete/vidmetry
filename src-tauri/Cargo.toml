@@ -1,6 +1,6 @@
 [package]
 name = "vidmetry"
-version = "0.2.1"
+version = "0.3.0"
 description = "A focused desktop video cropper"
 authors = ["Vidmetry contributors"]
 edition = "2024"

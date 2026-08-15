@@ -142,12 +142,20 @@ pub struct CropRect {
     pub height: u32,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TrimRange {
+    pub start_frame: u64,
+    pub end_frame: u64,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportRequest {
     pub source_path: String,
     pub output_path: String,
     pub crop: CropRect,
+    pub trim: Option<TrimRange>,
     #[serde(default)]
     pub settings: ExportSettings,
     #[serde(default)]
@@ -194,11 +202,20 @@ pub async fn start(
     )?;
     let media = ffmpeg::probe(&app, &source).await.map_err(error_text)?;
     validate_crop(request.crop, &media)?;
+    let trim = request.trim.unwrap_or_else(|| full_trim(&media));
+    validate_trim(trim, &media, request.settings.profile)?;
     validate_export_settings(&request.settings, &media)?;
 
     let job_id = Uuid::new_v4().to_string();
     let temporary = temporary_output(&output, &job_id)?;
-    let args = build_export_args(&source, &temporary, request.crop, &request.settings, &media);
+    let args = build_export_args(
+        &source,
+        &temporary,
+        request.crop,
+        trim,
+        &request.settings,
+        &media,
+    );
     let (mut receiver, child) = app
         .shell()
         .sidecar("ffmpeg")
@@ -215,7 +232,7 @@ pub async fn start(
 
     let task_app = app.clone();
     let task_job_id = job_id.clone();
-    let duration = media.duration_seconds;
+    let duration = trim_duration_seconds(trim, &media);
     let overwrite = request.overwrite;
     tauri::async_runtime::spawn(async move {
         let mut diagnostics = Vec::new();
@@ -311,6 +328,7 @@ fn build_export_args(
     source: &Path,
     output: &Path,
     crop: CropRect,
+    trim: TrimRange,
     settings: &ExportSettings,
     media: &MediaDescriptor,
 ) -> Vec<String> {
@@ -326,6 +344,8 @@ fn build_export_args(
         args.push("-noautorotate".into());
     }
     args.extend(["-i".into(), source.to_string_lossy().into_owned()]);
+    let time_trimmed = !is_full_trim(trim, media);
+    let (trim_start, trim_end) = trim_times(trim, media);
 
     match settings.profile {
         ExportProfile::Compatible => {
@@ -335,7 +355,7 @@ fn build_export_args(
                 "-map".into(),
                 "0:a:0?".into(),
                 "-vf".into(),
-                crop_filter(crop),
+                crop_filter(crop, time_trimmed.then_some(trim)),
                 "-c:v".into(),
                 video_encoder(settings.video_codec).into(),
                 "-preset".into(),
@@ -345,7 +365,15 @@ fn build_export_args(
             ]);
             add_pixel_format(&mut args, settings.pixel_format);
             add_frame_rate(&mut args, settings);
-            add_audio(&mut args, settings, media, true);
+            add_audio_trim_filter(
+                &mut args,
+                settings,
+                media,
+                time_trimmed,
+                trim_start,
+                trim_end,
+            );
+            add_audio(&mut args, settings, media, true, time_trimmed);
             add_metadata_mapping(&mut args, settings.preserve_metadata);
             args.extend(["-metadata:s:v:0".into(), "rotate=0".into()]);
             if settings.fast_start {
@@ -354,12 +382,12 @@ fn build_export_args(
         }
         ExportProfile::Lossless => {
             args.extend(["-map".into(), "0:v:0".into(), "-map".into(), "0:a?".into()]);
-            if settings.copy_subtitles {
+            if settings.copy_subtitles && !time_trimmed {
                 args.extend(["-map".into(), "0:s?".into()]);
             }
             args.extend([
                 "-vf".into(),
-                crop_filter(crop),
+                crop_filter(crop, time_trimmed.then_some(trim)),
                 "-c:v".into(),
                 "ffv1".into(),
                 "-level".into(),
@@ -373,8 +401,16 @@ fn build_export_args(
             ]);
             add_pixel_format(&mut args, settings.pixel_format);
             add_frame_rate(&mut args, settings);
-            add_audio(&mut args, settings, media, false);
-            if settings.copy_subtitles {
+            add_audio_trim_filter(
+                &mut args,
+                settings,
+                media,
+                time_trimmed,
+                trim_start,
+                trim_end,
+            );
+            add_audio(&mut args, settings, media, false, time_trimmed);
+            if settings.copy_subtitles && !time_trimmed {
                 args.extend(["-c:s".into(), "copy".into()]);
             }
             add_metadata_mapping(&mut args, settings.preserve_metadata);
@@ -399,6 +435,10 @@ fn build_export_args(
                 ),
             ]);
         }
+    }
+
+    if time_trimmed {
+        args.extend(["-t".into(), format_float(trim_end - trim_start)]);
     }
 
     args.push(output.to_string_lossy().into_owned());
@@ -465,8 +505,9 @@ fn add_audio(
     settings: &ExportSettings,
     media: &MediaDescriptor,
     compatible: bool,
+    time_trimmed: bool,
 ) {
-    let mode = match settings.audio_mode {
+    let mut mode = match settings.audio_mode {
         AudioMode::Auto if compatible && media.audio_codec.as_deref() == Some("aac") => {
             AudioMode::Copy
         }
@@ -474,6 +515,13 @@ fn add_audio(
         AudioMode::Auto => AudioMode::Copy,
         selected => selected,
     };
+    if time_trimmed && mode == AudioMode::Copy {
+        mode = if compatible {
+            AudioMode::Aac
+        } else {
+            AudioMode::Flac
+        };
+    }
     match mode {
         AudioMode::Auto => unreachable!("automatic audio mode is resolved above"),
         AudioMode::Copy => args.extend(["-c:a".into(), "copy".into()]),
@@ -489,6 +537,26 @@ fn add_audio(
     }
 }
 
+fn add_audio_trim_filter(
+    args: &mut Vec<String>,
+    settings: &ExportSettings,
+    media: &MediaDescriptor,
+    time_trimmed: bool,
+    start: f64,
+    end: f64,
+) {
+    if time_trimmed && media.has_audio && settings.audio_mode != AudioMode::None {
+        args.extend([
+            "-af".into(),
+            format!(
+                "atrim=start={}:end={},asetpts=PTS-STARTPTS",
+                format_float(start),
+                format_float(end)
+            ),
+        ]);
+    }
+}
+
 fn add_metadata_mapping(args: &mut Vec<String>, preserve: bool) {
     args.extend([
         "-map_metadata".into(),
@@ -501,11 +569,18 @@ fn format_float(value: f64) -> String {
     text.trim_end_matches('0').trim_end_matches('.').to_owned()
 }
 
-fn crop_filter(crop: CropRect) -> String {
-    format!(
+fn crop_filter(crop: CropRect, trim: Option<TrimRange>) -> String {
+    let mut filter = format!(
         "crop=w={}:h={}:x={}:y={},setsar=1",
         crop.width, crop.height, crop.x, crop.y
-    )
+    );
+    if let Some(trim) = trim {
+        filter.push_str(&format!(
+            ",trim=start_frame={}:end_frame={},setpts=PTS-STARTPTS",
+            trim.start_frame, trim.end_frame
+        ));
+    }
+    filter
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -569,6 +644,65 @@ fn validate_crop(crop: CropRect, media: &MediaDescriptor) -> Result<(), String> 
         .ok_or_else(|| "切り取り範囲が不正です。".to_owned())?;
     if right > media.display_width || bottom > media.display_height {
         return Err("切り取り範囲が動画フレームの外側です。".into());
+    }
+    Ok(())
+}
+
+fn parse_frame_rate(value: &str) -> Option<f64> {
+    let mut parts = value.split('/');
+    let numerator = parts.next()?.parse::<f64>().ok()?;
+    let denominator = parts.next().unwrap_or("1").parse::<f64>().ok()?;
+    let rate = numerator / denominator;
+    (rate.is_finite() && rate > 0.0).then_some(rate)
+}
+
+fn total_frames(media: &MediaDescriptor) -> u64 {
+    media
+        .frame_count
+        .filter(|value| *value > 0)
+        .unwrap_or_else(|| {
+            let estimated = media.duration_seconds.max(0.0)
+                * parse_frame_rate(&media.frame_rate).unwrap_or(30.0);
+            estimated.round().max(1.0) as u64
+        })
+}
+
+fn full_trim(media: &MediaDescriptor) -> TrimRange {
+    TrimRange {
+        start_frame: 0,
+        end_frame: total_frames(media),
+    }
+}
+
+fn is_full_trim(trim: TrimRange, media: &MediaDescriptor) -> bool {
+    trim == full_trim(media)
+}
+
+fn trim_times(trim: TrimRange, media: &MediaDescriptor) -> (f64, f64) {
+    let total = total_frames(media) as f64;
+    let duration = media.duration_seconds.max(0.0);
+    (
+        trim.start_frame as f64 / total * duration,
+        trim.end_frame as f64 / total * duration,
+    )
+}
+
+fn trim_duration_seconds(trim: TrimRange, media: &MediaDescriptor) -> f64 {
+    let (start, end) = trim_times(trim, media);
+    (end - start).max(0.0)
+}
+
+fn validate_trim(
+    trim: TrimRange,
+    media: &MediaDescriptor,
+    profile: ExportProfile,
+) -> Result<(), String> {
+    let total = total_frames(media);
+    if trim.start_frame >= trim.end_frame || trim.end_frame > total {
+        return Err("時間のトリミング範囲が動画フレームの外側です。".into());
+    }
+    if profile == ExportProfile::Metadata && !is_full_trim(trim, media) {
+        return Err("メタデータのみ方式ではフレーム単位の時間トリミングを使用できません。".into());
     }
     Ok(())
 }
@@ -772,6 +906,7 @@ mod tests {
             source_path: "input.mp4".into(),
             file_name: "input.mp4".into(),
             duration_seconds: 12.0,
+            frame_count: Some(360),
             coded_width: 1920,
             coded_height: 1080,
             display_width,
@@ -866,6 +1001,7 @@ mod tests {
                 width: 800,
                 height: 600,
             },
+            full_trim(&media(0)),
             &ExportSettings::default(),
             &media(0),
         );
@@ -894,6 +1030,7 @@ mod tests {
                 width: 1920,
                 height: 1080,
             },
+            full_trim(&media(0)),
             &settings,
             &media(0),
         );
@@ -916,6 +1053,7 @@ mod tests {
                 width: 800,
                 height: 600,
             },
+            full_trim(&media(0)),
             &settings,
             &media(0),
         );
@@ -950,6 +1088,7 @@ mod tests {
                 width: 1920,
                 height: 1080,
             },
+            full_trim(&media(0)),
             &settings,
             &media(0),
         );
@@ -979,5 +1118,49 @@ mod tests {
             ..ExportSettings::default()
         };
         assert!(validate_export_settings(&invalid_mp4_audio, &descriptor).is_err());
+    }
+
+    #[test]
+    fn builds_frame_exact_time_trim_and_reencodes_packet_audio() {
+        let descriptor = media(0);
+        let args = build_export_args(
+            Path::new("input.mp4"),
+            Path::new("output.mp4"),
+            CropRect {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080,
+            },
+            TrimRange {
+                start_frame: 30,
+                end_frame: 90,
+            },
+            &ExportSettings::default(),
+            &descriptor,
+        );
+
+        assert!(args.iter().any(|value| {
+            value.contains("trim=start_frame=30:end_frame=90,setpts=PTS-STARTPTS")
+        }));
+        assert!(
+            args.iter()
+                .any(|value| { value == "atrim=start=1:end=3,asetpts=PTS-STARTPTS" })
+        );
+        assert!(args.windows(2).any(|pair| pair == ["-c:a", "aac"]));
+        assert!(args.windows(2).any(|pair| pair == ["-t", "2"]));
+    }
+
+    #[test]
+    fn rejects_time_trim_for_metadata_only_stream_copy() {
+        let descriptor = media(0);
+        let trimmed = TrimRange {
+            start_frame: 1,
+            end_frame: 360,
+        };
+        assert!(validate_trim(trimmed, &descriptor, ExportProfile::Metadata).is_err());
+        assert!(
+            validate_trim(full_trim(&descriptor), &descriptor, ExportProfile::Metadata).is_ok()
+        );
     }
 }

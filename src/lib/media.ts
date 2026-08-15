@@ -9,6 +9,7 @@ export interface MediaDescriptor {
   sourcePath: string;
   fileName: string;
   durationSeconds: number;
+  frameCount: number | null;
   codedWidth: number;
   codedHeight: number;
   displayWidth: number;

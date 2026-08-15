@@ -170,6 +170,82 @@ pub async fn create_preview(app: &AppHandle, source: &Path) -> Result<PathBuf, M
     Ok(output_path)
 }
 
+pub async fn create_timeline_strip(
+    app: &AppHandle,
+    source: &Path,
+    duration_seconds: f64,
+) -> Result<PathBuf, MediaError> {
+    let cache_root = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| MediaError::Cache(error.to_string()))?
+        .join("timelines");
+    fs::create_dir_all(&cache_root).map_err(|error| MediaError::Cache(error.to_string()))?;
+
+    let output_path = cache_root.join(format!("{:016x}.jpg", source_cache_key(source)?));
+    if output_path
+        .metadata()
+        .map(|item| item.len() > 0)
+        .unwrap_or(false)
+    {
+        return Ok(output_path);
+    }
+
+    let duration = if duration_seconds.is_finite() && duration_seconds > 0.0 {
+        duration_seconds
+    } else {
+        1.0
+    };
+    let sample_rate = 12.0 / duration;
+    let filter = format!(
+        "fps={sample_rate:.9},scale=160:90:force_original_aspect_ratio=increase,crop=160:90,tile=12x1:nb_frames=12"
+    );
+    let source_text = source.to_string_lossy().into_owned();
+    let output_text = output_path.to_string_lossy().into_owned();
+    let output = app
+        .shell()
+        .sidecar("ffmpeg")
+        .map_err(|error| MediaError::ProcessStart {
+            tool: "ffmpeg",
+            message: error.to_string(),
+        })?
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            &source_text,
+            "-map",
+            "0:v:0",
+            "-an",
+            "-vf",
+            &filter,
+            "-frames:v",
+            "1",
+            "-q:v",
+            "5",
+            "-update",
+            "1",
+            &output_text,
+        ])
+        .output()
+        .await
+        .map_err(|error| MediaError::ProcessStart {
+            tool: "ffmpeg timeline",
+            message: error.to_string(),
+        })?;
+
+    if !output.status.success() {
+        let _ = fs::remove_file(&output_path);
+        return Err(MediaError::ProcessFailed {
+            tool: "ffmpeg timeline",
+            message: compact_stderr(&output.stderr),
+        });
+    }
+    Ok(output_path)
+}
+
 fn descriptor_from_probe(
     source: &Path,
     document: ProbeDocument,
@@ -218,6 +294,11 @@ fn descriptor_from_probe(
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| "video".into()),
         duration_seconds,
+        frame_count: video
+            .nb_frames
+            .as_deref()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|value| *value > 0),
         coded_width,
         coded_height,
         display_width,
@@ -330,6 +411,7 @@ mod tests {
             duration: Some("10.5".into()),
             avg_frame_rate: Some("30000/1001".into()),
             r_frame_rate: Some("30000/1001".into()),
+            nb_frames: Some("315".into()),
             sample_aspect_ratio: Some("1:1".into()),
             pix_fmt: Some("yuv420p".into()),
             bits_per_raw_sample: Some("8".into()),
@@ -376,6 +458,7 @@ mod tests {
         let descriptor = descriptor_from_probe(Path::new("clip.mp4"), document).unwrap();
 
         assert_eq!(descriptor.duration_seconds, 7.25);
+        assert_eq!(descriptor.frame_count, Some(315));
         assert!(descriptor.metadata_crop_supported);
     }
 

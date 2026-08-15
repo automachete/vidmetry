@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| Document version | 1.2 |
-| Product version | 0.2.1 |
+| Document version | 1.3 |
+| Product version | 0.3.0 |
 | Status | Implemented and verified |
 | Primary platform | Windows 11 x64 |
 | UI languages | Japanese and English |
@@ -11,7 +11,7 @@
 
 ## 1. Purpose
 
-Vidmetry is a lightweight, single-purpose desktop GUI for cropping the spatial frame of a video. Its interaction model is the crop tool in a photo application: open a video or folder, drag a rectangle, scrub or play to inspect the clip, and save with minimal intermediate UI.
+Vidmetry is a lightweight desktop GUI for cropping a video's spatial frame and trimming its start/end time. Its interaction model follows the crop and frame-viewer tools in photo applications: open a video or folder, adjust the visible frame and selected duration, preview, and save with minimal intermediate UI.
 
 The application must not imply that physical video cropping can normally use stream copy. It presents three distinct export behaviors so the user can choose compatibility, decoded-pixel fidelity, or metadata-only stream preservation.
 
@@ -23,6 +23,7 @@ The application must not imply that physical video cropping can normally use str
 - Open a directory and move between its videos without returning to the picker.
 - Display a draggable and resizable crop rectangle over a playable preview.
 - Seek with a scrubber and play or pause while the crop overlay remains active.
+- Trim the start and end on integer video-frame boundaries with velocity-sensitive pointer control.
 - Show the final integer crop coordinates and output frame dimensions.
 - Support arbitrary FFmpeg-decodable input by creating a temporary preview proxy when direct playback fails.
 - Export with visible progress and cancellation.
@@ -32,9 +33,9 @@ The application must not imply that physical video cropping can normally use str
 - Keep all media processing local.
 - Remain responsive while probing, proxying, and exporting.
 
-### 2.2 Non-goals for 0.2.1
+### 2.2 Non-goals for 0.3.0
 
-- Temporal trimming, multi-clip timelines, transitions, filters, captions, or audio editing.
+- Multi-clip timelines, internal cuts, transitions, filters, captions, or independent audio editing.
 - Animated crop/keyframes.
 - Cloud storage, accounts, telemetry, or automatic uploads.
 - Batch-applying one crop rectangle to every file in a directory.
@@ -63,11 +64,12 @@ The application must not imply that physical video cropping can normally use str
 
 ### 3.3 Playback and scrub
 
-- **FR-020** The UI provides play/pause, current time, duration, mute, and a full-duration range scrubber.
-- **FR-021** Dragging the scrubber seeks the preview and is throttled to protect the UI thread.
+- **FR-020** The UI provides play/pause, current time, duration, mute, a frame strip, a playhead scrubber, and start/end trim handles.
+- **FR-021** Start is inclusive and end is exclusive. The selected range always contains at least one integer source frame.
 - **FR-022** The crop overlay remains spatially stable during playback, seek, resize, and fullscreen layout changes.
-- **FR-023** Left and right keyboard arrows seek by one second; Shift plus arrow seeks by ten seconds; Space toggles playback.
+- **FR-023** Slow pointer movement uses sub-frame-per-pixel sensitivity while fast movement spans the timeline at its natural scale; values always snap to complete frames. Focused trim handles move by one frame with an arrow key or ten with Shift.
 - **FR-024** An icon-only control toggles loop playback. The selected state is persisted and reused for subsequent videos and sessions.
+- **FR-025** Playback and loop boundaries follow the selected time range. Space toggles playback and unfocused left/right keys seek by one frame or ten with Shift.
 
 ### 3.4 Export
 
@@ -84,6 +86,9 @@ The application must not imply that physical video cropping can normally use str
 - **FR-040** Save is enabled only when the configured output extension equals the source extension. After explicit confirmation, the completed temporary output replaces the source.
 - **FR-041** Copy and save never modifies the source and asks for a destination with an extension appropriate to the configured profile.
 - **FR-042** A successful export shows a normalized display path as a link. Activating it opens File Explorer with the output file selected without launching the video.
+- **FR-043** Compatible and lossless exports apply the selected ordinal frame range in FFmpeg. Packet-copied audio is encoded when necessary to align it with an exact time trim.
+- **FR-044** Metadata-only stream copy cannot promise arbitrary frame boundaries and is disabled while a time trim is active.
+- **FR-045** A successful-save notice closes after three seconds or when another UI control is used.
 
 ### 3.5 Common settings and localization
 
@@ -168,6 +173,7 @@ vidmetry/
 MediaDescriptor
   sourcePath: string
   durationSeconds: number
+  frameCount: optional integer
   codedWidth/codedHeight: integer
   displayWidth/displayHeight: integer
   rotationDegrees: integer
@@ -180,9 +186,14 @@ MediaDescriptor
 CropRect
   x/y/width/height: integer display-oriented source pixels
 
+TrimRange
+  startFrame: inclusive integer source-frame index
+  endFrame: exclusive integer source-frame index
+
 ExportRequest
   sourcePath/outputPath: string
   crop: CropRect
+  trim: TrimRange
   settings: ExportSettings
   overwrite/inPlace: boolean
 
@@ -208,6 +219,7 @@ Crop rectangles use the displayed orientation. The backend owns the conversion t
 | `inspect_selection(path)` | UI → Rust | Resolve a selected file or sorted directory playlist |
 | `probe_video(path)` | UI → Rust | Return `MediaDescriptor` from ffprobe JSON |
 | `create_preview(path)` | UI → Rust | Create/reuse local proxy and return its path |
+| `create_timeline_strip(path, durationSeconds)` | UI → Rust | Create/reuse a 12-frame contact sheet for the trim bar |
 | `start_export(request)` | UI → Rust | Validate request, start job, return job ID |
 | `cancel_export(jobId)` | UI → Rust | Terminate matching child process |
 | `reveal_in_explorer(path)` | UI → Rust | Open File Explorer with a completed output selected |
@@ -221,9 +233,9 @@ Only the Rust layer constructs FFmpeg argument arrays. Paths and crop values are
 
 The main window uses three regions:
 
-1. A narrow editor header with product/source details, Open, icon-only Folder/Settings, and one context-sensitive save control. The launcher header contains Settings only.
+1. A narrow header with the Vidmetry icon/wordmark, source details in the editor, icon-only Open/Folder/Settings actions, and one context-sensitive save control.
 2. A flexible dark video stage containing optional directory navigation, the video, and crop overlay.
-3. A compact inspector/control footer with playback, scrubber, persistent loop, mute, coordinates, dimensions, aspect ratio, and Reset.
+3. A frame-strip footer with velocity-sensitive time handles, playback/scrub, persistent loop, and mute, plus a spatial inspector with coordinates, dimensions, aspect ratio, and Reset.
 
 The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
 
@@ -231,7 +243,7 @@ The first-run state is an accessible file/folder drop target. Export settings ar
 
 The application first exposes the selected file through Tauri's scoped asset protocol and asks the native WebView media element to play it. If decoding fails, `create_preview` produces an orientation-normalized, square-pixel, maximum-1280-pixel H.264 MP4 proxy with frequent keyframes. The proxy is for interaction only; final export always reads the original.
 
-Proxy cache entries are stored under the operating-system cache directory and keyed by canonical path, file size, and last-write timestamp. Entries are reusable across sessions; bounded LRU cleanup is deferred.
+Proxy and timeline contact-sheet entries are stored under the operating-system cache directory and keyed by canonical path, file size, and last-write timestamp. Entries are reusable across sessions; bounded LRU cleanup is deferred.
 
 ## 10. Error handling and recovery
 
@@ -275,8 +287,8 @@ Proxy cache entries are stored under the operating-system cache directory and ke
 
 ### 13.2 Component and UI regression tests
 
-- Testing Library covers launcher content, settings order/persistence, extension-dependent save actions, two-click menus, Space playback, localization, and completed-output links.
-- Playwright exercises the same critical flows in Chromium and measures navigation-icon centering and notification alignment.
+- Testing Library covers launcher content, settings, save actions, Space playback, localization, trim-frame keyboard steps, notice dismissal, and completed-output links.
+- Playwright exercises the same critical flows in Chromium, including trim export ranges, three-second notification expiry, icon centering, and screenshot layout.
 - Screenshot baselines cover launcher, settings, save-menu, and successful-save states.
 
 ### 13.3 Rust unit tests
@@ -289,11 +301,12 @@ Proxy cache entries are stored under the operating-system cache directory and ke
 - Temporary output naming and destination validation.
 - Directory filtering, non-recursive discovery, and stable sorting.
 - Detailed encoder/audio/frame-rate argument generation and invalid-setting rejection.
+- Exact `start_frame`/`end_frame` FFmpeg filters, audio alignment, and metadata-only rejection.
 - Windows extended-path normalization and Explorer selection arguments.
 
 ### 13.4 Integration tests
 
-Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit output, FFV1, metadata-only crop, and staged in-place replacement. Tests ffprobe dimensions/codecs/pixel formats, compare lossless frame hashes, and verify the original fixture hash remains unchanged.
+Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit output, FFV1, metadata-only crop, a 60-frame time trim, and staged in-place replacement. Tests ffprobe dimensions/codecs/pixel formats/frame count, compare lossless frame hashes, and verify the original fixture hash remains unchanged.
 
 ### 13.5 Manual acceptance matrix
 
@@ -309,7 +322,7 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - loop persistence across video changes
 - output cancellation and disk/permission errors
 
-## 14. Acceptance criteria for 0.2.1
+## 14. Acceptance criteria for 0.3.0
 
 - **AC-001** A user can open a video, drag every crop handle, scrub, play, and reset without leaving the main window.
 - **AC-002** Pixel readouts match the crop shown and remain in bounds after resize.
@@ -323,7 +336,9 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - **AC-010** Loop state follows video changes, and the normal UI can switch between Japanese and English.
 - **AC-011** In-place Save is unavailable for mismatched extensions and safely replaces the source only after confirmation and successful encoding.
 - **AC-012** Save controls, folder arrows, and success notification pass component and Chromium layout/visual regression tests; the notification reveals rather than launches the output.
+- **AC-013** Start/end handles provide velocity-sensitive mouse adjustment and keyboard frame steps, and the exported video contains the selected ordinal frames.
+- **AC-014** The save notice expires after three seconds or another interaction; its link opens Explorer with the saved file selected.
 
 ## 15. Verification status
 
-The 0.2.1 implementation satisfies AC-001 through AC-012 at automated or implementation-inspection level. Native picker interaction in the packaged WebView and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.
+The 0.3.0 implementation satisfies AC-001 through AC-014 at automated or implementation-inspection level. Native picker interaction in the packaged WebView and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.
