@@ -10,7 +10,8 @@ Vidmetryは、動画の時間ではなく**画面領域**を切り取ること�
 - フォルダーの選択／ドロップと、一覧またはPage Up／Page Downによる動画切り替え
 - WebViewで再生できない素材向けの自動H.264プレビュー生成
 - 日本語／英語、保存方式、映像・音声・フレームレート等の共通設定
-- 「書き出し」から直接「コピーして保存」、または拡張子が一致する場合の上書き「保存」
+- 拡張子が異なる場合は直接「コピーして保存」、一致する場合は単一の「保存オプション」からコピー／上書きを選択
+- 保存完了通知から、出力動画を選択した状態でエクスプローラーを表示
 - 進捗表示とキャンセル、安全な一時ファイル確定に対応したFFmpeg書き出し
 
 ## 保存方式
@@ -23,7 +24,7 @@ Vidmetryは、動画の時間ではなく**画面領域**を切り取ること�
 
 「メタデータのみ」はファイル容量と符号化済み画素を維持しますが、クロップ情報を無視するプレイヤーがあります。通常は互換MP4、再圧縮による画素劣化を避けるなら可逆保存を選びます。保存方式と詳細値は歯車アイコンから事前に設定します。
 
-メインの「書き出し」は保存ダイアログを直接開きます。右側のメニューから「コピーして保存」と「保存」を選べます。「保存」は設定上の出力拡張子が元動画と同じ場合だけ有効になり、確認後に元ファイルを置き換えます。
+設定上の出力拡張子が元動画と異なる場合は、「コピーして保存」から保存先を選ぶだけです。同じ場合は単一の「保存オプション」を開き、「コピーして保存」または確認付きの「保存」を選べます。
 
 ## 開発環境
 
@@ -37,6 +38,7 @@ Vidmetryは、動画の時間ではなく**画面領域**を切り取ること�
 
 ```powershell
 npm ci
+npx playwright install chromium
 .\scripts\setup-ffmpeg.ps1
 npm run tauri dev
 ```
@@ -47,13 +49,14 @@ FFmpegスクリプトは配布元のSHA-256を検証し、Tauri用の`ffmpeg`／
 
 ```powershell
 npm run verify
+npm run test:ui
 cargo test --manifest-path src-tauri\Cargo.toml
 cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings
 npm run test:integration
 npm run tauri build
 ```
 
-`test:integration`は生成動画から各方式を実際に書き出し、カスタムHEVC設定、コーデックと寸法、可逆出力のフレームハッシュ、上書き置換、元テスト動画のSHA-256不変を検証します。Windowsインストーラーは`src-tauri\target\release\bundle`以下に生成されます。
+`test:ui`はPlaywrightのChromium実描画で、ランチャー、設定、保存メニュー、ナビゲーションアイコン、通知配置を操作・画像比較します。`test:integration`は生成動画から各方式を実際に書き出し、カスタムHEVC設定、コーデックと寸法、可逆出力のフレームハッシュ、上書き置換、元テスト動画のSHA-256不変を検証します。Windowsインストーラーは`src-tauri\target\release\bundle`以下に生成されます。
 
 詳細な要件と設計は[docs/SDD.md](docs/SDD.md)、今回の検証結果は[docs/VERIFICATION.md](docs/VERIFICATION.md)を参照してください。
 

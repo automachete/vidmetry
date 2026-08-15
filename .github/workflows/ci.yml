@@ -42,12 +42,18 @@ jobs:
       - name: Install JavaScript dependencies
         run: npm ci
 
+      - name: Install Playwright browser
+        run: npx playwright install chromium
+
       - name: Prepare verified FFmpeg sidecars
         shell: pwsh
         run: ./scripts/setup-ffmpeg.ps1
 
       - name: Verify frontend
         run: npm run verify
+
+      - name: Verify desktop UI
+        run: npm run test:ui
 
       - name: Verify Rust backend
         shell: pwsh

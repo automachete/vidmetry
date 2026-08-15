@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| Document version | 1.1 |
-| Product version | 0.2.0 |
+| Document version | 1.2 |
+| Product version | 0.2.1 |
 | Status | Implemented and verified |
 | Primary platform | Windows 11 x64 |
 | UI languages | Japanese and English |
@@ -32,7 +32,7 @@ The application must not imply that physical video cropping can normally use str
 - Keep all media processing local.
 - Remain responsive while probing, proxying, and exporting.
 
-### 2.2 Non-goals for 0.2.0
+### 2.2 Non-goals for 0.2.1
 
 - Temporal trimming, multi-clip timelines, transitions, filters, captions, or audio editing.
 - Animated crop/keyframes.
@@ -71,7 +71,7 @@ The application must not imply that physical video cropping can normally use str
 
 ### 3.4 Export
 
-- **FR-030** The main Export action opens the native save dialog directly. Its adjacent menu offers Copy and save plus Save; there is no separate export-configuration screen.
+- **FR-030** When output and source extensions differ, the header shows a direct Copy and save action with no menu. When they match, one combined Save options control opens Copy and save or confirmed in-place Save; there is no separate export-configuration screen.
 - **FR-031** Compatible mode outputs H.264 or H.265 MP4 and allows CRF, encoder preset, pixel format, audio handling/bitrate, frame-rate handling, metadata retention, and fast-start configuration.
 - **FR-032** Lossless mode outputs FFV1 in Matroska. The video is decoded, cropped, and encoded losslessly while compatible audio/subtitle streams are copied.
 - **FR-033** Metadata-only mode is available only for H.264 or HEVC. It copies encoded media while setting codec crop metadata. The UI warns that coded pixels and file size remain, and that some players ignore the crop.
@@ -83,12 +83,14 @@ The application must not imply that physical video cropping can normally use str
 - **FR-039** Successful export is written to a temporary sibling path and atomically renamed where the filesystem permits.
 - **FR-040** Save is enabled only when the configured output extension equals the source extension. After explicit confirmation, the completed temporary output replaces the source.
 - **FR-041** Copy and save never modifies the source and asks for a destination with an extension appropriate to the configured profile.
+- **FR-042** A successful export shows a normalized display path as a link. Activating it opens File Explorer with the output file selected without launching the video.
 
 ### 3.5 Common settings and localization
 
 - **FR-050** An icon-only common-settings button is always available in the header.
 - **FR-051** Settings persist locally and cover save profile, applicable encoder options, audio, frame rate, file metadata, and loop playback.
 - **FR-052** Language mode is an exclusive choice between Windows language and manual selection. Manual selection supports Japanese and English; unsupported Windows languages fall back to English.
+- **FR-053** Runtime validation messages follow the active UI language, and language controls are the final common-settings section.
 
 ## 4. Quality semantics
 
@@ -117,7 +119,8 @@ Tauri 2 desktop shell
        ├─ Crop validation and orientation mapping
        ├─ Preview proxy lifecycle
        ├─ Export profile/argument builder
-       └─ FFmpeg/ffprobe sidecar process manager
+       ├─ FFmpeg/ffprobe sidecar process manager
+       └─ File Explorer reveal adapter
 ```
 
 No localhost HTTP service or database is required. Tauri IPC carries small structured messages only; video bytes never pass through IPC.
@@ -128,7 +131,8 @@ No localhost HTTP service or database is required. Tauri IPC carries small struc
 - **Svelte 5 + Vite + TypeScript**: compact reactive crop UI.
 - **Rust**: validation, process safety, progress parsing, filesystem operations.
 - **FFmpeg/ffprobe**: broad media decoding and deterministic export.
-- **Vitest**: frontend geometry/state tests.
+- **Vitest + Testing Library**: frontend domain and component-interaction tests.
+- **Playwright**: Chromium interaction, layout geometry, and screenshot-regression tests.
 - **Cargo test**: backend domain and argument-builder tests.
 
 ### 5.2 Repository layout
@@ -206,6 +210,7 @@ Crop rectangles use the displayed orientation. The backend owns the conversion t
 | `create_preview(path)` | UI → Rust | Create/reuse local proxy and return its path |
 | `start_export(request)` | UI → Rust | Validate request, start job, return job ID |
 | `cancel_export(jobId)` | UI → Rust | Terminate matching child process |
+| `reveal_in_explorer(path)` | UI → Rust | Open File Explorer with a completed output selected |
 | `export-progress` | Rust → UI | `{jobId, fraction, outTimeSeconds}` |
 | `export-complete` | Rust → UI | Final output path |
 | `export-error` | Rust → UI | User-safe message and diagnostic code |
@@ -216,7 +221,7 @@ Only the Rust layer constructs FFmpeg argument arrays. Paths and crop values are
 
 The main window uses three regions:
 
-1. A narrow header with product name, source summary, Open, icon-only Folder/Settings, and split Export actions.
+1. A narrow editor header with product/source details, Open, icon-only Folder/Settings, and one context-sensitive save control. The launcher header contains Settings only.
 2. A flexible dark video stage containing optional directory navigation, the video, and crop overlay.
 3. A compact inspector/control footer with playback, scrubber, persistent loop, mute, coordinates, dimensions, aspect ratio, and Reset.
 
@@ -267,7 +272,13 @@ Proxy cache entries are stored under the operating-system cache directory and ke
 - Export-profile eligibility.
 - Settings normalization, persistence, OS/manual language resolution, output-extension and in-place eligibility.
 
-### 13.2 Rust unit tests
+### 13.2 Component and UI regression tests
+
+- Testing Library covers launcher content, settings order/persistence, extension-dependent save actions, two-click menus, Space playback, localization, and completed-output links.
+- Playwright exercises the same critical flows in Chromium and measures navigation-icon centering and notification alignment.
+- Screenshot baselines cover launcher, settings, save-menu, and successful-save states.
+
+### 13.3 Rust unit tests
 
 - Crop validation and full-frame/no-op detection.
 - Rotation-aware crop mapping for 0, 90, 180, and 270 degrees.
@@ -277,12 +288,13 @@ Proxy cache entries are stored under the operating-system cache directory and ke
 - Temporary output naming and destination validation.
 - Directory filtering, non-recursive discovery, and stable sorting.
 - Detailed encoder/audio/frame-rate argument generation and invalid-setting rejection.
+- Windows extended-path normalization and Explorer selection arguments.
 
-### 13.3 Integration tests
+### 13.4 Integration tests
 
 Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit output, FFV1, metadata-only crop, and staged in-place replacement. Tests ffprobe dimensions/codecs/pixel formats, compare lossless frame hashes, and verify the original fixture hash remains unchanged.
 
-### 13.4 Manual acceptance matrix
+### 13.5 Manual acceptance matrix
 
 - 1080p H.264 MP4
 - 4K HEVC 10-bit
@@ -296,7 +308,7 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - loop persistence across video changes
 - output cancellation and disk/permission errors
 
-## 14. Acceptance criteria for 0.2.0
+## 14. Acceptance criteria for 0.2.1
 
 - **AC-001** A user can open a video, drag every crop handle, scrub, play, and reset without leaving the main window.
 - **AC-002** Pixel readouts match the crop shown and remain in bounds after resize.
@@ -309,7 +321,8 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - **AC-009** Common settings survive reload and affect the next direct save without an intervening export screen.
 - **AC-010** Loop state follows video changes, and the normal UI can switch between Japanese and English.
 - **AC-011** In-place Save is unavailable for mismatched extensions and safely replaces the source only after confirmation and successful encoding.
+- **AC-012** Save controls, folder arrows, and success notification pass component and Chromium layout/visual regression tests; the notification reveals rather than launches the output.
 
 ## 15. Verification status
 
-The 0.2.0 implementation satisfies AC-001 through AC-011 at automated or implementation-inspection level. Native picker interaction, keyboard behavior in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.
+The 0.2.1 implementation satisfies AC-001 through AC-012 at automated or implementation-inspection level. Native picker interaction in the packaged WebView and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.
