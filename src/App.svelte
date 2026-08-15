@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte';
   import { convertFileSrc, invoke } from '@tauri-apps/api/core';
-  import { open } from '@tauri-apps/plugin-dialog';
+  import { open, save } from '@tauri-apps/plugin-dialog';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
-  import type { UnlistenFn } from '@tauri-apps/api/event';
+  import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
   import {
     aspectRatio,
@@ -19,6 +19,14 @@
     type CropRect,
   } from './lib/crop';
   import { formatFrameRate, formatTime, type MediaDescriptor } from './lib/media';
+  import {
+    clampProgress,
+    suggestOutput,
+    type ExportCompleteEvent,
+    type ExportErrorEvent,
+    type ExportProfile,
+    type ExportProgressEvent,
+  } from './lib/export';
 
   const handles: Array<{ value: CropHandle; label: string }> = [
     { value: 'north-west', label: '左上を調整' },
@@ -64,6 +72,14 @@
   let dragState: DragState | null = null;
   let seekFrame: number | null = null;
   let unlistenDragDrop: UnlistenFn | undefined;
+  let unlistenExportEvents: UnlistenFn[] = [];
+  let showExportDialog = false;
+  let selectedProfile: ExportProfile = 'compatible';
+  let exportJobId: string | null = null;
+  let exportProgress = 0;
+  let exportOutTime = 0;
+  let isStartingExport = false;
+  let successMessage = '';
 
   $: bounds = media
     ? { width: media.displayWidth, height: media.displayHeight }
@@ -87,10 +103,38 @@
       .catch(() => undefined);
 
     window.addEventListener('keydown', handleKeyboard);
+
+    void Promise.all([
+      listen<ExportProgressEvent>('export-progress', (event) => {
+        if (event.payload.jobId !== exportJobId) return;
+        exportProgress = clampProgress(event.payload.fraction);
+        exportOutTime = event.payload.outTimeSeconds;
+      }),
+      listen<ExportCompleteEvent>('export-complete', (event) => {
+        if (event.payload.jobId !== exportJobId) return;
+        exportProgress = 1;
+        exportJobId = null;
+        showExportDialog = false;
+        successMessage = `保存しました: ${event.payload.outputPath}`;
+      }),
+      listen<ExportErrorEvent>('export-error', (event) => {
+        if (event.payload.jobId !== exportJobId) return;
+        exportJobId = null;
+        exportProgress = 0;
+        if (event.payload.cancelled) {
+          showExportDialog = false;
+        } else {
+          errorMessage = `書き出しに失敗しました。${event.payload.message}`;
+        }
+      }),
+    ]).then((unlisteners) => {
+      unlistenExportEvents = unlisteners;
+    });
   });
 
   onDestroy(() => {
     unlistenDragDrop?.();
+    for (const unlisten of unlistenExportEvents) unlisten();
     window.removeEventListener('keydown', handleKeyboard);
     endCropDrag();
     if (seekFrame !== null) cancelAnimationFrame(seekFrame);
@@ -152,6 +196,9 @@
       media = descriptor;
       crop = fullFrame({ width: descriptor.displayWidth, height: descriptor.displayHeight });
       aspect = 'free';
+      if (!descriptor.metadataCropSupported && selectedProfile === 'metadata') {
+        selectedProfile = 'compatible';
+      }
       videoSrc = convertFileSrc(descriptor.sourcePath);
       await tick();
       videoElement?.load();
@@ -290,6 +337,58 @@
     aspect = 'free';
   }
 
+  function openExportDialog() {
+    if (!media || exportJobId) return;
+    successMessage = '';
+    exportProgress = 0;
+    exportOutTime = 0;
+    showExportDialog = true;
+  }
+
+  function closeExportDialog() {
+    if (!exportJobId && !isStartingExport) showExportDialog = false;
+  }
+
+  async function beginExport() {
+    if (!media || exportJobId || isStartingExport) return;
+    isStartingExport = true;
+    errorMessage = '';
+    try {
+      const suggestion = suggestOutput(media.sourcePath, selectedProfile);
+      const outputPath = await save({
+        defaultPath: suggestion.path,
+        filters: [{ name: suggestion.filterName, extensions: [suggestion.extension] }],
+      });
+      if (!outputPath) return;
+      videoElement?.pause();
+      exportProgress = 0;
+      exportOutTime = 0;
+      exportJobId = await invoke<string>('start_export', {
+        request: {
+          sourcePath: media.sourcePath,
+          outputPath,
+          crop,
+          profile: selectedProfile,
+          // The native save dialog has already asked before replacing a file.
+          overwrite: true,
+        },
+      });
+    } catch (error) {
+      errorMessage = `書き出しを開始できませんでした。${readableError(error)}`;
+    } finally {
+      isStartingExport = false;
+    }
+  }
+
+  async function cancelExport() {
+    if (!exportJobId) return;
+    try {
+      await invoke('cancel_export', { jobId: exportJobId });
+    } catch (error) {
+      errorMessage = readableError(error);
+    }
+  }
+
   function readableError(error: unknown): string {
     if (typeof error === 'string') return error;
     if (error instanceof Error) return error.message;
@@ -321,7 +420,7 @@
       <button class="button secondary" type="button" onclick={chooseVideo} disabled={isLoading || isPreparingProxy}>
         {media ? '別の動画を開く' : '動画を開く'}
       </button>
-      <button class="button primary" type="button" disabled={!media} title="書き出し機能は次の実装単位で有効になります">
+      <button class="button primary" type="button" disabled={!media || exportJobId !== null} onclick={openExportDialog}>
         書き出し
       </button>
     </div>
@@ -480,10 +579,80 @@
     </main>
   {/if}
 
+  {#if showExportDialog && media}
+    <div class="modal-backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && closeExportDialog()}>
+      <div class="export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title">
+        <div class="dialog-heading">
+          <div>
+            <span class="section-label">EXPORT</span>
+            <h2 id="export-title">動画を書き出す</h2>
+          </div>
+          <button class="dialog-close" type="button" aria-label="閉じる" disabled={exportJobId !== null} onclick={closeExportDialog}>×</button>
+        </div>
+
+        {#if exportJobId}
+          <div class="export-running" role="status">
+            <div class="progress-ring" style={`--progress:${Math.round(exportProgress * 360)}deg`}>
+              <span>{Math.round(exportProgress * 100)}<small>%</small></span>
+            </div>
+            <div>
+              <h3>書き出しています…</h3>
+              <p>{formatTime(exportOutTime)} / {formatTime(media.durationSeconds)}</p>
+              <small>完成するまで元動画と保存先の一時ファイルには触れません。</small>
+            </div>
+          </div>
+          <div class="progress-track"><span style={`width:${exportProgress * 100}%`}></span></div>
+          <button class="button danger full" type="button" onclick={cancelExport}>キャンセル</button>
+        {:else}
+          <div class="profile-list" aria-label="保存方式">
+            <button class:active={selectedProfile === 'compatible'} type="button" onclick={() => (selectedProfile = 'compatible')}>
+              <span class="profile-icon">MP4</span>
+              <span><strong>互換MP4</strong><small>H.264 · CRF 17。小さく扱いやすい高画質ファイル。</small></span>
+              <em>推奨</em>
+            </button>
+            <button class:active={selectedProfile === 'lossless'} type="button" onclick={() => (selectedProfile = 'lossless')}>
+              <span class="profile-icon">FFV1</span>
+              <span><strong>可逆保存</strong><small>デコード後の画素を劣化させないMKV。容量は大きくなります。</small></span>
+            </button>
+            <button
+              class:active={selectedProfile === 'metadata'}
+              type="button"
+              disabled={!media.metadataCropSupported}
+              onclick={() => (selectedProfile = 'metadata')}
+            >
+              <span class="profile-icon">COPY</span>
+              <span>
+                <strong>メタデータのみ</strong>
+                <small>{media.metadataCropSupported ? '映像を再圧縮せず表示領域を指定。非対応プレイヤーでは無視されます。' : 'H.264 / HEVC素材でのみ利用できます。'}</small>
+              </span>
+            </button>
+          </div>
+
+          <div class="export-summary">
+            <span>出力フレーム</span>
+            <strong>{selectedProfile === 'metadata' ? '符号化サイズは維持' : `${crop.width} × ${crop.height}`}</strong>
+          </div>
+          <div class="dialog-actions">
+            <button class="button secondary" type="button" onclick={closeExportDialog}>戻る</button>
+            <button class="button primary" type="button" disabled={isStartingExport} onclick={beginExport}>
+              {isStartingExport ? '保存先を確認中…' : '保存先を選んで開始'}
+            </button>
+          </div>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
   {#if errorMessage}
     <div class="error-banner" role="alert">
       <span>{errorMessage}</span>
       <button type="button" aria-label="エラーを閉じる" onclick={() => (errorMessage = '')}>×</button>
+    </div>
+  {/if}
+  {#if successMessage}
+    <div class="success-banner" role="status">
+      <span>{successMessage}</span>
+      <button type="button" aria-label="通知を閉じる" onclick={() => (successMessage = '')}>×</button>
     </div>
   {/if}
 </div>
