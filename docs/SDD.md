@@ -2,16 +2,16 @@
 
 | Field | Value |
 |---|---|
-| Document version | 1.0 |
-| Product version | 0.1.0 |
-| Status | Implemented and verified baseline |
+| Document version | 1.1 |
+| Product version | 0.2.0 |
+| Status | Implemented and verified |
 | Primary platform | Windows 11 x64 |
-| UI languages | Japanese, English-ready architecture |
-| Last updated | 2026-08-15 |
+| UI languages | Japanese and English |
+| Last updated | 2026-08-16 |
 
 ## 1. Purpose
 
-Vidmetry is a lightweight, single-purpose desktop GUI for cropping the spatial frame of a video. Its interaction model is the crop tool in a photo application: open one video, drag a rectangle, scrub or play to inspect the whole clip, and save a new file.
+Vidmetry is a lightweight, single-purpose desktop GUI for cropping the spatial frame of a video. Its interaction model is the crop tool in a photo application: open a video or folder, drag a rectangle, scrub or play to inspect the clip, and save with minimal intermediate UI.
 
 The application must not imply that physical video cropping can normally use stream copy. It presents three distinct export behaviors so the user can choose compatibility, decoded-pixel fidelity, or metadata-only stream preservation.
 
@@ -19,22 +19,25 @@ The application must not imply that physical video cropping can normally use str
 
 ### 2.1 Goals
 
-- Open a local video without modifying it.
+- Open and preview a local video without modifying it; replacement occurs only through explicit Save.
+- Open a directory and move between its videos without returning to the picker.
 - Display a draggable and resizable crop rectangle over a playable preview.
 - Seek with a scrubber and play or pause while the crop overlay remains active.
 - Show the final integer crop coordinates and output frame dimensions.
 - Support arbitrary FFmpeg-decodable input by creating a temporary preview proxy when direct playback fails.
 - Export with visible progress and cancellation.
 - Offer compatible MP4, mathematically lossless FFV1, and metadata-only lossless modes.
+- Configure export behavior once and start saving directly from the crop view.
+- Remember language and loop-playback preferences between videos and sessions.
 - Keep all media processing local.
 - Remain responsive while probing, proxying, and exporting.
 
-### 2.2 Non-goals for 0.1.0
+### 2.2 Non-goals for 0.2.0
 
 - Temporal trimming, multi-clip timelines, transitions, filters, captions, or audio editing.
 - Animated crop/keyframes.
 - Cloud storage, accounts, telemetry, or automatic uploads.
-- In-place source modification.
+- Batch-applying one crop rectangle to every file in a directory.
 - Mobile builds.
 - A promise that metadata-only crop works in every player.
 
@@ -42,10 +45,11 @@ The application must not imply that physical video cropping can normally use str
 
 ### 3.1 Import and inspection
 
-- **FR-001** The user can select one local video with the native file picker.
+- **FR-001** The user can select or drop one local video or a directory. Directory discovery is non-recursive and includes supported video extensions only.
 - **FR-002** The backend probes the primary video stream and reports container, video/audio codecs, coded dimensions, display rotation, sample aspect ratio, pixel format, bit depth, frame-rate rationals, duration, and color metadata when present.
 - **FR-003** Direct WebView playback is attempted first. On playback failure the user can generate, or the app can automatically generate, a temporary H.264 proxy from the original.
 - **FR-004** A newly opened video starts with the crop rectangle covering the complete displayed frame.
+- **FR-005** When a directory is active, the user can switch videos with an in-app list, previous/next controls, or Page Up/Page Down. File names are sorted case-insensitively.
 
 ### 3.2 Crop interaction
 
@@ -63,11 +67,12 @@ The application must not imply that physical video cropping can normally use str
 - **FR-021** Dragging the scrubber seeks the preview and is throttled to protect the UI thread.
 - **FR-022** The crop overlay remains spatially stable during playback, seek, resize, and fullscreen layout changes.
 - **FR-023** Left and right keyboard arrows seek by one second; Shift plus arrow seeks by ten seconds; Space toggles playback.
+- **FR-024** An icon-only control toggles loop playback. The selected state is persisted and reused for subsequent videos and sessions.
 
 ### 3.4 Export
 
-- **FR-030** Export always writes a new file selected through a native save dialog.
-- **FR-031** Compatible mode outputs H.264/AAC MP4, preserves source timestamps/frame cadence when possible, uses a constant-quality software encode, and never upscales.
+- **FR-030** The main Export action opens the native save dialog directly. Its adjacent menu offers Copy and save plus Save; there is no separate export-configuration screen.
+- **FR-031** Compatible mode outputs H.264 or H.265 MP4 and allows CRF, encoder preset, pixel format, audio handling/bitrate, frame-rate handling, metadata retention, and fast-start configuration.
 - **FR-032** Lossless mode outputs FFV1 in Matroska. The video is decoded, cropped, and encoded losslessly while compatible audio/subtitle streams are copied.
 - **FR-033** Metadata-only mode is available only for H.264 or HEVC. It copies encoded media while setting codec crop metadata. The UI warns that coded pixels and file size remain, and that some players ignore the crop.
 - **FR-034** A physical crop filter is never combined with video stream copy.
@@ -76,6 +81,14 @@ The application must not imply that physical video cropping can normally use str
 - **FR-037** FFmpeg progress is emitted to the UI at least twice per second when available.
 - **FR-038** The user can cancel an export. A partial temporary output is not promoted to the selected final path.
 - **FR-039** Successful export is written to a temporary sibling path and atomically renamed where the filesystem permits.
+- **FR-040** Save is enabled only when the configured output extension equals the source extension. After explicit confirmation, the completed temporary output replaces the source.
+- **FR-041** Copy and save never modifies the source and asks for a destination with an extension appropriate to the configured profile.
+
+### 3.5 Common settings and localization
+
+- **FR-050** An icon-only common-settings button is always available in the header.
+- **FR-051** Settings persist locally and cover save profile, applicable encoder options, audio, frame rate, file metadata, and loop playback.
+- **FR-052** Language mode is an exclusive choice between Windows language and manual selection. Manual selection supports Japanese and English; unsupported Windows languages fall back to English.
 
 ## 4. Quality semantics
 
@@ -85,7 +98,7 @@ The application must not imply that physical video cropping can normally use str
 | Lossless FFV1/MKV | Yes | Yes | Lossless after source decode, provided pixel format and color metadata are preserved | Moderate/low |
 | Metadata-only | Display-only | No | Original coded stream retained | Codec/player dependent |
 
-The Compatible profile defaults to `libx264`, CRF 17, `medium` preset. This is a product default, not a guarantee of visual transparency for every source.
+The Compatible profile defaults to `libx264`, CRF 17, `medium`, `yuv420p`, source cadence, automatic audio, metadata retention, and fast start. This is a product default, not a guarantee of visual transparency for every source.
 
 The Lossless profile must avoid an unconditional conversion to 8-bit `yuv420p`. The backend retains a compatible source pixel format and carries color primaries, transfer characteristics, matrix, and range where FFmpeg exposes them.
 
@@ -95,8 +108,9 @@ The Lossless profile must avoid an unconditional conversion to 8-bit `yuv420p`. 
 Tauri 2 desktop shell
   ├─ Svelte + TypeScript presentation layer
   │    ├─ Video viewport and crop overlay
-  │    ├─ Playback/scrub controls
-  │    └─ Export dialog and progress
+  │    ├─ Playback/scrub and directory navigation
+  │    ├─ Persistent settings and localization
+  │    └─ Direct save actions and progress
   ├─ Typed Tauri IPC
   └─ Rust application/media service
        ├─ Probe and media descriptor mapping
@@ -127,7 +141,9 @@ vidmetry/
     lib/
       crop.ts
       export.ts
+      i18n.ts
       media.ts
+      settings.ts
     App.svelte
   src-tauri/
     binaries/
@@ -135,6 +151,7 @@ vidmetry/
       export.rs
       ffmpeg.rs
       media.rs
+      selection.rs
       lib.rs
   scripts/
     setup-ffmpeg.ps1
@@ -162,8 +179,20 @@ CropRect
 ExportRequest
   sourcePath/outputPath: string
   crop: CropRect
+  settings: ExportSettings
+  overwrite/inPlace: boolean
+
+ExportSettings
   profile: compatible | lossless | metadata
-  overwrite: false
+  videoCodec/crf/preset/pixelFormat
+  audioMode/audioBitrateKbps
+  frameRateMode/constantFrameRate
+  fastStart/preserveMetadata/copySubtitles
+
+AppSettings
+  languageMode/language
+  loopPlayback
+  export: ExportSettings
 ```
 
 Crop rectangles use the displayed orientation. The backend owns the conversion to the filter coordinate system. All untrusted numbers are checked for finiteness, positivity, bounds, minimum size, and codec modulus.
@@ -172,6 +201,7 @@ Crop rectangles use the displayed orientation. The backend owns the conversion t
 
 | Command/event | Direction | Purpose |
 |---|---|---|
+| `inspect_selection(path)` | UI → Rust | Resolve a selected file or sorted directory playlist |
 | `probe_video(path)` | UI → Rust | Return `MediaDescriptor` from ffprobe JSON |
 | `create_preview(path)` | UI → Rust | Create/reuse local proxy and return its path |
 | `start_export(request)` | UI → Rust | Validate request, start job, return job ID |
@@ -186,11 +216,11 @@ Only the Rust layer constructs FFmpeg argument arrays. Paths and crop values are
 
 The main window uses three regions:
 
-1. A narrow header with product name, source summary, Open, and Export.
-2. A flexible dark video stage containing the video and crop overlay.
-3. A compact inspector/control footer with playback, scrubber, coordinates, dimensions, aspect ratio, and Reset.
+1. A narrow header with product name, source summary, Open, icon-only Folder/Settings, and split Export actions.
+2. A flexible dark video stage containing optional directory navigation, the video, and crop overlay.
+3. A compact inspector/control footer with playback, scrubber, persistent loop, mute, coordinates, dimensions, aspect ratio, and Reset.
 
-The first-run state is an accessible drop target with a primary Open Video button. Keyboard focus indicators are visible. Controls use semantic buttons and labelled inputs. Errors appear inline and remain copyable.
+The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
 
 ## 9. Preview strategy
 
@@ -203,7 +233,8 @@ Proxy cache entries are stored under the operating-system cache directory and ke
 - Invalid or missing input: return a typed probe error without changing current UI state.
 - Unsupported direct preview: offer/perform proxy creation.
 - FFmpeg missing: display setup guidance and disable export.
-- Export destination exists: save dialog confirmation is required; backend does not silently overwrite.
+- Existing copy destination: native dialog confirmation and backend overwrite permission are both required.
+- In-place save: explicit application confirmation is required; encoding completes to a sibling temporary path before replacement.
 - Disk full or permission failure: retain the original and remove only the known partial file.
 - App closes during export: terminate owned child processes.
 - Sidecar output is logged without exposing unrelated environment variables.
@@ -211,7 +242,7 @@ Proxy cache entries are stored under the operating-system cache directory and ke
 ## 11. Security, privacy, and distribution
 
 - No network requests occur during normal application use.
-- The source is opened read-only.
+- The source is opened read-only during probe, preview, and encoding. Only confirmed in-place Save can replace it after successful encoding.
 - File access is limited to user-selected paths and the app cache.
 - FFmpeg is invoked as an allowlisted sidecar with structured arguments.
 - Sidecar archives are verified against the publisher-provided SHA-256 checksum by the setup script.
@@ -234,6 +265,7 @@ Proxy cache entries are stored under the operating-system cache directory and ke
 - Minimum size, clamping, modulus snapping, and aspect locks.
 - Time formatting and seek clamping.
 - Export-profile eligibility.
+- Settings normalization, persistence, OS/manual language resolution, output-extension and in-place eligibility.
 
 ### 13.2 Rust unit tests
 
@@ -243,10 +275,12 @@ Proxy cache entries are stored under the operating-system cache directory and ke
 - H.264/HEVC metadata-only eligibility.
 - Progress-line parsing.
 - Temporary output naming and destination validation.
+- Directory filtering, non-recursive discovery, and stable sorting.
+- Detailed encoder/audio/frame-rate argument generation and invalid-setting rejection.
 
 ### 13.3 Integration tests
 
-Generated fixtures cover landscape H.264/AAC, rotated portrait, no-audio, and odd requested coordinates. Tests probe and export fixtures with the downloaded sidecars, then ffprobe the output dimensions/codecs and compare representative lossless pixels where practical.
+Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit output, FFV1, metadata-only crop, and staged in-place replacement. Tests ffprobe dimensions/codecs/pixel formats, compare lossless frame hashes, and verify the original fixture hash remains unchanged.
 
 ### 13.4 Manual acceptance matrix
 
@@ -257,26 +291,25 @@ Generated fixtures cover landscape H.264/AAC, rotated portrait, no-audio, and od
 - MKV with multiple audio streams
 - corrupt/unsupported file
 - Unicode and spaces in paths
+- mixed-format directory navigation and drag/drop
+- Japanese/English switching and settings restart persistence
+- loop persistence across video changes
 - output cancellation and disk/permission errors
 
-## 14. Acceptance criteria for 0.1.0
+## 14. Acceptance criteria for 0.2.0
 
 - **AC-001** A user can open a video, drag every crop handle, scrub, play, and reset without leaving the main window.
 - **AC-002** Pixel readouts match the crop shown and remain in bounds after resize.
 - **AC-003** Compatible and FFV1 exports have the selected physical frame dimensions according to ffprobe.
 - **AC-004** Metadata-only export never uses a video encoder and is disabled for non-H.264/HEVC input.
 - **AC-005** Cancelling export leaves no final output and the UI can immediately start another export.
-- **AC-006** Source files are byte-identical before and after every automated test.
+- **AC-006** Original fixtures are byte-identical before and after automated exports; in-place behavior uses a disposable copied fixture.
 - **AC-007** Frontend tests, Rust tests, type checks, lint checks, and production builds pass.
+- **AC-008** A selected/dropped directory can be navigated from the GUI and Page Up/Page Down.
+- **AC-009** Common settings survive reload and affect the next direct save without an intervening export screen.
+- **AC-010** Loop state follows video changes, and the normal UI can switch between Japanese and English.
+- **AC-011** In-place Save is unavailable for mismatched extensions and safely replaces the source only after confirmation and successful encoding.
 
-## 15. Planned increments
+## 15. Verification status
 
-1. Repository, SDD, CI-ready conventions.
-2. Tauri/Svelte shell and reproducible FFmpeg setup.
-3. Probe, direct preview, proxy fallback, and crop interaction.
-4. Export profiles, progress, cancellation, and safe finalization.
-5. Automated integration fixtures, package build, and documentation polish.
-
-## 16. Verification status
-
-The 0.1.0 baseline satisfies AC-001 through AC-007 at automated or implementation-inspection level. Native file-picker interaction and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.
+The 0.2.0 implementation satisfies AC-001 through AC-011 at automated or implementation-inspection level. Native picker interaction, keyboard behavior in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.
