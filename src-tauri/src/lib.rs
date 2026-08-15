@@ -1,6 +1,7 @@
 mod export;
 mod ffmpeg;
 mod media;
+mod reveal;
 mod selection;
 
 use tauri::Manager;
@@ -59,6 +60,11 @@ fn inspect_selection(path: String) -> Result<selection::SelectionDescriptor, Str
     selection::inspect(&path)
 }
 
+#[tauri::command]
+fn reveal_in_explorer(path: String) -> Result<(), String> {
+    reveal::in_explorer(&path)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -71,7 +77,8 @@ pub fn run() {
             create_preview,
             start_export,
             cancel_export,
-            inspect_selection
+            inspect_selection,
+            reveal_in_explorer
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Vidmetry");

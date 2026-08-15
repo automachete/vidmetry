@@ -38,6 +38,22 @@ pub fn canonical_source(path: &str) -> Result<PathBuf, MediaError> {
     Ok(canonical)
 }
 
+pub fn display_path(path: &Path) -> String {
+    let raw = path.to_string_lossy();
+
+    #[cfg(windows)]
+    {
+        if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
+            return format!(r"\\{rest}");
+        }
+        if let Some(rest) = raw.strip_prefix(r"\\?\") {
+            return rest.to_owned();
+        }
+    }
+
+    raw.into_owned()
+}
+
 pub async fn probe(app: &AppHandle, source: &Path) -> Result<MediaDescriptor, MediaError> {
     let source_text = source.to_string_lossy().into_owned();
     let output = app
@@ -196,7 +212,7 @@ fn descriptor_from_probe(
     let pixel_format = video.pix_fmt.clone().unwrap_or_else(|| "unknown".into());
 
     Ok(MediaDescriptor {
-        source_path: source.to_string_lossy().into_owned(),
+        source_path: display_path(source),
         file_name: source
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
@@ -361,5 +377,18 @@ mod tests {
 
         assert_eq!(descriptor.duration_seconds, 7.25);
         assert!(descriptor.metadata_crop_supported);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn removes_windows_extended_prefix_for_display() {
+        assert_eq!(
+            display_path(Path::new(r"\\?\C:\Users\Example\clip.mp4")),
+            r"C:\Users\Example\clip.mp4"
+        );
+        assert_eq!(
+            display_path(Path::new(r"\\?\UNC\server\videos\clip.mp4")),
+            r"\\server\videos\clip.mp4"
+        );
     }
 }

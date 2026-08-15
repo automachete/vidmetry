@@ -31,8 +31,8 @@ pub fn inspect(path: &str) -> Result<SelectionDescriptor, String> {
         let source = ffmpeg::canonical_source(path).map_err(media_error)?;
         return Ok(SelectionDescriptor {
             kind: SelectionKind::File,
-            root_path: source.to_string_lossy().into_owned(),
-            video_paths: vec![source.to_string_lossy().into_owned()],
+            root_path: ffmpeg::display_path(&source),
+            video_paths: vec![ffmpeg::display_path(&source)],
         });
     }
     if !selected.is_dir() {
@@ -65,10 +65,10 @@ pub fn inspect(path: &str) -> Result<SelectionDescriptor, String> {
 
     Ok(SelectionDescriptor {
         kind: SelectionKind::Directory,
-        root_path: selected.to_string_lossy().into_owned(),
+        root_path: ffmpeg::display_path(&selected),
         video_paths: videos
             .into_iter()
-            .map(|path| path.to_string_lossy().into_owned())
+            .map(|path| ffmpeg::display_path(&path))
             .collect(),
     })
 }

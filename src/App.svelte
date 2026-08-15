@@ -32,7 +32,7 @@
     type PixelFormat,
     type VideoCodec,
   } from './lib/export';
-  import { translate, type TranslationKey } from './lib/i18n';
+  import { localizeRuntimeError, translate, type TranslationKey } from './lib/i18n';
   import { formatFrameRate, formatTime, type MediaDescriptor } from './lib/media';
   import {
     cloneSettings,
@@ -114,7 +114,7 @@
   let isPreparingProxy = false;
   let usingProxy = false;
   let errorMessage = '';
-  let successMessage = '';
+  let successPath = '';
   let dragState: DragState | null = null;
   let seekFrame: number | null = null;
   let unlistenDragDrop: UnlistenFn | undefined;
@@ -197,7 +197,7 @@
         inPlaceExportPath = null;
         if (shouldRestore) restoreSourcePreview();
         if (!event.payload.cancelled) {
-          errorMessage = `${text('exportFailed')}${event.payload.message}`;
+          errorMessage = `${text('exportFailed')}${readableError(event.payload.message)}`;
         }
       }),
     ]).then((unlisteners) => {
@@ -277,7 +277,7 @@
     if (isLoading || isPreparingProxy || exportJobId) return;
     isLoading = true;
     errorMessage = '';
-    successMessage = '';
+    successPath = '';
     usingProxy = false;
     currentTime = 0;
     isPlaying = false;
@@ -412,7 +412,7 @@
   }
 
   function closeSaveMenuFromOutside(event: PointerEvent) {
-    if (!(event.target instanceof Element) || event.target.closest('.split-button')) return;
+    if (!(event.target instanceof Element) || event.target.closest('.save-options')) return;
     showSaveMenu = false;
   }
 
@@ -495,7 +495,7 @@
     const sourcePath = media.sourcePath;
     isStartingExport = true;
     errorMessage = '';
-    successMessage = '';
+    successPath = '';
     try {
       videoElement?.pause();
       if (inPlace) {
@@ -530,8 +530,17 @@
     exportJobId = null;
     const replacedSource = inPlaceExportPath !== null;
     inPlaceExportPath = null;
-    successMessage = text('saved', { path: event.outputPath });
     if (replacedSource) await loadVideo(event.outputPath, true);
+    successPath = event.outputPath;
+  }
+
+  async function revealSavedFile() {
+    if (!successPath) return;
+    try {
+      await invoke('reveal_in_explorer', { path: successPath });
+    } catch (error) {
+      errorMessage = `${text('revealFailed')}${readableError(error)}`;
+    }
   }
 
   async function cancelExport() {
@@ -600,8 +609,8 @@
   }
 
   function readableError(error: unknown): string {
-    if (typeof error === 'string') return error;
-    if (error instanceof Error) return error.message;
+    if (typeof error === 'string') return localizeRuntimeError(language, error);
+    if (error instanceof Error) return localizeRuntimeError(language, error.message);
     return text('unknownError');
   }
 </script>
@@ -611,55 +620,60 @@
 </svelte:head>
 
 <div class="app-shell" class:has-media={media !== null}>
-  <header class="app-header">
-    <div class="brand" aria-label="Vidmetry">
-      <span class="brand-mark" aria-hidden="true">V</span>
-      <span>Vidmetry</span>
-    </div>
-
+  <header class="app-header" class:launcher-header={media === null}>
     {#if media}
+      <div class="brand" aria-label="Vidmetry">
+        <span class="brand-mark" aria-hidden="true">V</span>
+        <span>Vidmetry</span>
+      </div>
+
       <div class="source-summary" title={media.sourcePath}>
         <strong>{media.fileName}</strong>
         <span>{media.displayWidth} × {media.displayHeight} · {formatFrameRate(media.frameRate)} · {media.videoCodec.toUpperCase()}</span>
         <small>{text('activeProfile', { profile: profileLabel })}</small>
       </div>
-    {:else}
-      <div class="source-summary"><span>{text('localVideoCropper')}</span></div>
-    {/if}
 
-    <div class="header-actions">
-      <button class="button secondary" type="button" onclick={chooseVideo} disabled={isLoading || isPreparingProxy || exportJobId !== null}>
-        {media ? text('openAnother') : text('openVideo')}
-      </button>
-      <button class="square-button" type="button" aria-label={text('openFolder')} title={text('openFolder')} onclick={chooseDirectory} disabled={isLoading || isPreparingProxy || exportJobId !== null}>▣</button>
-      <button class="square-button settings-button" type="button" aria-label={text('settings')} title={text('settings')} onclick={openSettingsDialog}>⚙</button>
-      <div class="split-button">
-        <button class="button primary export-main" type="button" disabled={!profileSupported || exportJobId !== null || isStartingExport} onclick={saveCopy} title={!profileSupported ? text('metadataUnavailable') : text('copySave')}>
-          {text('export')}
-        </button>
-        <button class="button primary export-toggle" type="button" aria-label={text('exportMenu')} disabled={!profileSupported || exportJobId !== null || isStartingExport} onclick={() => (showSaveMenu = !showSaveMenu)}>▾</button>
-        {#if showSaveMenu}
-          <div class="save-menu">
-            <button type="button" onclick={saveCopy}>
-              <strong>{text('copySave')}</strong>
-              <small>.{media ? suggestOutput(media.sourcePath, settings.export.profile).extension : ''}</small>
+      <div class="header-actions">
+        <button class="button secondary" type="button" onclick={chooseVideo} disabled={isLoading || isPreparingProxy || exportJobId !== null}>{text('openAnother')}</button>
+        <button class="square-button" type="button" aria-label={text('openFolder')} title={text('openFolder')} onclick={chooseDirectory} disabled={isLoading || isPreparingProxy || exportJobId !== null}>▣</button>
+        <button class="square-button settings-button" type="button" aria-label={text('settings')} title={text('settings')} onclick={openSettingsDialog}>⚙</button>
+        {#if canOverwrite}
+          <div class="save-options">
+            <button
+              class="button primary save-options-trigger"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={showSaveMenu}
+              disabled={!profileSupported || exportJobId !== null || isStartingExport}
+              onclick={() => (showSaveMenu = !showSaveMenu)}
+            >
+              <span>{text('saveOptions')}</span>
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 6 5 5 5-5" /></svg>
             </button>
-            <button type="button" onclick={saveInPlace} disabled={!canOverwrite} title={!canOverwrite ? text('saveUnavailable') : text('saveHint')}>
-              <strong>{text('save')}</strong>
-              <small>{canOverwrite ? text('saveHint') : text('saveUnavailable')}</small>
-            </button>
+            {#if showSaveMenu}
+              <div class="save-menu" role="menu">
+                <button type="button" role="menuitem" onclick={saveCopy}>{text('copySave')}</button>
+                <button type="button" role="menuitem" onclick={saveInPlace}>{text('save')}</button>
+              </div>
+            {/if}
           </div>
+        {:else}
+          <button class="button primary" type="button" disabled={!profileSupported || exportJobId !== null || isStartingExport} onclick={saveCopy} title={!profileSupported ? text('metadataUnavailable') : text('copySave')}>
+            {text('copySave')}
+          </button>
         {/if}
       </div>
-    </div>
+    {:else}
+      <button class="square-button settings-button launcher-settings" type="button" aria-label={text('settings')} title={text('settings')} onclick={openSettingsDialog}>⚙</button>
+    {/if}
   </header>
 
   {#if media}
     <main class="editor-grid">
-      <section class="stage-panel" aria-label="Video preview">
+      <section class="stage-panel" aria-label={text('videoPreview')}>
         {#if playlist.length > 1}
           <div class="playlist-bar" title={directoryPath ?? ''}>
-            <button type="button" aria-label={text('previousVideo')} title={`${text('previousVideo')} (Page Up)`} disabled={playlistIndex === 0 || isLoading || exportJobId !== null} onclick={() => navigatePlaylist(-1)}>‹</button>
+            <button class="playlist-nav" type="button" aria-label={text('previousVideo')} title={`${text('previousVideo')} (Page Up)`} disabled={playlistIndex === 0 || isLoading || exportJobId !== null} onclick={() => navigatePlaylist(-1)}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m10 3-5 5 5 5" /></svg></button>
             <label>
               <span>{text('chooseFromFolder')}</span>
               <select value={playlistIndex} onchange={selectPlaylistVideo} disabled={isLoading || exportJobId !== null}>
@@ -669,7 +683,7 @@
               </select>
             </label>
             <span class="playlist-count">{text('folderPosition', { current: playlistIndex + 1, total: playlist.length })}</span>
-            <button type="button" aria-label={text('nextVideo')} title={`${text('nextVideo')} (Page Down)`} disabled={playlistIndex === playlist.length - 1 || isLoading || exportJobId !== null} onclick={() => navigatePlaylist(1)}>›</button>
+            <button class="playlist-nav" type="button" aria-label={text('nextVideo')} title={`${text('nextVideo')} (Page Down)`} disabled={playlistIndex === playlist.length - 1 || isLoading || exportJobId !== null} onclick={() => navigatePlaylist(1)}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg></button>
           </div>
         {/if}
 
@@ -750,7 +764,7 @@
     <footer class="transport">
       <button class="icon-button" type="button" aria-label={isPlaying ? text('pause') : text('play')} onclick={togglePlayback}>{isPlaying ? 'Ⅱ' : '▶'}</button>
       <span class="time current">{formatTime(currentTime)}</span>
-      <input class="scrubber" type="range" aria-label="Seek" min="0" max={duration || 0} step="0.001" value={currentTime} oninput={scrubTo} />
+      <input class="scrubber" type="range" aria-label={text('seek')} min="0" max={duration || 0} step="0.001" value={currentTime} oninput={scrubTo} />
       <span class="time">{formatTime(duration)}</span>
       <button class="icon-button transport-option" class:active={settings.loopPlayback} type="button" aria-label={settings.loopPlayback ? text('disableLoop') : text('enableLoop')} title={settings.loopPlayback ? text('disableLoop') : text('enableLoop')} onclick={toggleLoop}>↻</button>
       <button class="icon-button transport-option" type="button" aria-label={isMuted ? text('unmute') : text('mute')} onclick={toggleMute}>{isMuted ? '×' : '♪'}</button>
@@ -762,14 +776,11 @@
         <span class="corner bottom-left"></span><span class="corner bottom-right"></span>
         <span class="play-symbol">▶</span>
       </div>
-      <p class="eyebrow">{text('emptyEyebrow')}</p>
-      <h1>{text('emptyTitle')}</h1>
-      <p>{text('emptyDescription')}</p>
+      <p class="empty-description">{text('emptyDescription')}</p>
       <div class="empty-actions">
         <button class="button primary large" type="button" onclick={chooseVideo} disabled={isLoading}>{text('openVideo')}</button>
         <button class="button secondary large" type="button" onclick={chooseDirectory} disabled={isLoading}>{text('openFolder')}</button>
       </div>
-      <span class="shortcut">{text('supportedFormats')}</span>
     </main>
   {/if}
 
@@ -790,15 +801,6 @@
         </div>
 
         <div class="settings-scroll">
-          <section class="settings-section">
-            <h3>{text('language')}</h3>
-            <div class="radio-row">
-              <label><input type="radio" name="language-mode" checked={settingsDraft.languageMode === 'system'} onchange={() => updateDraft('languageMode', 'system' as LanguageMode)} />{text('languageSystem')}</label>
-              <label><input type="radio" name="language-mode" checked={settingsDraft.languageMode === 'manual'} onchange={() => updateDraft('languageMode', 'manual' as LanguageMode)} />{text('languageManual')}</label>
-            </div>
-            <label class="settings-field compact"><span>{text('language')}</span><select value={settingsDraft.language} disabled={settingsDraft.languageMode !== 'manual'} onchange={(event) => updateDraft('language', (event.currentTarget as HTMLSelectElement).value as Language)}><option value="ja">{text('japanese')}</option><option value="en">{text('english')}</option></select></label>
-          </section>
-
           <section class="settings-section">
             <h3>{text('saveMethod')}</h3>
             <div class="profile-settings">
@@ -858,6 +860,15 @@
             <div class="check-list"><label><input type="checkbox" checked={settingsDraft.loopPlayback} onchange={(event) => updateDraft('loopPlayback', (event.currentTarget as HTMLInputElement).checked)} />{text('enableLoop')}</label></div>
             <p class="settings-note">{text('loopRemember')}</p>
           </section>
+
+          <section class="settings-section">
+            <h3>{text('language')}</h3>
+            <div class="radio-row">
+              <label><input type="radio" name="language-mode" checked={settingsDraft.languageMode === 'system'} onchange={() => updateDraft('languageMode', 'system' as LanguageMode)} />{text('languageSystem')}</label>
+              <label><input type="radio" name="language-mode" checked={settingsDraft.languageMode === 'manual'} onchange={() => updateDraft('languageMode', 'manual' as LanguageMode)} />{text('languageManual')}</label>
+            </div>
+            <label class="settings-field compact"><span>{text('language')}</span><select value={settingsDraft.language} disabled={settingsDraft.languageMode !== 'manual'} onchange={(event) => updateDraft('language', (event.currentTarget as HTMLSelectElement).value as Language)}><option value="ja">{text('japanese')}</option><option value="en">{text('english')}</option></select></label>
+          </section>
         </div>
 
         <div class="dialog-actions"><button class="button secondary" type="button" onclick={closeSettingsDialog}>{text('close')}</button><button class="button primary" type="button" onclick={applySettings}>{text('apply')}</button></div>
@@ -866,5 +877,11 @@
   {/if}
 
   {#if errorMessage}<div class="error-banner" role="alert"><span>{errorMessage}</span><button type="button" aria-label={text('closeError')} onclick={() => (errorMessage = '')}>×</button></div>{/if}
-  {#if successMessage}<div class="success-banner" role="status"><span>{successMessage}</span><button type="button" aria-label={text('closeNotice')} onclick={() => (successMessage = '')}>×</button></div>{/if}
+  {#if successPath}
+    <div class="success-banner" role="status">
+      <span class="success-label">{text('saved')}</span>
+      <button class="success-path" type="button" title={text('openSavedLocation')} aria-label={`${text('openSavedLocation')}: ${successPath}`} onclick={revealSavedFile}>{successPath}</button>
+      <button class="notice-close" type="button" aria-label={text('closeNotice')} onclick={() => (successPath = '')}>×</button>
+    </div>
+  {/if}
 </div>

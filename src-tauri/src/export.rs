@@ -258,7 +258,7 @@ pub async fn start(
                                     COMPLETED_EVENT,
                                     ExportCompleted {
                                         job_id: task_job_id.clone(),
-                                        output_path: output.to_string_lossy().into_owned(),
+                                        output_path: ffmpeg::display_path(&output),
                                     },
                                 );
                             }
