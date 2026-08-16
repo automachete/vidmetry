@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document version | 1.4 |
-| Product version | 0.4.5 |
+| Product version | 0.4.6 |
 | Status | Implemented and verified |
 | Primary platform | Windows 11 x64 |
 | UI languages | Japanese and English |
@@ -42,7 +42,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 - Keep all media processing local.
 - Remain responsive while probing, proxying, and exporting.
 
-### 2.2 Non-goals for 0.4.5
+### 2.2 Non-goals for 0.4.6
 
 - Multi-clip timelines, internal cuts, transitions, filters, captions, or independent audio editing.
 - Animated crop/keyframes.
@@ -109,7 +109,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 - **FR-050** An icon-only common-settings button is always available in the header.
 - **FR-051** Settings persist locally and cover save profile, applicable encoder options, audio, frame rate, file metadata, and loop playback.
 - **FR-052** Language mode is an exclusive choice between Windows language and manual selection. Manual selection supports Japanese and English; unsupported Windows languages fall back to English.
-- **FR-053** Runtime validation messages follow the active UI language, and language controls are the final common-settings section.
+- **FR-053** All product-owned UI and runtime-error text comes from the Japanese/English locale resources. Rust commands and events return a stable language-neutral error code plus optional diagnostic detail; the presentation layer resolves that code in the active UI language. Language controls are the final common-settings section.
 
 ## 4. Quality semantics
 
@@ -131,6 +131,7 @@ Tauri 2 desktop shell
   │    ├─ Video viewport and crop overlay
   │    ├─ Playback/scrub and directory navigation
   │    ├─ Persistent settings and localization
+  │    ├─ Typed application-error localization
   │    └─ Direct save actions and progress
   ├─ Typed Tauri IPC
   └─ Rust application/media service
@@ -164,6 +165,7 @@ vidmetry/
   src/
     lib/
       crop.ts
+      app-error.ts
       export.ts
       i18n.ts
       media.ts
@@ -173,6 +175,7 @@ vidmetry/
   src-tauri/
     binaries/
     src/
+      app_error.rs
       export.rs
       ffmpeg.rs
       media.rs
@@ -243,7 +246,8 @@ Crop rectangles use the displayed orientation. The backend owns the conversion t
 | `system_accent_color()` | UI → Rust | Return the current Windows DWM accent as a CSS RGB color |
 | `export-progress` | Rust → UI | `{jobId, fraction, outTimeSeconds}` |
 | `export-complete` | Rust → UI | Final output path |
-| `export-error` | Rust → UI | User-safe message and diagnostic code |
+| command errors | Rust → UI | `{code, detail?}`; code is stable and language-neutral |
+| `export-error` | Rust → UI | `{jobId, error: {code, detail?}, cancelled}` |
 
 Only the Rust layer constructs FFmpeg argument arrays. Paths and crop values are never interpolated into a shell command string.
 
@@ -265,6 +269,7 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 
 ## 10. Error handling and recovery
 
+- Product-owned prose is not transported across IPC. The Rust layer returns `AppError` codes and optional OS/FFmpeg diagnostics; `i18n.ts` owns the Japanese and English messages and interpolates diagnostics only after selecting the active language.
 - Invalid or missing input: return a typed probe error without changing current UI state.
 - Unsupported direct preview: offer/perform proxy creation.
 - FFmpeg missing: display setup guidance and disable export.
@@ -305,8 +310,8 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 
 ### 13.2 Component and UI regression tests
 
-- Testing Library covers launcher content, settings, save shortcuts, Space playback from the focused playback scrubber, localization, trim-boundary frame steps, pane collapse, F11 state, Windows appearance projection, notice dismissal, and completed-output links.
-- Playwright exercises the same critical flows in Chromium, including clicking the rendered playback-position handle before Space, real playback-state changes, full-duration click alignment after halving the selection, off-center trim-boundary grabs, trim export ranges, theme/accent projection, collapsible panes, F11, notification expiry, and screenshot layout.
+- Testing Library covers launcher content, settings, save shortcuts, Space playback from the focused playback scrubber, structured synchronous/asynchronous error localization, trim-boundary frame steps, pane collapse, F11 state, Windows appearance projection, notice dismissal, and completed-output links. A source-boundary regression test rejects product-owned Japanese text outside the locale resource or inside the Rust backend.
+- Playwright exercises the same critical flows in Chromium, including a structured backend error in the selected UI language, clicking the rendered playback-position handle before Space, real playback-state changes, full-duration click alignment after halving the selection, off-center trim-boundary grabs, trim export ranges, theme/accent projection, collapsible panes, F11, notification expiry, and screenshot layout.
 - Asset verification scans generated PNG/ICO pixels and source SVG colors for chromatic fixed artwork, rejects legacy green tints, and checks the Windows shortcut refresh configuration.
 - Screenshot baselines cover launcher, settings, save-menu, successful-save, and Windows light-theme states.
 
@@ -343,7 +348,7 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - Windows light/dark and several light/dark accent colors, including runtime changes
 - output cancellation and disk/permission errors
 
-## 14. Acceptance criteria for 0.4.5
+## 14. Acceptance criteria for 0.4.6
 
 - **AC-001** A user can open a video, drag every spatial-crop handle, scrub, play, and reset without leaving the main window.
 - **AC-002** Pixel readouts match the crop shown and remain in bounds after resize.
@@ -363,7 +368,8 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - **AC-016** Ctrl+S starts Copy and save, while Ctrl+Shift+S starts confirmed in-place Save when eligible.
 - **AC-017** Start/end trim-boundary handles move by 1 or 10 frames from keyboard focus. Space from the focused playback-position handle changes the media element to a real playing state and changes the UI to Pause. Playback-scrubber clicks and off-center trim-boundary drags remain aligned after the selected range is reduced to half the video.
 - **AC-018** The crop inspector and time-trim footer collapse independently, and F11/Escape toggle a video-only window fullscreen preview.
+- **AC-019** Product-owned runtime errors are transported as language-neutral codes with optional diagnostics and render from the same Japanese/English locale resources as the rest of the UI; backend and component source contain no Japanese product prose.
 
 ## 15. Verification status
 
-The 0.4.5 implementation satisfies AC-001 through AC-018 at automated or implementation-inspection level. Native picker interaction, live Windows personalization changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.
+The 0.4.6 implementation satisfies AC-001 through AC-019 at automated or implementation-inspection level. Native picker interaction, live Windows personalization changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.

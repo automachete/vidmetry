@@ -1,21 +1,24 @@
 use std::{path::Path, process::Command};
 
-use crate::ffmpeg;
+use crate::{
+    app_error::{AppError, ErrorCode},
+    ffmpeg,
+};
 
-pub fn in_explorer(path: &str) -> Result<(), String> {
-    let file = ffmpeg::canonical_source(path).map_err(|error| error.to_string())?;
+pub fn in_explorer(path: &str) -> Result<(), AppError> {
+    let file = ffmpeg::canonical_source(path).map_err(AppError::from)?;
     reveal_file(&file)
 }
 
 #[cfg(windows)]
-fn reveal_file(file: &Path) -> Result<(), String> {
+fn reveal_file(file: &Path) -> Result<(), AppError> {
     let (verb, target) = explorer_arguments(file);
     Command::new("explorer.exe")
         .arg(verb)
         .arg(target)
         .spawn()
         .map(|_| ())
-        .map_err(|error| format!("Unable to open Explorer: {error}"))
+        .map_err(|error| AppError::with_detail(ErrorCode::ExplorerOpenFailed, error.to_string()))
 }
 
 #[cfg(windows)]
@@ -27,8 +30,8 @@ fn explorer_arguments(file: &Path) -> (&'static str, String) {
 }
 
 #[cfg(not(windows))]
-fn reveal_file(_file: &Path) -> Result<(), String> {
-    Err("Showing a saved file is currently supported only on Windows.".into())
+fn reveal_file(_file: &Path) -> Result<(), AppError> {
+    Err(AppError::new(ErrorCode::ExplorerUnsupported))
 }
 
 #[cfg(test)]

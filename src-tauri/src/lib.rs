@@ -1,3 +1,4 @@
+mod app_error;
 mod appearance;
 mod export;
 mod ffmpeg;
@@ -6,6 +7,8 @@ mod reveal;
 mod selection;
 
 use tauri::Manager;
+
+use app_error::{AppError, ErrorCode};
 
 #[tauri::command]
 fn health_check() -> &'static str {
@@ -16,26 +19,28 @@ fn health_check() -> &'static str {
 async fn probe_video(
     app: tauri::AppHandle,
     path: String,
-) -> Result<media::MediaDescriptor, String> {
-    let source = ffmpeg::canonical_source(&path).map_err(|error| error.to_string())?;
-    let descriptor = ffmpeg::probe(&app, &source)
-        .await
-        .map_err(|error| error.to_string())?;
+) -> Result<media::MediaDescriptor, AppError> {
+    let source = ffmpeg::canonical_source(&path).map_err(AppError::from)?;
+    let descriptor = ffmpeg::probe(&app, &source).await.map_err(AppError::from)?;
     app.asset_protocol_scope()
         .allow_file(&source)
-        .map_err(|error| format!("Unable to authorize video preview: {error}"))?;
+        .map_err(|error| {
+            AppError::with_detail(ErrorCode::PreviewAuthorizationFailed, error.to_string())
+        })?;
     Ok(descriptor)
 }
 
 #[tauri::command]
-async fn create_preview(app: tauri::AppHandle, path: String) -> Result<String, String> {
-    let source = ffmpeg::canonical_source(&path).map_err(|error| error.to_string())?;
+async fn create_preview(app: tauri::AppHandle, path: String) -> Result<String, AppError> {
+    let source = ffmpeg::canonical_source(&path).map_err(AppError::from)?;
     let preview = ffmpeg::create_preview(&app, &source)
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(AppError::from)?;
     app.asset_protocol_scope()
         .allow_file(&preview)
-        .map_err(|error| format!("Unable to authorize proxy preview: {error}"))?;
+        .map_err(|error| {
+            AppError::with_detail(ErrorCode::PreviewAuthorizationFailed, error.to_string())
+        })?;
     Ok(preview.to_string_lossy().into_owned())
 }
 
@@ -44,14 +49,16 @@ async fn create_timeline_strip(
     app: tauri::AppHandle,
     path: String,
     duration_seconds: f64,
-) -> Result<String, String> {
-    let source = ffmpeg::canonical_source(&path).map_err(|error| error.to_string())?;
+) -> Result<String, AppError> {
+    let source = ffmpeg::canonical_source(&path).map_err(AppError::from)?;
     let strip = ffmpeg::create_timeline_strip(&app, &source, duration_seconds)
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(AppError::from)?;
     app.asset_protocol_scope()
         .allow_file(&strip)
-        .map_err(|error| format!("Unable to authorize timeline preview: {error}"))?;
+        .map_err(|error| {
+            AppError::with_detail(ErrorCode::PreviewAuthorizationFailed, error.to_string())
+        })?;
     Ok(strip.to_string_lossy().into_owned())
 }
 
@@ -60,7 +67,7 @@ async fn start_export(
     app: tauri::AppHandle,
     state: tauri::State<'_, export::ExportState>,
     request: export::ExportRequest,
-) -> Result<String, String> {
+) -> Result<String, AppError> {
     export::start(app, state, request).await
 }
 
@@ -68,17 +75,17 @@ async fn start_export(
 fn cancel_export(
     state: tauri::State<'_, export::ExportState>,
     job_id: String,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     export::cancel(state, job_id)
 }
 
 #[tauri::command]
-fn inspect_selection(path: String) -> Result<selection::SelectionDescriptor, String> {
+fn inspect_selection(path: String) -> Result<selection::SelectionDescriptor, AppError> {
     selection::inspect(&path)
 }
 
 #[tauri::command]
-fn reveal_in_explorer(path: String) -> Result<(), String> {
+fn reveal_in_explorer(path: String) -> Result<(), AppError> {
     reveal::in_explorer(&path)
 }
 

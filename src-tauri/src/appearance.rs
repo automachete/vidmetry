@@ -1,12 +1,14 @@
 #[cfg(windows)]
 use windows_sys::Win32::Graphics::Dwm::DwmGetColorizationColor;
 
+use crate::app_error::{AppError, ErrorCode};
+
 fn argb_to_rgb_hex(argb: u32) -> String {
     format!("#{:06X}", argb & 0x00FF_FFFF)
 }
 
 #[tauri::command]
-pub fn system_accent_color() -> Result<String, String> {
+pub fn system_accent_color() -> Result<String, AppError> {
     #[cfg(windows)]
     {
         let mut color = 0_u32;
@@ -14,8 +16,9 @@ pub fn system_accent_color() -> Result<String, String> {
         // SAFETY: Both pointers reference initialized, writable values for the duration of the call.
         let result = unsafe { DwmGetColorizationColor(&mut color, &mut opaque_blend) };
         if result < 0 {
-            return Err(format!(
-                "Unable to read the Windows accent color (HRESULT {result:#X})"
+            return Err(AppError::with_detail(
+                ErrorCode::AccentColorUnavailable,
+                format!("HRESULT {result:#X}"),
             ));
         }
         Ok(argb_to_rgb_hex(color))

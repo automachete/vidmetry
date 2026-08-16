@@ -1,4 +1,4 @@
-# Vidmetry 0.4.5 Verification Record
+# Vidmetry 0.4.6 Verification Record
 
 Verification date: 2026-08-16
 Platform: Windows x64  
@@ -10,18 +10,19 @@ Media engine: FFmpeg/ffprobe 9.0.1 essentials build
 |---|---|
 | `npm run check` | Pass — 0 errors, 0 warnings |
 | `npm run test:assets` | Pass — SVG, generated PNG/ICO pixels, legacy tint list, and NSIS shortcut-refresh configuration |
-| `npm test` | Pass — 41 tests across 8 files |
-| `npm run test:ui` | Pass — 11 Chromium scenarios and 5 screenshot baselines |
+| `npm test` | Pass — 46 tests across 10 files |
+| `npm run test:ui` | Pass — 12 Chromium scenarios and 5 screenshot baselines |
 | `npm run build` | Pass — Vite production build |
-| `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 17 Rust unit tests |
+| `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 19 Rust unit tests |
 | `cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings` | Pass |
 | `scripts/test-integration.ps1` | Pass |
 | `npm run tauri build` | Pass — MSI and NSIS bundles |
-| Component interaction | Pass — Windows mode/accent projection, launcher/logo, settings, save shortcuts/menu, explicit playback-position/trim-boundary terminology, focused playback-position Space control, start/end trim-boundary 1/10-frame steps, collapsible panes, F11 state, notification dismissal, localization, and Explorer reveal |
+| Component interaction | Pass — Windows mode/accent projection, launcher/logo, settings, save shortcuts/menu, focused playback-position Space control, trim-boundary frame steps, collapsible panes, F11 state, notification dismissal, structured command/event error localization, and Explorer reveal |
+| Localization boundary | Pass — backend errors serialize stable codes with optional details; Japanese product text outside `i18n.ts` is rejected automatically |
 | Playback-state regression | Pass — Playwright clicks the rendered playback-position handle, verifies focus on its full-width scrubber, presses Space, and checks `paused` changes from true to false, a play event is emitted, and the UI displays Pause |
 | Pointer alignment regression | Pass — after selecting frames `[60, 180)` of a 240-frame video, a physical timeline click and an off-center handle drag remain aligned within half-frame rendering tolerance |
 | Packaged executable smoke launch | Pass — remained running until test shutdown; extracted executable icon contains only achromatic pixels |
-| Installed application | Pass — NSIS updated the local installation to 0.4.5, preserved the achromatic shortcut icon, and the installed executable passed a smoke launch |
+| Installed application | Pass — NSIS updated the local installation to 0.4.6, preserved the achromatic shortcut icon, and the installed executable passed a smoke launch |
 
 The MSVC linker emits a localized informational message while producing the Rust `cdylib` import library. It is surfaced by Cargo as `linker_messages` but is not a compiler or Clippy diagnostic.
 
@@ -42,12 +43,12 @@ The source SHA-256 before and after all exports is identical. Temporary test med
 
 ## Local release artifacts
 
-These artifacts were generated from the verified 0.4.5 source tree. They are build outputs and are intentionally not committed.
+These artifacts were generated from the verified 0.4.6 source tree. They are build outputs and are intentionally not committed.
 
 | Artifact | Size | SHA-256 |
 |---|---:|---|
-| `Vidmetry_0.4.5_x64_en-US.msi` | 75.36 MiB | `D991CBC3DF207C6B1CF5DEA153B5A793E609795D299AA3BEDF8C8AEC5D30F0FF` |
-| `Vidmetry_0.4.5_x64-setup.exe` | 54.90 MiB | `889CAE6E35A4FD65578B7C9253524E83EE9264DEED3C4E89A7E8E9985B6B1671` |
+| `Vidmetry_0.4.6_x64_en-US.msi` | 75.38 MiB | `69F1DBAD6CAF7416B4F17314760D229A1C51BDDE6E771DFCE1FF408784C64EDF` |
+| `Vidmetry_0.4.6_x64-setup.exe` | 54.91 MiB | `9F1D8C72E58345FA08B0C7B6A0805082FA8EFC869129C88D64467165AFD10DEC` |
 
 ## Remaining manual acceptance
 

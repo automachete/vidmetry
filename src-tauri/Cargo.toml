@@ -1,6 +1,6 @@
 [package]
 name = "vidmetry"
-version = "0.4.5"
+version = "0.4.6"
 description = "A focused desktop video cropper"
 authors = ["Vidmetry contributors"]
 edition = "2024"
@@ -20,7 +20,6 @@ serde_json = "1.0.151"
 tauri = { version = "2.11.5", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2.7.2"
 tauri-plugin-shell = "2.3.5"
-thiserror = "2.0.20"
 tokio = { version = "1.53.1", features = ["process", "sync", "time"] }
 uuid = { version = "1.24.1", features = ["v4"] }
 

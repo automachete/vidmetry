@@ -8,6 +8,7 @@
   import appIconUrl from '../assets/app-icon.svg';
 
   import { applySystemAppearance, fallbackTheme, normalizeAccent, type AppTheme } from './lib/appearance';
+  import { isAppErrorPayload } from './lib/app-error';
 
   import {
     aspectRatio,
@@ -36,7 +37,7 @@
     type PixelFormat,
     type VideoCodec,
   } from './lib/export';
-  import { localizeRuntimeError, translate, type TranslationKey } from './lib/i18n';
+  import { localizeAppError, translate, type TranslationKey } from './lib/i18n';
   import { formatFrameRate, formatTime, type MediaDescriptor } from './lib/media';
   import {
     cloneSettings,
@@ -63,15 +64,15 @@
     type TrimRange,
   } from './lib/trim';
 
-  const handles: Array<{ value: CropHandle; ja: string; en: string }> = [
-    { value: 'north-west', ja: '左上を調整', en: 'Resize from top left' },
-    { value: 'north', ja: '上辺を調整', en: 'Resize top edge' },
-    { value: 'north-east', ja: '右上を調整', en: 'Resize from top right' },
-    { value: 'east', ja: '右辺を調整', en: 'Resize right edge' },
-    { value: 'south-east', ja: '右下を調整', en: 'Resize from bottom right' },
-    { value: 'south', ja: '下辺を調整', en: 'Resize bottom edge' },
-    { value: 'south-west', ja: '左下を調整', en: 'Resize from bottom left' },
-    { value: 'west', ja: '左辺を調整', en: 'Resize left edge' },
+  const handles: Array<{ value: CropHandle; label: TranslationKey }> = [
+    { value: 'north-west', label: 'cropHandleNorthWest' },
+    { value: 'north', label: 'cropHandleNorth' },
+    { value: 'north-east', label: 'cropHandleNorthEast' },
+    { value: 'east', label: 'cropHandleEast' },
+    { value: 'south-east', label: 'cropHandleSouthEast' },
+    { value: 'south', label: 'cropHandleSouth' },
+    { value: 'south-west', label: 'cropHandleSouthWest' },
+    { value: 'west', label: 'cropHandleWest' },
   ];
 
   const presets: EncoderPreset[] = [
@@ -252,7 +253,7 @@
         inPlaceExportPath = null;
         if (shouldRestore) restoreSourcePreview();
         if (!event.payload.cancelled) {
-          errorMessage = `${text('exportFailed')}${readableError(event.payload.message)}`;
+          errorMessage = `${text('exportFailed')}${readableError(event.payload.error)}`;
         }
       }),
     ]).then((unlisteners) => {
@@ -969,8 +970,9 @@
   }
 
   function readableError(error: unknown): string {
-    if (typeof error === 'string') return localizeRuntimeError(language, error);
-    if (error instanceof Error) return localizeRuntimeError(language, error.message);
+    if (isAppErrorPayload(error)) return localizeAppError(language, error);
+    if (typeof error === 'string') return error;
+    if (error instanceof Error) return error.message;
     return text('unknownError');
   }
 </script>
@@ -1081,7 +1083,7 @@
                 <div class="thirds vertical one"></div><div class="thirds vertical two"></div>
                 <div class="thirds horizontal one"></div><div class="thirds horizontal two"></div>
                 {#each handles as handle}
-                  <button class="crop-handle {handle.value}" type="button" aria-label={language === 'ja' ? handle.ja : handle.en} onpointerdown={(event) => beginCropDrag(event, handle.value)}></button>
+                  <button class="crop-handle {handle.value}" type="button" aria-label={text(handle.label)} onpointerdown={(event) => beginCropDrag(event, handle.value)}></button>
                 {/each}
               </div>
             </div>

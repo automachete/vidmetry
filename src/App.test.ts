@@ -231,15 +231,40 @@ describe('application shell', () => {
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalledOnce();
   });
 
-  it('localizes backend validation messages in English mode', async () => {
+  it('localizes structured backend errors in English mode', async () => {
     useEnglish();
     vi.mocked(dialogOpen).mockResolvedValue('C:\\blocked');
-    vi.mocked(invoke).mockRejectedValue('フォルダーを読み取れません: access denied');
+    vi.mocked(invoke).mockRejectedValue({ code: 'folder_read_failed', detail: 'access denied' });
     render(App);
 
     await fireEvent.click(screen.getByRole('button', { name: 'Open folder' }));
     expect((await screen.findByRole('alert')).textContent).toContain(
-      'Could not read the folder: access denied',
+      'The folder could not be read. (access denied)',
+    );
+  });
+
+  it('localizes structured asynchronous export failures', async () => {
+    useEnglish();
+    vi.mocked(dialogOpen).mockResolvedValue(videoPaths[0]);
+    vi.mocked(dialogSave).mockResolvedValue('C:\\clips\\a_cropped.mp4');
+    mockSelection();
+    render(App);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Open video' }));
+    await screen.findByText('a.mp4');
+    await fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Save a copy' }));
+    await waitFor(() => expect(eventState.handlers.has('export-error')).toBe(true));
+    eventState.handlers.get('export-error')?.({
+      payload: {
+        jobId: 'job-1',
+        error: { code: 'export_process_failed', detail: 'exit code 1' },
+        cancelled: false,
+      } as never,
+    });
+
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'Export failed. The export process did not complete. (exit code 1)',
     );
   });
 

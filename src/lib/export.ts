@@ -1,3 +1,5 @@
+import type { AppErrorPayload } from './app-error';
+
 export type ExportProfile = 'compatible' | 'lossless' | 'metadata';
 export type VideoCodec = 'h264' | 'h265';
 export type EncoderPreset =
@@ -49,7 +51,7 @@ export interface ExportCompleteEvent {
 
 export interface ExportErrorEvent {
   jobId: string;
-  message: string;
+  error: AppErrorPayload;
   cancelled: boolean;
 }
 

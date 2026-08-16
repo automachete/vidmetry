@@ -68,6 +68,9 @@ async function installTauriMock(page: Page): Promise<void> {
       }
       if (command === 'plugin:dialog|save') return 'C:\\clips\\sample_cropped.mp4';
       if (command === 'inspect_selection') {
+        if (new URLSearchParams(location.search).get('selectionError') === 'folder') {
+          throw { code: 'folder_read_failed', detail: 'access denied' };
+        }
         const folder = args.path === 'C:\\clips';
         return {
           kind: folder ? 'directory' : 'file',
@@ -169,6 +172,15 @@ test('launcher is concise and keeps only the settings command in its header', as
   await expect(page.getByText('Local video cropper')).toHaveCount(0);
   await expect(page.getByText('Keep precisely the part of the frame you need.')).toHaveCount(0);
   await expect(page.locator('.app-shell')).toHaveScreenshot('launcher.png', { animations: 'disabled' });
+});
+
+test('structured backend errors use the selected UI language', async ({ page }) => {
+  await page.goto('/?selectionError=folder');
+  await page.getByRole('button', { name: 'Open folder' }).click();
+
+  await expect(page.getByRole('alert')).toContainText(
+    'The folder could not be read. (access denied)',
+  );
 });
 
 test('settings place display language at the bottom', async ({ page }) => {

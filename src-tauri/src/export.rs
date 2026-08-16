@@ -14,7 +14,8 @@ use tauri_plugin_shell::{
 use uuid::Uuid;
 
 use crate::{
-    ffmpeg::{self, MediaError},
+    app_error::{AppError, ErrorCode},
+    ffmpeg,
     media::MediaDescriptor,
 };
 
@@ -183,7 +184,7 @@ struct ExportCompleted {
 #[serde(rename_all = "camelCase")]
 struct ExportFailed {
     job_id: String,
-    message: String,
+    error: AppError,
     cancelled: bool,
 }
 
@@ -191,8 +192,8 @@ pub async fn start(
     app: AppHandle,
     state: State<'_, ExportState>,
     request: ExportRequest,
-) -> Result<String, String> {
-    let source = ffmpeg::canonical_source(&request.source_path).map_err(error_text)?;
+) -> Result<String, AppError> {
+    let source = ffmpeg::canonical_source(&request.source_path).map_err(AppError::from)?;
     let output = validated_output(
         &source,
         &request.output_path,
@@ -200,7 +201,7 @@ pub async fn start(
         request.overwrite,
         request.in_place,
     )?;
-    let media = ffmpeg::probe(&app, &source).await.map_err(error_text)?;
+    let media = ffmpeg::probe(&app, &source).await.map_err(AppError::from)?;
     validate_crop(request.crop, &media)?;
     let trim = request.trim.unwrap_or_else(|| full_trim(&media));
     validate_trim(trim, &media, request.settings.profile)?;
@@ -219,15 +220,19 @@ pub async fn start(
     let (mut receiver, child) = app
         .shell()
         .sidecar("ffmpeg")
-        .map_err(|error| format!("FFmpegを準備できませんでした: {error}"))?
+        .map_err(|error| {
+            AppError::with_detail(ErrorCode::ExportProcessPrepareFailed, error.to_string())
+        })?
         .args(args)
         .spawn()
-        .map_err(|error| format!("FFmpegを開始できませんでした: {error}"))?;
+        .map_err(|error| {
+            AppError::with_detail(ErrorCode::ExportProcessStartFailed, error.to_string())
+        })?;
 
     state
         .jobs
         .lock()
-        .map_err(|_| "書き出し状態を更新できませんでした。".to_owned())?
+        .map_err(|_| AppError::new(ErrorCode::ExportStateUpdateFailed))?
         .insert(job_id.clone(), child);
 
     let task_app = app.clone();
@@ -279,21 +284,28 @@ pub async fn start(
                                     },
                                 );
                             }
-                            Err(message) => {
+                            Err(error) => {
                                 let _ = fs::remove_file(&temporary);
-                                emit_failure(&task_app, &task_job_id, message, false);
+                                emit_failure(&task_app, &task_job_id, error, false);
                             }
                         }
                     } else {
                         let _ = fs::remove_file(&temporary);
-                        let message = if cancelled {
-                            "書き出しをキャンセルしました。".to_owned()
+                        let error = if cancelled {
+                            AppError::new(ErrorCode::ExportCancelled)
                         } else if diagnostics.is_empty() {
-                            format!("FFmpegが終了コード{:?}で停止しました。", status.code)
+                            let detail = status
+                                .code
+                                .map(|code| format!("exit code {code}"))
+                                .unwrap_or_else(|| "no exit code".to_owned());
+                            AppError::with_detail(ErrorCode::ExportProcessFailed, detail)
                         } else {
-                            diagnostics.join(" ")
+                            AppError::with_detail(
+                                ErrorCode::ExportProcessFailed,
+                                diagnostics.join(" "),
+                            )
                         };
-                        emit_failure(&task_app, &task_job_id, message, cancelled);
+                        emit_failure(&task_app, &task_job_id, error, cancelled);
                     }
                     break;
                 }
@@ -305,11 +317,11 @@ pub async fn start(
     Ok(job_id)
 }
 
-pub fn cancel(state: State<'_, ExportState>, job_id: String) -> Result<(), String> {
+pub fn cancel(state: State<'_, ExportState>, job_id: String) -> Result<(), AppError> {
     let child = state
         .jobs
         .lock()
-        .map_err(|_| "書き出し状態を取得できませんでした。".to_owned())?
+        .map_err(|_| AppError::new(ErrorCode::ExportStateReadFailed))?
         .remove(&job_id);
     let Some(child) = child else {
         return Ok(());
@@ -317,11 +329,11 @@ pub fn cancel(state: State<'_, ExportState>, job_id: String) -> Result<(), Strin
     state
         .cancelled
         .lock()
-        .map_err(|_| "キャンセル状態を更新できませんでした。".to_owned())?
+        .map_err(|_| AppError::new(ErrorCode::CancellationStateUpdateFailed))?
         .insert(job_id);
-    child
-        .kill()
-        .map_err(|error| format!("FFmpegを停止できませんでした: {error}"))
+    child.kill().map_err(|error| {
+        AppError::with_detail(ErrorCode::ExportProcessStopFailed, error.to_string())
+    })
 }
 
 fn build_export_args(
@@ -624,26 +636,26 @@ fn coded_crop_edges(crop: CropRect, media: &MediaDescriptor) -> CropEdges {
     }
 }
 
-fn validate_crop(crop: CropRect, media: &MediaDescriptor) -> Result<(), String> {
+fn validate_crop(crop: CropRect, media: &MediaDescriptor) -> Result<(), AppError> {
     if crop.width < 16 || crop.height < 16 {
-        return Err("切り取り範囲は16×16ピクセル以上にしてください。".into());
+        return Err(AppError::new(ErrorCode::CropTooSmall));
     }
     if [crop.x, crop.y, crop.width, crop.height]
         .into_iter()
         .any(|value| value % 2 != 0)
     {
-        return Err("切り取り座標とサイズは偶数にしてください。".into());
+        return Err(AppError::new(ErrorCode::CropEvenValuesRequired));
     }
     let right = crop
         .x
         .checked_add(crop.width)
-        .ok_or_else(|| "切り取り範囲が不正です。".to_owned())?;
+        .ok_or_else(|| AppError::new(ErrorCode::CropInvalid))?;
     let bottom = crop
         .y
         .checked_add(crop.height)
-        .ok_or_else(|| "切り取り範囲が不正です。".to_owned())?;
+        .ok_or_else(|| AppError::new(ErrorCode::CropInvalid))?;
     if right > media.display_width || bottom > media.display_height {
-        return Err("切り取り範囲が動画フレームの外側です。".into());
+        return Err(AppError::new(ErrorCode::CropOutsideVideo));
     }
     Ok(())
 }
@@ -696,13 +708,13 @@ fn validate_trim(
     trim: TrimRange,
     media: &MediaDescriptor,
     profile: ExportProfile,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let total = total_frames(media);
     if trim.start_frame >= trim.end_frame || trim.end_frame > total {
-        return Err("時間のトリミング範囲が動画フレームの外側です。".into());
+        return Err(AppError::new(ErrorCode::TrimOutsideVideo));
     }
     if profile == ExportProfile::Metadata && !is_full_trim(trim, media) {
-        return Err("メタデータのみ方式ではフレーム単位の時間トリミングを使用できません。".into());
+        return Err(AppError::new(ErrorCode::MetadataTrimUnsupported));
     }
     Ok(())
 }
@@ -710,26 +722,26 @@ fn validate_trim(
 fn validate_export_settings(
     settings: &ExportSettings,
     media: &MediaDescriptor,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     if settings.profile == ExportProfile::Metadata && !media.metadata_crop_supported {
-        return Err("メタデータ方式はH.264またはHEVCの動画だけで使用できます。".into());
+        return Err(AppError::new(ErrorCode::MetadataCodecUnsupported));
     }
     if settings.crf > 51 {
-        return Err("CRFは0から51の範囲で指定してください。".into());
+        return Err(AppError::new(ErrorCode::CrfOutOfRange));
     }
     if !(32..=1024).contains(&settings.audio_bitrate_kbps) {
-        return Err("音声ビットレートは32から1024 kbpsの範囲で指定してください。".into());
+        return Err(AppError::new(ErrorCode::AudioBitrateOutOfRange));
     }
     if settings.frame_rate_mode == FrameRateMode::Constant
         && (!settings.constant_frame_rate.is_finite()
             || !(1.0..=240.0).contains(&settings.constant_frame_rate))
     {
-        return Err("固定フレームレートは1から240 fpsの範囲で指定してください。".into());
+        return Err(AppError::new(ErrorCode::FrameRateOutOfRange));
     }
     if settings.profile == ExportProfile::Compatible
         && matches!(settings.audio_mode, AudioMode::Flac | AudioMode::Pcm)
     {
-        return Err("互換MP4ではFLACまたはPCM音声を選択できません。".into());
+        return Err(AppError::new(ErrorCode::CompatibleAudioUnsupported));
     }
     Ok(())
 }
@@ -740,37 +752,42 @@ fn validated_output(
     profile: ExportProfile,
     overwrite: bool,
     in_place: bool,
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, AppError> {
     let output = PathBuf::from(requested);
     if !output.is_absolute() {
-        return Err("保存先には絶対パスを指定してください。".into());
+        return Err(AppError::new(ErrorCode::DestinationMustBeAbsolute));
     }
     let parent = output
         .parent()
-        .ok_or_else(|| "保存先フォルダーを特定できません。".to_owned())?;
-    let canonical_parent = fs::canonicalize(parent)
-        .map_err(|error| format!("保存先フォルダーにアクセスできません: {error}"))?;
+        .ok_or_else(|| AppError::new(ErrorCode::DestinationFolderUnavailable))?;
+    let canonical_parent = fs::canonicalize(parent).map_err(|error| {
+        AppError::with_detail(ErrorCode::DestinationFolderUnavailable, error.to_string())
+    })?;
     if !canonical_parent.is_dir() {
-        return Err("保存先フォルダーが存在しません。".into());
+        return Err(AppError::new(ErrorCode::DestinationFolderMissing));
     }
     let file_name = output
         .file_name()
-        .ok_or_else(|| "保存ファイル名を指定してください。".to_owned())?;
+        .ok_or_else(|| AppError::new(ErrorCode::DestinationFileNameMissing))?;
     let output = canonical_parent.join(file_name);
     let mut matches_source = false;
     if output.exists() {
-        let existing = fs::canonicalize(&output)
-            .map_err(|error| format!("保存先ファイルを確認できません: {error}"))?;
+        let existing = fs::canonicalize(&output).map_err(|error| {
+            AppError::with_detail(
+                ErrorCode::DestinationFileInspectionFailed,
+                error.to_string(),
+            )
+        })?;
         matches_source = existing == source;
         if matches_source && !in_place {
-            return Err("元動画を置き換えるには「保存」を使用してください。".into());
+            return Err(AppError::new(ErrorCode::SourceReplacementRequiresSave));
         }
         if !matches_source && !overwrite {
-            return Err("保存先のファイルは既に存在します。".into());
+            return Err(AppError::new(ErrorCode::DestinationAlreadyExists));
         }
     }
     if in_place && !matches_source {
-        return Err("「保存」の出力先は現在の元動画と一致する必要があります。".into());
+        return Err(AppError::new(ErrorCode::SaveDestinationMismatch));
     }
     let extension = output
         .extension()
@@ -783,21 +800,19 @@ fn validated_output(
         ExportProfile::Metadata => ["mp4", "m4v", "mov", "mkv"].contains(&extension.as_str()),
     };
     if !valid {
-        return Err(match profile {
-            ExportProfile::Compatible => "互換MP4の拡張子は.mp4にしてください。".into(),
-            ExportProfile::Lossless => "可逆保存の拡張子は.mkvにしてください。".into(),
-            ExportProfile::Metadata => {
-                "メタデータ方式は.mp4、.m4v、.mov、.mkvへ保存できます。".into()
-            }
-        });
+        return Err(AppError::new(match profile {
+            ExportProfile::Compatible => ErrorCode::CompatibleExtensionRequired,
+            ExportProfile::Lossless => ErrorCode::LosslessExtensionRequired,
+            ExportProfile::Metadata => ErrorCode::MetadataExtensionUnsupported,
+        }));
     }
     Ok(output)
 }
 
-fn temporary_output(output: &Path, job_id: &str) -> Result<PathBuf, String> {
+fn temporary_output(output: &Path, job_id: &str) -> Result<PathBuf, AppError> {
     let parent = output
         .parent()
-        .ok_or_else(|| "保存先フォルダーを特定できません。".to_owned())?;
+        .ok_or_else(|| AppError::new(ErrorCode::DestinationFolderUnavailable))?;
     let stem = output
         .file_stem()
         .and_then(|value| value.to_str())
@@ -805,7 +820,7 @@ fn temporary_output(output: &Path, job_id: &str) -> Result<PathBuf, String> {
     let extension = output
         .extension()
         .and_then(|value| value.to_str())
-        .ok_or_else(|| "保存ファイルの拡張子がありません。".to_owned())?;
+        .ok_or_else(|| AppError::new(ErrorCode::DestinationExtensionMissing))?;
     Ok(parent.join(format!(".{stem}.vidmetry-{job_id}.{extension}")))
 }
 
@@ -833,23 +848,19 @@ fn take_cancelled(app: &AppHandle, job_id: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn emit_failure(app: &AppHandle, job_id: &str, message: String, cancelled: bool) {
+fn emit_failure(app: &AppHandle, job_id: &str, error: AppError, cancelled: bool) {
     let _ = app.emit(
         FAILED_EVENT,
         ExportFailed {
             job_id: job_id.to_owned(),
-            message,
+            error,
             cancelled,
         },
     );
 }
 
-fn error_text(error: MediaError) -> String {
-    error.to_string()
-}
-
 #[cfg(windows)]
-fn commit_output(temporary: &Path, output: &Path, overwrite: bool) -> Result<(), String> {
+fn commit_output(temporary: &Path, output: &Path, overwrite: bool) -> Result<(), AppError> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{
         MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
@@ -873,9 +884,9 @@ fn commit_output(temporary: &Path, output: &Path, overwrite: bool) -> Result<(),
     // for the duration of this call. Paths are validated before FFmpeg starts.
     let succeeded = unsafe { MoveFileExW(temporary_wide.as_ptr(), output_wide.as_ptr(), flags) };
     if succeeded == 0 {
-        Err(format!(
-            "完成した動画を保存先へ確定できませんでした: {}",
-            std::io::Error::last_os_error()
+        Err(AppError::with_detail(
+            ErrorCode::CommitOutputFailed,
+            std::io::Error::last_os_error().to_string(),
         ))
     } else {
         Ok(())
@@ -883,12 +894,12 @@ fn commit_output(temporary: &Path, output: &Path, overwrite: bool) -> Result<(),
 }
 
 #[cfg(not(windows))]
-fn commit_output(temporary: &Path, output: &Path, overwrite: bool) -> Result<(), String> {
+fn commit_output(temporary: &Path, output: &Path, overwrite: bool) -> Result<(), AppError> {
     if output.exists() && !overwrite {
-        return Err("保存先のファイルは既に存在します。".into());
+        return Err(AppError::new(ErrorCode::DestinationAlreadyExists));
     }
     fs::rename(temporary, output)
-        .map_err(|error| format!("完成した動画を保存先へ確定できませんでした: {error}"))
+        .map_err(|error| AppError::with_detail(ErrorCode::CommitOutputFailed, error.to_string()))
 }
 
 #[cfg(test)]

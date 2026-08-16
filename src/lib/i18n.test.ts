@@ -1,19 +1,21 @@
 import { describe, expect, it } from 'vitest';
 
-import { localizeRuntimeError, translate } from './i18n';
+import { localizeAppError, translate } from './i18n';
 
 describe('i18n', () => {
-  it('translates runtime validation errors for the English UI', () => {
-    expect(localizeRuntimeError('en', '切り取り範囲が動画フレームの外側です。')).toBe(
+  it('translates stable backend error codes for the English UI', () => {
+    expect(localizeAppError('en', { code: 'crop_outside_video' })).toBe(
       'The crop area extends outside the video frame.',
     );
-    expect(localizeRuntimeError('en', 'FFmpegが終了コードSome(1)で停止しました。')).toBe(
-      'FFmpeg stopped with exit code Some(1).',
+    expect(
+      localizeAppError('en', { code: 'export_process_failed', detail: 'exit code 1' }),
+    ).toBe(
+      'The export process did not complete. (exit code 1)',
     );
   });
 
-  it('keeps Japanese errors and interpolates translated UI values', () => {
-    expect(localizeRuntimeError('ja', '保存先フォルダーが存在しません。')).toBe(
+  it('uses the same code for Japanese errors and interpolates translated UI values', () => {
+    expect(localizeAppError('ja', { code: 'destination_folder_missing' })).toBe(
       '保存先フォルダーが存在しません。',
     );
     expect(translate('en', 'folderPosition', { current: 2, total: 5 })).toBe('2 / 5');

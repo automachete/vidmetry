@@ -2,7 +2,10 @@ use std::{fs, path::PathBuf};
 
 use serde::Serialize;
 
-use crate::ffmpeg::{self, MediaError};
+use crate::{
+    app_error::{AppError, ErrorCode},
+    ffmpeg,
+};
 
 const VIDEO_EXTENSIONS: &[&str] = &[
     "3gp", "avi", "flv", "m2ts", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "mts", "ogv", "ts",
@@ -24,11 +27,12 @@ pub enum SelectionKind {
     Directory,
 }
 
-pub fn inspect(path: &str) -> Result<SelectionDescriptor, String> {
-    let selected = fs::canonicalize(path)
-        .map_err(|error| format!("選択したパスにアクセスできません: {error}"))?;
+pub fn inspect(path: &str) -> Result<SelectionDescriptor, AppError> {
+    let selected = fs::canonicalize(path).map_err(|error| {
+        AppError::with_detail(ErrorCode::SelectedPathUnavailable, error.to_string())
+    })?;
     if selected.is_file() {
-        let source = ffmpeg::canonical_source(path).map_err(media_error)?;
+        let source = ffmpeg::canonical_source(path).map_err(AppError::from)?;
         return Ok(SelectionDescriptor {
             kind: SelectionKind::File,
             root_path: ffmpeg::display_path(&source),
@@ -36,11 +40,11 @@ pub fn inspect(path: &str) -> Result<SelectionDescriptor, String> {
         });
     }
     if !selected.is_dir() {
-        return Err("選択したパスは動画ファイルまたはフォルダーではありません。".into());
+        return Err(AppError::new(ErrorCode::SelectedPathUnsupported));
     }
 
     let mut videos = fs::read_dir(&selected)
-        .map_err(|error| format!("フォルダーを読み取れません: {error}"))?
+        .map_err(|error| AppError::with_detail(ErrorCode::FolderReadFailed, error.to_string()))?
         .filter_map(Result::ok)
         .map(|entry| entry.path())
         .filter(|entry| entry.is_file() && is_video_path(entry))
@@ -60,7 +64,7 @@ pub fn inspect(path: &str) -> Result<SelectionDescriptor, String> {
     });
 
     if videos.is_empty() {
-        return Err("選択したフォルダーに対応動画がありません。".into());
+        return Err(AppError::new(ErrorCode::FolderContainsNoSupportedVideos));
     }
 
     Ok(SelectionDescriptor {
@@ -78,10 +82,6 @@ fn is_video_path(path: &std::path::Path) -> bool {
         .and_then(|extension| extension.to_str())
         .map(str::to_ascii_lowercase)
         .is_some_and(|extension| VIDEO_EXTENSIONS.contains(&extension.as_str()))
-}
-
-fn media_error(error: MediaError) -> String {
-    error.to_string()
 }
 
 #[cfg(test)]

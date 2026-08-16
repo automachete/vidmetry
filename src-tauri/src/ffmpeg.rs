@@ -6,25 +6,19 @@ use std::{
     time::UNIX_EPOCH,
 };
 
+use crate::media::{ColorDescriptor, MediaDescriptor, ProbeDocument, ProbeStream};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_shell::ShellExt;
-use thiserror::Error;
 
-use crate::media::{ColorDescriptor, MediaDescriptor, ProbeDocument, ProbeStream};
-
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum MediaError {
-    #[error("The selected video does not exist or cannot be accessed: {0}")]
     InvalidSource(String),
-    #[error("Unable to start {tool}: {message}")]
     ProcessStart { tool: &'static str, message: String },
-    #[error("{tool} failed: {message}")]
     ProcessFailed { tool: &'static str, message: String },
-    #[error("Unable to read media information: {0}")]
     InvalidProbe(String),
-    #[error("No video stream was found in the selected file")]
     MissingVideo,
-    #[error("Unable to prepare the preview cache: {0}")]
+    MissingVideoWidth,
+    MissingVideoHeight,
     Cache(String),
 }
 
@@ -260,12 +254,8 @@ fn descriptor_from_probe(
         .iter()
         .find(|stream| stream.codec_type.as_deref() == Some("audio"));
 
-    let coded_width = video.width.ok_or_else(|| {
-        MediaError::InvalidProbe("The video stream did not report its width".into())
-    })?;
-    let coded_height = video.height.ok_or_else(|| {
-        MediaError::InvalidProbe("The video stream did not report its height".into())
-    })?;
+    let coded_width = video.width.ok_or(MediaError::MissingVideoWidth)?;
+    let coded_height = video.height.ok_or(MediaError::MissingVideoHeight)?;
     let rotation = normalized_rotation(video);
     let (display_width, display_height) = if rotation == 90 || rotation == 270 {
         (coded_height, coded_width)
@@ -389,12 +379,7 @@ fn source_cache_key(source: &Path) -> Result<u64, MediaError> {
 
 fn compact_stderr(stderr: &[u8]) -> String {
     let text = String::from_utf8_lossy(stderr);
-    let compact = text.lines().take(8).collect::<Vec<_>>().join(" ");
-    if compact.trim().is_empty() {
-        "The process exited without a diagnostic message".into()
-    } else {
-        compact
-    }
+    text.lines().take(8).collect::<Vec<_>>().join(" ")
 }
 
 #[cfg(test)]
