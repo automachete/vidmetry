@@ -5,7 +5,6 @@ import {
   frameToSeconds,
   fullTrimRange,
   isFullTrim,
-  parseFrameRate,
   pointerFrameFromTimeline,
   sanitizeTrimRange,
   secondsToFrame,
@@ -15,8 +14,7 @@ import {
 } from './trim';
 
 describe('frame-accurate time trimming', () => {
-  it('uses a reported frame count and otherwise derives one from a rational frame rate', () => {
-    expect(parseFrameRate('30000/1001')).toBeCloseTo(29.97002997);
+  it('requires a positive reported frame count', () => {
     expect(totalVideoFrames(301)).toBe(301);
     expect(() => totalVideoFrames(0)).toThrow(RangeError);
   });

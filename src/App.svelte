@@ -174,7 +174,7 @@
   $: frameStyle = `left:${frameGeometry.left}px;top:${frameGeometry.top}px;width:${frameGeometry.width}px;height:${frameGeometry.height}px`;
   $: boxStyle = cropStyle(crop, bounds);
   $: activeRatio = aspectRatio(aspect, bounds);
-  $: duration = Math.max(media?.durationSeconds ?? 0, videoElement?.duration || 0);
+  $: duration = media?.durationSeconds ?? 0;
   $: totalFrames = media
     ? totalVideoFrames(media.frameCount)
     : 1;
@@ -538,15 +538,6 @@
       errorMessage = `${text('previewFailed')}${readableError(error)}`;
     } finally {
       isPreparingProxy = false;
-    }
-  }
-
-  function handleLoadedMetadata() {
-    if (media && media.durationSeconds <= 0 && Number.isFinite(videoElement.duration)) {
-      media = { ...media, durationSeconds: videoElement.duration };
-      trim = fullTrimRange(
-        totalVideoFrames(media.frameCount),
-      );
     }
   }
 
@@ -1195,7 +1186,6 @@
               playsinline
               preload="metadata"
               onerror={handleVideoError}
-              onloadedmetadata={handleLoadedMetadata}
               ontimeupdate={handleTimeUpdate}
               onplay={() => (isPlaying = true)}
               onpause={() => (isPlaying = false)}

@@ -52,6 +52,10 @@ Assert-ExactProperties $manifest.archive @('url', 'sha256') 'archive'
 Assert-ExactProperties $manifest.notices @('license', 'buildInfo') 'notices'
 Assert-ExactProperties $manifest.notices.license @('archivePath', 'sha256', 'fileName') 'notices.license'
 Assert-ExactProperties $manifest.notices.buildInfo @('archivePath', 'sha256', 'fileName') 'notices.buildInfo'
+if ($manifest.notices.license.fileName -cne 'FFMPEG_LICENSE.txt' -or
+    $manifest.notices.buildInfo.fileName -cne 'FFMPEG_BUILD_INFO.txt') {
+    throw 'FFmpeg notice output names must match the bundled notice contract.'
+}
 if ($manifest.version -notmatch '^\d+\.\d+\.\d+$') {
     throw 'FFmpeg manifest version must be an exact semantic version.'
 }
@@ -91,6 +95,13 @@ $installedFiles = @(
     @{ Path = $licenseTarget; Hash = $manifest.notices.license.sha256 },
     @{ Path = $buildInfoTarget; Hash = $manifest.notices.buildInfo.sha256 }
 )
+$expectedNoticeNames = @($manifest.notices.license.fileName, $manifest.notices.buildInfo.fileName)
+$unexpectedNotices = @(Get-ChildItem -LiteralPath $noticesDirectory -Force | Where-Object {
+    $_.PSIsContainer -or $_.Name -notin $expectedNoticeNames
+})
+if ($unexpectedNotices.Count -gt 0) {
+    throw "FFmpeg notice directory contains unmanaged entries: $($unexpectedNotices.Name -join ', ')"
+}
 
 if (-not $Force -and ($installedFiles | Where-Object { -not (Test-ExpectedFile $_.Path $_.Hash) }).Count -eq 0) {
     Write-Output "Verified FFmpeg $($manifest.version) sidecars and notices for $targetTriple."

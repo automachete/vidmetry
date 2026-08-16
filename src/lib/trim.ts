@@ -7,15 +7,6 @@ export interface TrimRange {
 
 export type TrimHandle = 'start' | 'end';
 
-export function parseFrameRate(value: string): number {
-  const [numeratorText, denominatorText = '1'] = value.split('/');
-  const numerator = Number(numeratorText);
-  const denominator = Number(denominatorText);
-  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return 0;
-  const rate = numerator / denominator;
-  return Number.isFinite(rate) && rate > 0 ? rate : 0;
-}
-
 export function totalVideoFrames(
   reportedFrameCount: number,
 ): number {

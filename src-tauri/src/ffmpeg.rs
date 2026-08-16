@@ -419,6 +419,9 @@ fn parse_frame_rate(value: &str) -> Option<f64> {
     let mut parts = value.split('/');
     let numerator = parts.next()?.parse::<f64>().ok()?;
     let denominator = parts.next().unwrap_or("1").parse::<f64>().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
     let rate = numerator / denominator;
     (rate.is_finite() && rate > 0.0).then_some(rate)
 }
@@ -554,6 +557,7 @@ mod tests {
             },
         );
         assert!(matches!(no_rate, Err(MediaError::MissingVideoFrameRate)));
+        assert_eq!(parse_frame_rate("30/1/2"), None);
     }
 
     #[cfg(windows)]
