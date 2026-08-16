@@ -85,6 +85,7 @@ Assert-FileContainsLiteral (Join-Path $PSScriptRoot 'setup-ffmpeg.ps1') 'Source 
 $sourceRepacker = Join-Path $PSScriptRoot 'repack-source-archive.sh'
 Assert-FileContainsLiteral $sourceRepacker '--format=gnu --sort=name' 'Dependency-source normalizer'
 Assert-FileContainsLiteral $sourceRepacker "-name .git" 'Dependency-source normalizer'
+Assert-FileContainsLiteral $sourceRepacker "-name .svn" 'Dependency-source normalizer'
 Assert-FileContainsLiteral $sourceRepacker "--mtime='UTC 1970-01-01'" 'Dependency-source normalizer'
 Assert-FileContainsLiteral $sourceRepacker "--mode='u+rwX,go+rX,go-w'" 'Dependency-source normalizer'
 Assert-FileContainsLiteral $sourceRepacker 'sanitize-source-tree.sh' 'Dependency-source normalizer'

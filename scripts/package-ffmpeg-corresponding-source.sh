@@ -218,7 +218,7 @@ This archive accompanies the FFmpeg and ffprobe object code conveyed in the same
 - `ffmpeg/` is the exact FFmpeg source revision used by the binary.
 - `build-scripts/` is the exact BtbN/FFmpeg-Builds revision containing the Windows GPL build controls, patches, Docker definitions, and license-selection logic.
 - `build-scripts/.cache/downloads/` contains every dependency source archive selected by the generated `win64-gpl` build graph.
-- Dependency archives contain the preferred source trees with checkout-specific `.git` administration data removed and deterministic metadata applied.
+- Dependency archives contain the preferred source trees with checkout-specific version-control administration data removed and deterministic metadata applied.
 - External symbolic links are removed from dependency archives and recorded in an affected archive's `.vidmetry-normalization/removed-external-symlinks.tsv`; internal links are preserved.
 - The digest-pinned source toolchain image used for dependency acquisition and deterministic archive creation is recorded in `SOURCE_METADATA.json`.
 - `build-scripts/Dockerfile.vidmetry-source-graph` records the resolved dependency graph and configuration used to select those archives.

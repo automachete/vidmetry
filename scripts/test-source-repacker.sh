@@ -7,11 +7,14 @@ trap 'rm -rf -- "$work_root"' EXIT
 
 for variant in one two; do
   source_root="$work_root/$variant/source/project"
-  mkdir -p "$source_root/.git"
+  for vcs_directory in .git .svn .hg .bzr _darcs CVS RCS SCCS; do
+    mkdir -p "$source_root/$vcs_directory"
+    printf 'checkout-specific %s %s\n' "$variant" "$vcs_directory" \
+      > "$source_root/$vcs_directory/metadata"
+  done
   printf 'stable source\n' > "$source_root/main.c"
   printf '#!/usr/bin/env sh\nexit 0\n' > "$source_root/build.sh"
   ln -s main.c "$source_root/internal-link"
-  printf 'checkout-specific %s\n' "$variant" > "$source_root/.git/index"
   if [[ "$variant" == "one" ]]; then
     archive_mtime='UTC 2024-01-01'
     chmod 0700 "$source_root" "$source_root/build.sh"
@@ -39,7 +42,8 @@ tar -tvJf "$work_root/one-normalized.tar.xz" \
   | grep -Eq '^-rwxr-xr-x .* ./project/build\.sh$'
 tar -tvJf "$work_root/one-normalized.tar.xz" \
   | grep -Eq '^drwxr-xr-x .* ./project/$'
-if grep -Eq '(^|/)\.git(/|$)' "$work_root/normalized-entries.txt"; then
+if grep -Eq '(^|/)(\.git|\.svn|\.hg|\.bzr|_darcs|CVS|RCS|SCCS)(/|$)' \
+  "$work_root/normalized-entries.txt"; then
   echo 'Normalized dependency source archive retained VCS administration data.' >&2
   exit 1
 fi

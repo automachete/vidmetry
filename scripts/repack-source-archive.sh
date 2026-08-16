@@ -33,11 +33,17 @@ fi
 tar -xJf "$input" -C "$extract_root" --no-same-owner --no-same-permissions
 
 # VCS administration data is not source and contains checkout-specific indexes,
-# locks, and timestamps. Removing it makes independently fetched source trees
+# databases, locks, and timestamps. Removing the administration formats used by
+# the supported upstream fetchers makes independently fetched source trees
 # byte-reproducible while retaining the preferred source form used by the build.
 while IFS= read -r -d '' vcs_entry; do
   rm -rf -- "$vcs_entry"
-done < <(find "$extract_root" -depth -name .git -print0)
+done < <(
+  find "$extract_root" -depth \
+    \( -name .git -o -name .svn -o -name .hg -o -name .bzr \
+       -o -name _darcs -o -name CVS -o -name RCS -o -name SCCS \) \
+    -print0
+)
 
 "$SCRIPT_DIR/sanitize-source-tree.sh" "$extract_root" remove-and-record
 
