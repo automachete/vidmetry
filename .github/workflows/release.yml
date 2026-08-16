@@ -6,30 +6,68 @@ on:
       - "v*"
 
 permissions:
-  contents: write
-  checks: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  corresponding-source:
+  preflight:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 10
     permissions:
       contents: read
-    env:
-      RELEASE_TAG: ${{ github.ref_name }}
-      SOURCE_ARCHIVE_NAME: vidmetry-ffmpeg-N-126168-gb16b5f2a01-20260815-corresponding-source.tar.xz
+    outputs:
+      archive_name: ${{ steps.source.outputs.archive_name }}
+      archive_sha256: ${{ steps.source.outputs.archive_sha256 }}
+      asset_tag: ${{ steps.source.outputs.asset_tag }}
 
     steps:
       - name: Check out tagged source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Verify release version
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
         run: ./scripts/check-release-version.ps1 -Tag $env:RELEASE_TAG
+
+      - name: Verify public distribution boundary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          visibility="$(gh api "repos/$RELEASE_REPOSITORY" --jq '.visibility')"
+          if [[ "$visibility" != "public" ]]; then
+            echo 'The repository is not public, so equivalent no-charge source access cannot be guaranteed.' >&2
+            exit 1
+          fi
+
+      - name: Resolve and verify immutable source Release
+        id: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          archive_name="$(jq -er '.correspondingSource.archiveName' scripts/ffmpeg-sidecars.json)"
+          archive_sha256="$(jq -er '.correspondingSource.archiveSha256' scripts/ffmpeg-sidecars.json)"
+          asset_tag="$(jq -er '.correspondingSource.assetTag' scripts/ffmpeg-sidecars.json)"
+          [[ "$archive_name" =~ ^vidmetry-ffmpeg-[A-Za-z0-9.-]+-corresponding-source\.tar\.xz$ ]]
+          [[ "$archive_sha256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$asset_tag" =~ ^ffmpeg-source-[A-Za-z0-9.-]+$ ]]
+          test "$(gh release view "$asset_tag" --json isDraft --jq '.isDraft')" = 'false'
+          asset_names="$(gh release view "$asset_tag" --json assets --jq '.assets[].name')"
+          grep -Fxq "$archive_name" <<< "$asset_names"
+          grep -Fxq "$archive_name.sha256" <<< "$asset_names"
+          echo "archive_name=$archive_name" >> "$GITHUB_OUTPUT"
+          echo "archive_sha256=$archive_sha256" >> "$GITHUB_OUTPUT"
+          echo "asset_tag=$asset_tag" >> "$GITHUB_OUTPUT"
 
       - name: Audit Rust licenses
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
@@ -38,58 +76,57 @@ jobs:
           command-arguments: licenses
           manifest-path: src-tauri/Cargo.toml
 
-      - name: Cache pinned dependency sources
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .cache/ffmpeg-source-downloads
-          key: ffmpeg-source-${{ hashFiles('scripts/ffmpeg-sidecars.json', 'scripts/package-ffmpeg-corresponding-source.sh') }}
+  source-assets:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
 
-      - name: Assemble complete corresponding source
+    steps:
+      - name: Download immutable corresponding source
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARCHIVE_NAME: ${{ needs.preflight.outputs.archive_name }}
+          ARCHIVE_SHA256: ${{ needs.preflight.outputs.archive_sha256 }}
+          ASSET_TAG: ${{ needs.preflight.outputs.asset_tag }}
         run: |
-          scripts/package-ffmpeg-corresponding-source.sh \
-            --cache-dir .cache/ffmpeg-source-downloads \
-            --output "release-assets/$SOURCE_ARCHIVE_NAME"
-
-      - name: Verify source archive
-        shell: bash
-        run: |
-          (cd release-assets && sha256sum --check "$SOURCE_ARCHIVE_NAME.sha256")
-          tar -tf "release-assets/$SOURCE_ARCHIVE_NAME" > source-archive-files.txt
+          set -euo pipefail
+          mkdir -p source-assets
+          gh release download "$ASSET_TAG" \
+            --pattern "$ARCHIVE_NAME" \
+            --pattern "$ARCHIVE_NAME.sha256" \
+            --dir source-assets
+          (cd source-assets && sha256sum --check "$ARCHIVE_NAME.sha256")
+          actual_sha256="$(sha256sum "source-assets/$ARCHIVE_NAME" | cut -d ' ' -f 1)"
+          [[ "$actual_sha256" == "$ARCHIVE_SHA256" ]]
+          tar -tf "source-assets/$ARCHIVE_NAME" > source-archive-files.txt
+          grep -q '/ffmpeg/fftools/ffmpeg.c$' source-archive-files.txt
+          grep -q '/build-scripts/build.sh$' source-archive-files.txt
           grep -q '/SOURCE_METADATA.json$' source-archive-files.txt
 
-      - name: Transfer corresponding source to publisher
+      - name: Transfer verified source to publisher
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: ffmpeg-corresponding-source
-          path: |
-            release-assets/${{ env.SOURCE_ARCHIVE_NAME }}
-            release-assets/${{ env.SOURCE_ARCHIVE_NAME }}.sha256
+          name: immutable-ffmpeg-source
+          path: source-assets
           compression-level: 0
-          retention-days: 7
+          retention-days: 1
 
-  publish-windows:
-    needs: corresponding-source
+  build-windows:
+    needs: preflight
     runs-on: windows-latest
     timeout-minutes: 45
-    env:
-      RELEASE_REPOSITORY: ${{ github.repository }}
-      RELEASE_TAG: ${{ github.ref_name }}
-      SOURCE_ARCHIVE_NAME: vidmetry-ffmpeg-N-126168-gb16b5f2a01-20260815-corresponding-source.tar.xz
+    permissions:
+      contents: read
+      checks: write
 
     steps:
       - name: Check out tagged source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Download corresponding source
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: ffmpeg-corresponding-source
-          path: release-assets
-
-      - name: Verify release version
-        shell: pwsh
-        run: ./scripts/check-release-version.ps1 -Tag $env:RELEASE_TAG
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -119,11 +156,10 @@ jobs:
       - name: Install JavaScript dependencies
         run: npm ci
 
-      - name: Audit JavaScript dependencies
-        run: npm audit --audit-level=high
-
-      - name: Audit JavaScript licenses
-        run: npm run check:licenses
+      - name: Audit JavaScript dependencies and licenses
+        run: |
+          npm audit --audit-level=high
+          npm run check:licenses
 
       - name: Audit Rust dependencies
         uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
@@ -134,22 +170,14 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install chromium
 
-      - name: Prepare verified FFmpeg sidecars
+      - name: Prepare verified distribution dependencies
         shell: pwsh
-        run: ./scripts/setup-ffmpeg.ps1
+        run: |
+          ./scripts/setup-ffmpeg.ps1
+          ./scripts/setup-copyleft-sources.ps1
+          ./scripts/generate-third-party-licenses.ps1
 
-      - name: Prepare copyleft dependency sources
-        shell: pwsh
-        run: ./scripts/setup-copyleft-sources.ps1
-
-      - name: Generate third-party license reports
-        shell: pwsh
-        run: ./scripts/generate-third-party-licenses.ps1
-
-      - name: Verify distribution-license contracts
-        run: npm run test:licenses
-
-      - name: Verify frontend
+      - name: Verify distribution contracts and frontend
         run: npm run verify
 
       - name: Verify desktop UI
@@ -165,53 +193,115 @@ jobs:
       - name: Verify media exports
         run: npm run test:integration
 
-      - name: Build installers into a draft GitHub Release
-        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: Vidmetry ${{ github.ref_name }}
-          releaseBody: |
-            Windows x64向けインストーラーは、通常はセットアップEXEを使用してください。MSIも選択できます。
-            同梱するGPL版FFmpeg/ffprobeの完全な対応ソースとSHA-256検証値は、このReleaseの対応ソース資産から取得できます。
-          generateReleaseNotes: true
-          releaseDraft: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          includeUpdaterJson: false
+      - name: Build Windows installers
+        run: npm run tauri build
 
-      - name: Attach corresponding source and publish atomically
+      - name: Stage Windows installers
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path windows-assets | Out-Null
+          $msi = @(Get-ChildItem -Path 'src-tauri/target/release/bundle/msi' -Filter '*.msi' -File)
+          $nsis = @(Get-ChildItem -Path 'src-tauri/target/release/bundle/nsis' -Filter '*-setup.exe' -File)
+          if ($msi.Count -ne 1 -or $nsis.Count -ne 1) {
+            throw "Expected one MSI and one setup EXE but found $($msi.Count) and $($nsis.Count)."
+          }
+          Copy-Item -LiteralPath $msi[0].FullName -Destination windows-assets
+          Copy-Item -LiteralPath $nsis[0].FullName -Destination windows-assets
+
+      - name: Transfer installers to publisher
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-installers
+          path: windows-assets
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  publish:
+    needs: [preflight, source-assets, build-windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download verified source
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: immutable-ffmpeg-source
+          path: release-assets
+
+      - name: Download Windows installers
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: windows-installers
+          path: release-assets
+
+      - name: Reverify publication assets
+        shell: bash
+        env:
+          ARCHIVE_NAME: ${{ needs.preflight.outputs.archive_name }}
+          ARCHIVE_SHA256: ${{ needs.preflight.outputs.archive_sha256 }}
+        run: |
+          set -euo pipefail
+          (cd release-assets && sha256sum --check "$ARCHIVE_NAME.sha256")
+          actual_sha256="$(sha256sum "release-assets/$ARCHIVE_NAME" | cut -d ' ' -f 1)"
+          [[ "$actual_sha256" == "$ARCHIVE_SHA256" ]]
+          test "$(find release-assets -maxdepth 1 -type f -name '*.msi' | wc -l)" -eq 1
+          test "$(find release-assets -maxdepth 1 -type f -name '*-setup.exe' | wc -l)" -eq 1
+
+      - name: Publish complete Release atomically
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          ARCHIVE_NAME: ${{ needs.preflight.outputs.archive_name }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
         run: |
           $tag = $env:RELEASE_TAG
           if ([string]::IsNullOrWhiteSpace($tag)) { throw 'Release tag is missing.' }
-          $sourceArchive = Join-Path 'release-assets' $env:SOURCE_ARCHIVE_NAME
-          $sourceChecksum = "$sourceArchive.sha256"
-          if (-not (Test-Path -LiteralPath $sourceArchive -PathType Leaf) -or
-              -not (Test-Path -LiteralPath $sourceChecksum -PathType Leaf)) {
-            throw 'The complete corresponding source assets are missing; the draft Release will not be published.'
+          $existing = gh release view $tag --json isDraft 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            $release = $existing | ConvertFrom-Json
+            if (-not $release.isDraft) { throw 'A published Release already exists for this tag.' }
+          } else {
+            $createArguments = @(
+              'release', 'create', $tag,
+              '--draft',
+              '--verify-tag',
+              '--title', "Vidmetry $tag",
+              '--generate-notes',
+              '--notes', 'Windows x64 installers include verified GPL and MPL notices. The exact FFmpeg Complete Corresponding Source and its SHA-256 are attached beside the installers.'
+            )
+            if ($tag.Contains('-', [StringComparison]::Ordinal)) { $createArguments += '--prerelease' }
+            & gh @createArguments
+            if ($LASTEXITCODE -ne 0) { throw 'Unable to create the draft Release.' }
           }
 
-          gh release upload $tag $sourceArchive $sourceChecksum --clobber
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to attach complete corresponding source to the draft Release.' }
+          $assets = @(Get-ChildItem -LiteralPath 'release-assets' -File | ForEach-Object FullName)
+          if ($assets.Count -ne 4) { throw "Expected four publication assets but found $($assets.Count)." }
+          gh release upload $tag @assets --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to upload complete Release assets.' }
 
           $release = gh release view $tag --json isDraft,assets | ConvertFrom-Json
-          if (-not $release.isDraft) { throw 'Release was published before compliance assets were verified.' }
+          if (-not $release.isDraft) { throw 'Release was published before its assets were verified.' }
           $assetNames = @($release.assets | ForEach-Object name)
-          foreach ($required in @($env:SOURCE_ARCHIVE_NAME, "$($env:SOURCE_ARCHIVE_NAME).sha256")) {
-            if ($required -notin $assetNames) { throw "Draft Release is missing required source asset $required." }
+          $expectedNames = @($assets | ForEach-Object { Split-Path -Leaf $_ } | Sort-Object)
+          $actualNames = @($assetNames | Sort-Object)
+          if (($actualNames -join "`n") -cne ($expectedNames -join "`n")) {
+            throw "Draft Release assets differ from the four verified local assets: $($actualNames -join ', ')."
           }
-          if (-not ($assetNames | Where-Object { $_ -match '\.exe$' }) -or
-              -not ($assetNames | Where-Object { $_ -match '\.msi$' })) {
-            throw 'Draft Release must contain both NSIS and MSI installers before publication.'
+          foreach ($required in @($env:ARCHIVE_NAME, "$($env:ARCHIVE_NAME).sha256")) {
+            if ($required -notin $assetNames) { throw "Draft Release is missing $required." }
+          }
+          if (@($assetNames | Where-Object { $_ -match '\.msi$' }).Count -ne 1 -or
+              @($assetNames | Where-Object { $_ -match '-setup\.exe$' }).Count -ne 1) {
+            throw 'Draft Release must contain exactly one MSI and one setup EXE.'
           }
 
           $visibility = (& gh api "repos/$env:RELEASE_REPOSITORY" --jq '.visibility').Trim()
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to verify public access to the corresponding source.' }
-          if ($visibility -cne 'public') {
-            throw 'The repository is not public, so equivalent no-charge access to the corresponding source cannot be guaranteed. The draft Release will not be published.'
+          if ($LASTEXITCODE -ne 0 -or $visibility -cne 'public') {
+            throw 'Public repository access could not be confirmed immediately before publication.'
           }
 
           gh release edit $tag --draft=false

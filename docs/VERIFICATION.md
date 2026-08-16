@@ -1,6 +1,6 @@
 # Vidmetry 0.4.7 Verification Record
 
-Verification date: 2026-08-16
+Verification date: 2026-08-17
 Platform: Windows x64  
 Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 
@@ -28,6 +28,8 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 | `npm audit --audit-level=high` | Pass — 0 vulnerabilities |
 | `cargo audit --file src-tauri\Cargo.lock` | Pass — 0 vulnerabilities; 17 allowed informational warnings in Tauri's cross-target dependency graph |
 | `actionlint` | Pass — CI and release workflows |
+| Immutable FFmpeg source architecture | Pass — engine tag and archive SHA-256 are manifest-pinned; source assembly has read-only repository permission and no persisted checkout credential; the write-capable publisher receives only the reverified two-file artifact and never overwrites it |
+| Application Release architecture | Pass — public/version/source preflight and Rust license audit precede parallel source transfer and Windows verification; the isolated publisher requires the exact four-asset set and rechecks public access immediately before publication |
 | `npm run tauri build` | Pass — MSI and NSIS bundles |
 | Installer license payload | Pass — both bundle definitions contain FFmpeg license/source notice, complete dependency reports, MPL text, and all 5 MPL source archives |
 | Component interaction | Pass — Windows mode/accent projection, launcher/logo, settings, save shortcuts/menu, focused playback-position Space control, trim-boundary frame steps, authoritative ffprobe timing, collapsible panes, F11 state, notification dismissal, structured command/event error localization, Explorer reveal, event-registration failure, rejected playback, durable-settings failure, multi-path drop validation, and playlist rollback |

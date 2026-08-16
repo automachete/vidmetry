@@ -1,0 +1,260 @@
+name: FFmpeg Immutable Source Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/ffmpeg-sidecars.json"
+      - "scripts/package-ffmpeg-corresponding-source.sh"
+      - "scripts/repack-source-archive.sh"
+      - "scripts/repack-source-directory.sh"
+      - "scripts/archive-source-tree.sh"
+      - "scripts/sanitize-source-tree.sh"
+      - "scripts/test-source-repacker.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ffmpeg-immutable-source-release
+  cancel-in-progress: false
+
+jobs:
+  inspect-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      archive_name: ${{ steps.source.outputs.archive_name }}
+      archive_sha256: ${{ steps.source.outputs.archive_sha256 }}
+      asset_tag: ${{ steps.source.outputs.asset_tag }}
+      cache_key: ${{ steps.source.outputs.cache_key }}
+      available: ${{ steps.existing.outputs.available }}
+      is_draft: ${{ steps.existing.outputs.is_draft }}
+
+    steps:
+      - name: Check out repository without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve immutable source identity
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive_name="$(jq -er '.correspondingSource.archiveName' scripts/ffmpeg-sidecars.json)"
+          archive_sha256="$(jq -er '.correspondingSource.archiveSha256' scripts/ffmpeg-sidecars.json)"
+          asset_tag="$(jq -er '.correspondingSource.assetTag' scripts/ffmpeg-sidecars.json)"
+          engine_id="$(jq -er '.engine.id' scripts/ffmpeg-sidecars.json)"
+          build_commit="$(jq -er '.correspondingSource.buildCommit' scripts/ffmpeg-sidecars.json)"
+          toolchain_digest="$(jq -er '.correspondingSource.sourceToolchainImage' scripts/ffmpeg-sidecars.json | sed -E 's/^.+@sha256://')"
+          [[ "$archive_name" =~ ^vidmetry-ffmpeg-[A-Za-z0-9.-]+-corresponding-source\.tar\.xz$ ]]
+          [[ "$archive_sha256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$asset_tag" =~ ^ffmpeg-source-[A-Za-z0-9.-]+$ ]]
+          [[ "$engine_id" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$build_commit" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$toolchain_digest" =~ ^[0-9a-f]{64}$ ]]
+          echo "archive_name=$archive_name" >> "$GITHUB_OUTPUT"
+          echo "archive_sha256=$archive_sha256" >> "$GITHUB_OUTPUT"
+          echo "asset_tag=$asset_tag" >> "$GITHUB_OUTPUT"
+          echo "cache_key=ffmpeg-source-v1-$engine_id-$build_commit-$toolchain_digest" >> "$GITHUB_OUTPUT"
+
+      - name: Reuse existing immutable source release
+        id: existing
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARCHIVE_NAME: ${{ steps.source.outputs.archive_name }}
+          ARCHIVE_SHA256: ${{ steps.source.outputs.archive_sha256 }}
+          ASSET_TAG: ${{ steps.source.outputs.asset_tag }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$ASSET_TAG" >/dev/null 2>&1; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "is_draft=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          mkdir -p immutable-source
+          gh release download "$ASSET_TAG" \
+            --pattern "$ARCHIVE_NAME" \
+            --pattern "$ARCHIVE_NAME.sha256" \
+            --dir immutable-source
+          (cd immutable-source && sha256sum --check "$ARCHIVE_NAME.sha256")
+          actual_sha256="$(sha256sum "immutable-source/$ARCHIVE_NAME" | cut -d ' ' -f 1)"
+          [[ "$actual_sha256" == "$ARCHIVE_SHA256" ]]
+          tar -tf "immutable-source/$ARCHIVE_NAME" > immutable-source-files.txt
+          grep -q '/SOURCE_METADATA.json$' immutable-source-files.txt
+          grep -q '/build-scripts/Dockerfile.vidmetry-source-graph$' immutable-source-files.txt
+          asset_names="$(gh release view "$ASSET_TAG" --json assets --jq '.assets[].name')"
+          test "$(wc -l <<< "$asset_names")" -eq 2
+          grep -Fxq "$ARCHIVE_NAME" <<< "$asset_names"
+          grep -Fxq "$ARCHIVE_NAME.sha256" <<< "$asset_names"
+          is_draft="$(gh release view "$ASSET_TAG" --json isDraft --jq '.isDraft')"
+          echo "available=true" >> "$GITHUB_OUTPUT"
+          echo "is_draft=$is_draft" >> "$GITHUB_OUTPUT"
+
+  build-source:
+    needs: inspect-source
+    if: needs.inspect-source.outputs.available != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Restore pinned dependency sources
+        id: source-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache/ffmpeg-source-downloads
+          key: ${{ needs.inspect-source.outputs.cache_key }}
+
+      - name: Assemble complete corresponding source once
+        id: assemble
+        continue-on-error: true
+        shell: bash
+        env:
+          ARCHIVE_NAME: ${{ needs.inspect-source.outputs.archive_name }}
+        run: |
+          scripts/test-source-repacker.sh
+          scripts/package-ffmpeg-corresponding-source.sh \
+            --cache-dir .cache/ffmpeg-source-downloads \
+            --output "immutable-source/$ARCHIVE_NAME"
+
+      - name: Inspect source acquisition cache
+        id: cache-state
+        if: always()
+        shell: bash
+        run: |
+          if [[ -s .cache/ffmpeg-source-downloads/.vidmetry-source-cache-v1 ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save complete dependency-source cache
+        if: always() && steps.source-cache.outputs.cache-hit != 'true' && steps.cache-state.outputs.ready == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache/ffmpeg-source-downloads
+          key: ${{ needs.inspect-source.outputs.cache_key }}
+
+      - name: Enforce source assembly result
+        if: steps.assemble.outcome != 'success'
+        shell: bash
+        run: exit 1
+
+      - name: Audit newly assembled immutable source
+        shell: bash
+        env:
+          ARCHIVE_NAME: ${{ needs.inspect-source.outputs.archive_name }}
+          ARCHIVE_SHA256: ${{ needs.inspect-source.outputs.archive_sha256 }}
+        run: |
+          set -euo pipefail
+          (cd immutable-source && sha256sum --check "$ARCHIVE_NAME.sha256")
+          actual_sha256="$(sha256sum "immutable-source/$ARCHIVE_NAME" | cut -d ' ' -f 1)"
+          [[ "$actual_sha256" == "$ARCHIVE_SHA256" ]]
+          tar -tf "immutable-source/$ARCHIVE_NAME" > immutable-source-files.txt
+          grep -q '/ffmpeg/fftools/ffmpeg.c$' immutable-source-files.txt
+          grep -q '/build-scripts/build.sh$' immutable-source-files.txt
+          grep -q '/build-scripts/Dockerfile.vidmetry-source-graph$' immutable-source-files.txt
+          grep -q '/SOURCE_METADATA.json$' immutable-source-files.txt
+          test "$(grep -c '/build-scripts/.cache/downloads/.*\.tar\.xz$' immutable-source-files.txt)" -ge 20
+
+      - name: Transfer verified source to isolated publisher
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: immutable-ffmpeg-source-candidate
+          path: immutable-source
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  publish-source:
+    needs: [inspect-source, build-source]
+    if: >-
+      always() &&
+      needs.inspect-source.result == 'success' &&
+      (needs.inspect-source.outputs.available == 'true' || needs.build-source.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download newly assembled source
+        if: needs.inspect-source.outputs.available != 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: immutable-ffmpeg-source-candidate
+          path: immutable-source
+
+      - name: Reverify isolated publication assets
+        if: needs.inspect-source.outputs.available != 'true'
+        shell: bash
+        env:
+          ARCHIVE_NAME: ${{ needs.inspect-source.outputs.archive_name }}
+          ARCHIVE_SHA256: ${{ needs.inspect-source.outputs.archive_sha256 }}
+        run: |
+          set -euo pipefail
+          test "$(find immutable-source -maxdepth 1 -type f | wc -l)" -eq 2
+          (cd immutable-source && sha256sum --check "$ARCHIVE_NAME.sha256")
+          actual_sha256="$(sha256sum "immutable-source/$ARCHIVE_NAME" | cut -d ' ' -f 1)"
+          [[ "$actual_sha256" == "$ARCHIVE_SHA256" ]]
+          tar -tf "immutable-source/$ARCHIVE_NAME" > immutable-source-files.txt
+          grep -q '/ffmpeg/fftools/ffmpeg.c$' immutable-source-files.txt
+          grep -q '/build-scripts/build.sh$' immutable-source-files.txt
+          grep -q '/SOURCE_METADATA.json$' immutable-source-files.txt
+
+      - name: Publish immutable source assets
+        if: needs.inspect-source.outputs.available != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARCHIVE_NAME: ${{ needs.inspect-source.outputs.archive_name }}
+          ASSET_TAG: ${{ needs.inspect-source.outputs.asset_tag }}
+          SOURCE_TARGET: ${{ github.sha }}
+        run: |
+          $archive = Join-Path 'immutable-source' $env:ARCHIVE_NAME
+          $checksum = "$archive.sha256"
+          gh release create $env:ASSET_TAG $archive $checksum `
+            --target $env:SOURCE_TARGET `
+            --draft `
+            --latest=false `
+            --title "Vidmetry FFmpeg corresponding source $env:ASSET_TAG" `
+            --notes 'Immutable, checksum-pinned Complete Corresponding Source for the FFmpeg and ffprobe engine identified by this tag. Application releases reuse these exact assets and attach them beside their Windows installers.'
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to create the immutable FFmpeg source Release.' }
+
+          $release = gh release view $env:ASSET_TAG --json isDraft,assets | ConvertFrom-Json
+          if (-not $release.isDraft) { throw 'Immutable source Release was published before its assets were verified.' }
+          $assetNames = @($release.assets | ForEach-Object name)
+          if ($assetNames.Count -ne 2) { throw "Immutable source Release must contain exactly two assets but contains $($assetNames.Count)." }
+          foreach ($required in @($env:ARCHIVE_NAME, "$($env:ARCHIVE_NAME).sha256")) {
+            if ($required -notin $assetNames) { throw "Immutable source Release is missing $required." }
+          }
+          gh release edit $env:ASSET_TAG --draft=false
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to publish the verified immutable FFmpeg source Release.' }
+
+      - name: Publish verified resumed draft
+        if: needs.inspect-source.outputs.available == 'true' && needs.inspect-source.outputs.is_draft == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ASSET_TAG: ${{ needs.inspect-source.outputs.asset_tag }}
+        run: gh release edit "$ASSET_TAG" --draft=false
+
+      - name: Report immutable source reuse
+        if: needs.inspect-source.outputs.available == 'true' && needs.inspect-source.outputs.is_draft != 'true'
+        shell: bash
+        env:
+          ASSET_TAG: ${{ needs.inspect-source.outputs.asset_tag }}
+        run: echo "Verified existing immutable corresponding-source Release $ASSET_TAG; no rebuild or replacement was performed."
