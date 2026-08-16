@@ -471,7 +471,15 @@
     if (!videoElement || !media) return;
     if (videoElement.paused) {
       try {
-        if (currentTime < trimStartSeconds || currentTime >= trimEndSeconds) {
+        const lastPlayableFrameTime = frameToSeconds(
+          Math.max(safeTrim.startFrame, safeTrim.endFrame - 1),
+          totalFrames,
+          duration,
+        );
+        if (
+          currentTime < trimStartSeconds ||
+          currentTime >= lastPlayableFrameTime
+        ) {
           seekToFrame(safeTrim.startFrame);
         }
         await videoElement.play();

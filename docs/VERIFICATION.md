@@ -1,4 +1,4 @@
-# Vidmetry 0.4.2 Verification Record
+# Vidmetry 0.4.3 Verification Record
 
 Verification date: 2026-08-16
 Platform: Windows x64  
@@ -17,10 +17,11 @@ Media engine: FFmpeg/ffprobe 9.0.1 essentials build
 | `cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings` | Pass |
 | `scripts/test-integration.ps1` | Pass |
 | `npm run tauri build` | Pass — MSI and NSIS bundles |
-| Component interaction | Pass — Windows mode/accent projection, launcher/logo, settings, save shortcuts/menu, click-to-focus and visible trim-handle selection, focused-handle Space playback, start/end 1/10-frame steps, collapsible panes, F11 state, notification dismissal, localization, and Explorer reveal |
+| Component interaction | Pass — Windows mode/accent projection, launcher/logo, settings, save shortcuts/menu, click-to-focus and visible trim-handle selection, focused end-handle Space restart, start/end 1/10-frame steps, collapsible panes, F11 state, notification dismissal, localization, and Explorer reveal |
+| Playback-state regression | Pass — the UI media mock tracks `paused`, emits play/pause events, and verifies that Space from the selected end handle moves from 7.6 s to the selected 0.3667 s start, enters playing state, advances another frame without stopping, and displays Pause |
 | Pointer alignment regression | Pass — after selecting frames `[60, 180)` of a 240-frame video, a physical timeline click and an off-center handle drag remain aligned within half-frame rendering tolerance |
 | Packaged executable smoke launch | Pass — remained running until test shutdown; extracted executable icon contains only achromatic pixels |
-| Installed shortcut upgrade | Pass — NSIS 0.4.2 updated the existing desktop shortcut to `shortcut-icon-achromatic-v2.ico`, refreshed its timestamp, and installed an achromatic icon |
+| Installed shortcut upgrade | Pass — NSIS updated the existing desktop shortcut to `shortcut-icon-achromatic-v2.ico`, refreshed its timestamp, and installed an achromatic icon |
 
 The MSVC linker emits a localized informational message while producing the Rust `cdylib` import library. It is surfaced by Cargo as `linker_messages` but is not a compiler or Clippy diagnostic.
 
@@ -41,12 +42,12 @@ The source SHA-256 before and after all exports is identical. Temporary test med
 
 ## Local release artifacts
 
-These artifacts were generated from the verified 0.4.2 source tree. They are build outputs and are intentionally not committed.
+These artifacts were generated from the verified 0.4.3 source tree. They are build outputs and are intentionally not committed.
 
 | Artifact | Size | SHA-256 |
 |---|---:|---|
-| `Vidmetry_0.4.2_x64_en-US.msi` | 75.36 MiB | `CB6967F1ABB2D1B340B44A830441CC1748C595A28AA4A63707116164069E65E3` |
-| `Vidmetry_0.4.2_x64-setup.exe` | 54.88 MiB | `F73281C8D0C0ED0C2C2BE7DC6A90D939CAE4ACE1497B02D42760E2E1BE39C6B5` |
+| `Vidmetry_0.4.3_x64_en-US.msi` | 75.36 MiB | `08111A531DE1E7406D77808E5F2CF0079EC840F36C2B7B0C0F74B67586B9C546` |
+| `Vidmetry_0.4.3_x64-setup.exe` | 54.90 MiB | `A6E3016A607D56333F84933CF65DDDE6F6C81D75360A2DCF4C83A1E68B8204D4` |
 
 ## Remaining manual acceptance
 

@@ -134,10 +134,23 @@ async function installTauriMock(page: Page): Promise<void> {
       __vidmetryPlayCount: 0,
       __vidmetryFullscreen: false,
     });
+    const pausedState = new WeakMap<HTMLMediaElement, boolean>();
+    Object.defineProperty(HTMLMediaElement.prototype, 'paused', {
+      configurable: true,
+      get() {
+        return pausedState.get(this) ?? true;
+      },
+    });
     HTMLMediaElement.prototype.play = async function () {
       (window as any).__vidmetryPlayCount += 1;
+      pausedState.set(this, false);
+      this.dispatchEvent(new Event('play'));
     };
-    HTMLMediaElement.prototype.pause = function () {};
+    HTMLMediaElement.prototype.pause = function () {
+      const wasPaused = pausedState.get(this) ?? true;
+      pausedState.set(this, true);
+      if (!wasPaused) this.dispatchEvent(new Event('pause'));
+    };
     localStorage.setItem('vidmetry.settings.v1', JSON.stringify(persistedSettings));
   }, settings);
 }
@@ -262,6 +275,21 @@ test('time trim handles use exact frame steps and export the selected range', as
 
   await page.keyboard.press('Space');
   await expect.poll(() => page.evaluate(() => (window as any).__vidmetryPlayCount)).toBe(1);
+  await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
+  const video = page.locator('video');
+  await expect
+    .poll(() => video.evaluate((element) => (element as HTMLVideoElement).paused))
+    .toBe(false);
+  await expect
+    .poll(() => video.evaluate((element) => (element as HTMLVideoElement).currentTime))
+    .toBeCloseTo((11 / 240) * 8, 3);
+  await video.evaluate((element) => {
+    const media = element as HTMLVideoElement;
+    media.currentTime += 8 / 240;
+    media.dispatchEvent(new Event('timeupdate'));
+  });
+  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).paused)).toBe(false);
+  await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Save options' }).click();
   await page.getByRole('menuitem', { name: 'Save a copy' }).click();
