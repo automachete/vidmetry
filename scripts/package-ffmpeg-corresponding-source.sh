@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export LC_ALL=C
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
@@ -47,6 +48,7 @@ binary_sha256="$(jq -er '.archive.sha256' "$MANIFEST")"
 archive_name="$(jq -er '.correspondingSource.archiveName' "$MANIFEST")"
 archive_sha256="$(jq -er '.correspondingSource.archiveSha256' "$MANIFEST")"
 asset_tag="$(jq -er '.correspondingSource.assetTag' "$MANIFEST")"
+packaging_image="$(jq -er '.correspondingSource.packagingImage' "$MANIFEST")"
 build_repository="$(jq -er '.correspondingSource.buildRepository' "$MANIFEST")"
 build_commit="$(jq -er '.correspondingSource.buildCommit' "$MANIFEST")"
 ffmpeg_repository="$(jq -er '.correspondingSource.ffmpegRepository' "$MANIFEST")"
@@ -61,6 +63,7 @@ ffmpeg_commit="$(jq -er '.correspondingSource.ffmpegCommit' "$MANIFEST")"
 [[ "$archive_name" =~ ^vidmetry-ffmpeg-[A-Za-z0-9.-]+-corresponding-source\.tar\.xz$ ]]
 [[ "$archive_sha256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$asset_tag" =~ ^ffmpeg-source-[A-Za-z0-9.-]+$ ]]
+[[ "$packaging_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]
 [[ "$build_repository" == "https://github.com/BtbN/FFmpeg-Builds.git" ]]
 [[ "$ffmpeg_repository" == "https://github.com/FFmpeg/FFmpeg.git" ]]
 [[ "$build_commit" =~ ^[0-9a-f]{40}$ ]]
@@ -124,36 +127,32 @@ if [[ ! "$repack_jobs" =~ ^[1-8]$ ]]; then
   echo "SOURCE_REPACK_JOBS must be an integer from 1 through 8." >&2
   exit 2
 fi
-
-active_repack_jobs=0
-repack_failed=0
+dependency_list="$work_root/dependency-archives.txt"
 for relative_archive in "${dependency_archives[@]}"; do
   source_archive="$build_checkout/$relative_archive"
   [[ -f "$source_archive" ]] || {
     echo "Missing dependency source archive selected by the build graph: $relative_archive" >&2
     exit 1
   }
-  (
-    "$SCRIPT_DIR/repack-source-archive.sh" \
-      "$source_archive" \
-      "$source_root/build-scripts/.cache/downloads/$(basename -- "$source_archive")"
-  ) &
-  active_repack_jobs=$((active_repack_jobs + 1))
+  basename -- "$source_archive" >> "$dependency_list"
+done
 
-  if [[ "$active_repack_jobs" -eq "$repack_jobs" ]]; then
-    if ! wait -n; then
-      repack_failed=1
-    fi
-    active_repack_jobs=$((active_repack_jobs - 1))
-  fi
-done
-while [[ "$active_repack_jobs" -gt 0 ]]; do
-  if ! wait -n; then
-    repack_failed=1
-  fi
-  active_repack_jobs=$((active_repack_jobs - 1))
-done
-[[ "$repack_failed" -eq 0 ]] || exit 1
+resolved_downloads="$(cd -P -- "$build_checkout/.cache/downloads" && pwd)"
+resolved_scripts="$(cd -P -- "$SCRIPT_DIR" && pwd)"
+resolved_dependency_list="$(cd -P -- "$(dirname -- "$dependency_list")" && pwd)/$(basename -- "$dependency_list")"
+resolved_dependency_output="$(cd -P -- "$source_root/build-scripts/.cache/downloads" && pwd)"
+
+docker pull "$packaging_image" >/dev/null
+docker run --rm --network none --read-only --cap-drop ALL \
+  --security-opt no-new-privileges --user "$(id -u):$(id -g)" \
+  --tmpfs /tmp:rw,nosuid,nodev \
+  --mount "type=bind,src=$resolved_scripts,dst=/opt/vidmetry-scripts,readonly" \
+  --mount "type=bind,src=$resolved_downloads,dst=/input,readonly" \
+  --mount "type=bind,src=$resolved_dependency_list,dst=/archive-list.txt,readonly" \
+  --mount "type=bind,src=$resolved_dependency_output,dst=/output" \
+  "$packaging_image" \
+  bash /opt/vidmetry-scripts/repack-source-directory.sh \
+    /input /output /archive-list.txt "$repack_jobs"
 
 git clone --filter=blob:none --no-checkout "$ffmpeg_repository" "$ffmpeg_checkout"
 git -C "$ffmpeg_checkout" fetch --depth=1 origin "$ffmpeg_commit"
@@ -165,6 +164,7 @@ jq -n \
   --arg engineId "$engine_id" \
   --arg license "$license" \
   --arg variant "$variant" \
+  --arg packagingImage "$packaging_image" \
   --arg binaryUrl "$binary_url" \
   --arg binarySha256 "$binary_sha256" \
   --arg buildRepository "$build_repository" \
@@ -177,6 +177,7 @@ jq -n \
     engineId: $engineId,
     license: $license,
     variant: $variant,
+    packagingImage: $packagingImage,
     conveyedBinary: { url: $binaryUrl, sha256: $binarySha256 },
     buildDefinition: { repository: $buildRepository, commit: $buildCommit },
     ffmpegSource: { repository: $ffmpegRepository, commit: $ffmpegCommit },
@@ -192,6 +193,8 @@ This archive accompanies the FFmpeg and ffprobe object code conveyed in the same
 - `build-scripts/` is the exact BtbN/FFmpeg-Builds revision containing the Windows GPL build controls, patches, Docker definitions, and license-selection logic.
 - `build-scripts/.cache/downloads/` contains every dependency source archive selected by the generated `win64-gpl` build graph.
 - Dependency archives contain the preferred source trees with checkout-specific `.git` administration data removed and deterministic metadata applied.
+- External symbolic links are removed from dependency archives and recorded in an affected archive's `.vidmetry-normalization/removed-external-symlinks.tsv`; internal links are preserved.
+- The digest-pinned packaging image used for deterministic archive creation is recorded in `SOURCE_METADATA.json`.
 - `build-scripts/Dockerfile.vidmetry-source-graph` records the resolved dependency graph and configuration used to select those archives.
 - `SOURCE_SHA256SUMS` authenticates every file in the archive other than the checksum list itself.
 
@@ -200,14 +203,18 @@ The upstream build entry points are `build-scripts/makeimage.sh win64 gpl` and `
 The sources retain their original licenses. The binary's GPL license text is distributed next to the installed executables and with the Vidmetry repository notices.
 EOF
 
-(
-  cd "$source_root"
-  find . -type f ! -name SOURCE_SHA256SUMS -print0 | sort -z | xargs -0 sha256sum
-) > "$source_root/SOURCE_SHA256SUMS"
-
 mkdir -p "$(dirname -- "$OUTPUT")"
-tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
-  -cJf "$OUTPUT" -C "$stage_root" "$source_root_name"
+resolved_stage_root="$(cd -P -- "$stage_root" && pwd)"
+resolved_output_parent="$(mkdir -p "$(dirname -- "$OUTPUT")" && cd -P -- "$(dirname -- "$OUTPUT")" && pwd)"
+docker run --rm --network none --read-only --cap-drop ALL \
+  --security-opt no-new-privileges --user "$(id -u):$(id -g)" \
+  --tmpfs /tmp:rw,nosuid,nodev \
+  --mount "type=bind,src=$resolved_scripts,dst=/opt/vidmetry-scripts,readonly" \
+  --mount "type=bind,src=$resolved_stage_root,dst=/input" \
+  --mount "type=bind,src=$resolved_output_parent,dst=/output" \
+  "$packaging_image" \
+  bash /opt/vidmetry-scripts/archive-source-tree.sh \
+    /input "$source_root_name" "/output/$(basename -- "$OUTPUT")"
 (
   cd "$(dirname -- "$OUTPUT")"
   sha256sum "$(basename -- "$OUTPUT")" > "$(basename -- "$OUTPUT").sha256"

@@ -8,6 +8,7 @@ fi
 
 input="$1"
 output="$2"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 [[ -f "$input" ]]
 [[ "$input" == *.tar.xz ]]
 [[ "$output" == *.tar.xz ]]
@@ -38,8 +39,10 @@ while IFS= read -r -d '' vcs_entry; do
   rm -rf -- "$vcs_entry"
 done < <(find "$extract_root" -depth -name .git -print0)
 
+"$SCRIPT_DIR/sanitize-source-tree.sh" "$extract_root" remove-and-record
+
 normalized="$work_root/normalized.tar.xz"
 tar --format=gnu --sort=name --mtime='UTC 1970-01-01' \
-  --owner=0 --group=0 --numeric-owner \
+  --owner=0 --group=0 --numeric-owner --hard-dereference \
   -cJf "$normalized" -C "$extract_root" .
 mv -- "$normalized" "$output"

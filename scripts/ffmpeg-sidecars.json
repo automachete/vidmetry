@@ -51,8 +51,9 @@
   },
   "correspondingSource": {
     "archiveName": "vidmetry-ffmpeg-N-126168-gb16b5f2a01-20260815-corresponding-source.tar.xz",
-    "archiveSha256": "a5c76a07ae5f2c864e2ba9268ba8efc47cffc755e6f043d4894a23b68e0945e6",
+    "archiveSha256": "9306caa6efe238290dbc455a3850c0b11e2e297e770ff6450134f601f2019b35",
     "assetTag": "ffmpeg-source-N-126168-gb16b5f2a01-20260815",
+    "packagingImage": "ghcr.io/btbn/ffmpeg-builds/base@sha256:bda8a0c319d4c2117ed29af1e37b46c88b5788d6f4e2ef175abbcb02af35ad6b",
     "buildRepository": "https://github.com/BtbN/FFmpeg-Builds.git",
     "buildCommit": "590a6612d7d961e9258429e501619e0b7d7cbedf",
     "ffmpegRepository": "https://github.com/FFmpeg/FFmpeg.git",
