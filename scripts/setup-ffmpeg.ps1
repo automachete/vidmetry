@@ -142,7 +142,7 @@ Assert-ExactProperties $manifest.engine @('id', 'versionPrefix', 'license', 'var
 Assert-ExactProperties $manifest.archive @('provider', 'releaseTag', 'url', 'sha256', 'rootDirectory') 'archive'
 Assert-ExactProperties $manifest.notices @('license', 'buildInfoFileName', 'correspondingSourceFileName') 'notices'
 Assert-ExactProperties $manifest.notices.license @('archivePath', 'sha256', 'fileName') 'notices.license'
-Assert-ExactProperties $manifest.correspondingSource @('archiveName', 'buildRepository', 'buildCommit', 'ffmpegRepository', 'ffmpegCommit', 'officialReleaseBaseUrl') 'correspondingSource'
+Assert-ExactProperties $manifest.correspondingSource @('archiveName', 'archiveSha256', 'assetTag', 'buildRepository', 'buildCommit', 'ffmpegRepository', 'ffmpegCommit', 'officialReleaseBaseUrl') 'correspondingSource'
 
 if ($manifest.schemaVersion -ne 1) { throw 'FFmpeg manifest schemaVersion must be 1.' }
 if ($manifest.engine.license -cne 'GPL-3.0-or-later' -or $manifest.engine.variant -cne 'win64-gpl') {
@@ -167,6 +167,10 @@ if ($manifest.notices.license.fileName -cne 'FFMPEG_LICENSE.txt' -or
 }
 if ($manifest.correspondingSource.archiveName -cnotmatch '^vidmetry-ffmpeg-[A-Za-z0-9.-]+-corresponding-source\.tar\.xz$') {
     throw 'Corresponding-source archive name is invalid.'
+}
+Assert-Sha256 $manifest.correspondingSource.archiveSha256 'correspondingSource.archiveSha256'
+if ($manifest.correspondingSource.assetTag -cnotmatch '^ffmpeg-source-[A-Za-z0-9.-]+$') {
+    throw 'Corresponding-source immutable asset tag is invalid.'
 }
 if ($manifest.correspondingSource.buildRepository -cne 'https://github.com/BtbN/FFmpeg-Builds.git' -or
     $manifest.correspondingSource.ffmpegRepository -cne 'https://github.com/FFmpeg/FFmpeg.git' -or

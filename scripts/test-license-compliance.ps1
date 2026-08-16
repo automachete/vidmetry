@@ -37,24 +37,46 @@ if ($manifest.correspondingSource.buildCommit -cnotmatch '^[0-9a-f]{40}$' -or
     throw 'Complete corresponding source must pin full build and FFmpeg commits.'
 }
 
+function Assert-FileDoesNotContainLiteral([string]$Path, [string]$Value, [string]$Description) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "$Description file is missing: $Path"
+    }
+    $content = Get-Content -LiteralPath $Path -Raw
+    if ($content.Contains($Value, [StringComparison]::Ordinal)) {
+        throw "$Description contains forbidden text: $Value"
+    }
+}
+if ($manifest.correspondingSource.archiveSha256 -cnotmatch '^[0-9a-f]{64}$' -or
+    $manifest.correspondingSource.assetTag -cnotmatch '^ffmpeg-source-[A-Za-z0-9.-]+$') {
+    throw 'Complete corresponding source must pin an immutable archive checksum and engine asset tag.'
+}
+
 $sourceScript = Join-Path $PSScriptRoot 'package-ffmpeg-corresponding-source.sh'
 Assert-FileContainsLiteral $sourceScript 'env -u GITHUB_REPOSITORY ./download.sh' 'Corresponding-source packager'
 Assert-FileContainsLiteral $sourceScript 'env -u GITHUB_REPOSITORY ./generate.sh win64 gpl' 'Corresponding-source packager'
 Assert-FileContainsLiteral $sourceScript 'dependency_archives' 'Corresponding-source packager'
 Assert-FileContainsLiteral $sourceScript 'git -C "$ffmpeg_checkout" archive' 'Corresponding-source packager'
+Assert-FileContainsLiteral $sourceScript 'actual_archive_sha256' 'Corresponding-source packager'
 
 $releaseWorkflow = Join-Path $projectRoot '.github\workflows\release.yml'
-Assert-FileContainsLiteral $releaseWorkflow 'corresponding-source:' 'Release workflow'
-Assert-FileContainsLiteral $releaseWorkflow 'needs: corresponding-source' 'Release workflow'
-Assert-FileContainsLiteral $releaseWorkflow 'releaseDraft: true' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow 'preflight:' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow 'source-assets:' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow 'build-windows:' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow 'needs: [preflight, source-assets, build-windows]' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow 'gh release download "$ASSET_TAG"' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'gh release upload' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'gh release edit $tag --draft=false' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'RELEASE_TAG: ${{ github.ref_name }}' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'RELEASE_REPOSITORY: ${{ github.repository }}' 'Release workflow'
-Assert-FileContainsLiteral $releaseWorkflow "`$visibility -cne 'public'" 'Release workflow'
-Assert-FileContainsLiteral $releaseWorkflow $manifest.correspondingSource.archiveName 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow 'visibility="$(gh api "repos/$RELEASE_REPOSITORY"' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow 'Public repository access could not be confirmed immediately before publication.' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow '.correspondingSource.archiveSha256' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow '.correspondingSource.assetTag' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow 'EmbarkStudios/cargo-deny-action@' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow 'persist-credentials: false' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'setup-copyleft-sources.ps1' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'generate-third-party-licenses.ps1' 'Release workflow'
+Assert-FileDoesNotContainLiteral $releaseWorkflow 'package-ffmpeg-corresponding-source.sh' 'Release workflow'
 $releaseWorkflowText = Get-Content -LiteralPath $releaseWorkflow -Raw
 foreach ($unsafeExpansion in @('-Tag "${{ github.ref_name }}"', '$tag = "${{ github.ref_name }}"')) {
     if ($releaseWorkflowText.Contains($unsafeExpansion, [StringComparison]::Ordinal)) {
@@ -65,6 +87,45 @@ foreach ($unsafeExpansion in @('-Tag "${{ github.ref_name }}"', '$tag = "${{ git
 $sourceAuditWorkflow = Join-Path $projectRoot '.github\workflows\ffmpeg-source-audit.yml'
 Assert-FileContainsLiteral $sourceAuditWorkflow 'package-ffmpeg-corresponding-source.sh' 'Corresponding-source audit workflow'
 Assert-FileContainsLiteral $sourceAuditWorkflow 'tar -tf' 'Corresponding-source audit workflow'
+Assert-FileContainsLiteral $sourceAuditWorkflow '.correspondingSource.archiveSha256' 'Corresponding-source audit workflow'
+Assert-FileDoesNotContainLiteral $sourceAuditWorkflow 'actions/upload-artifact@' 'Corresponding-source audit workflow'
+
+$sourceReleaseWorkflow = Join-Path $projectRoot '.github\workflows\ffmpeg-source-release.yml'
+Assert-FileContainsLiteral $sourceReleaseWorkflow 'branches: [main]' 'Immutable source Release workflow'
+Assert-FileContainsLiteral $sourceReleaseWorkflow 'Reuse existing immutable source release' 'Immutable source Release workflow'
+Assert-FileContainsLiteral $sourceReleaseWorkflow 'build-source:' 'Immutable source Release workflow'
+Assert-FileContainsLiteral $sourceReleaseWorkflow 'publish-source:' 'Immutable source Release workflow'
+Assert-FileContainsLiteral $sourceReleaseWorkflow 'needs: [inspect-source, build-source]' 'Immutable source Release workflow'
+Assert-FileContainsLiteral $sourceReleaseWorkflow 'persist-credentials: false' 'Immutable source Release workflow'
+Assert-FileContainsLiteral $sourceReleaseWorkflow 'Transfer verified source to isolated publisher' 'Immutable source Release workflow'
+Assert-FileContainsLiteral $sourceReleaseWorkflow 'gh release create $env:ASSET_TAG' 'Immutable source Release workflow'
+Assert-FileContainsLiteral $sourceReleaseWorkflow '--latest=false' 'Immutable source Release workflow'
+Assert-FileContainsLiteral $sourceReleaseWorkflow 'gh release edit $env:ASSET_TAG --draft=false' 'Immutable source Release workflow'
+Assert-FileDoesNotContainLiteral $sourceReleaseWorkflow '--clobber' 'Immutable source Release workflow'
+$sourceReleaseWorkflowText = Get-Content -LiteralPath $sourceReleaseWorkflow -Raw
+$buildSourceJob = [regex]::Match(
+    $sourceReleaseWorkflowText,
+    '(?ms)^  build-source:\r?\n(?<Body>.*?)(?=^  publish-source:)'
+)
+$publishSourceJob = [regex]::Match(
+    $sourceReleaseWorkflowText,
+    '(?ms)^  publish-source:\r?\n(?<Body>.*)\z'
+)
+if (-not $buildSourceJob.Success -or -not $publishSourceJob.Success) {
+    throw 'Immutable source Release workflow jobs could not be parsed for privilege isolation.'
+}
+$buildSourceBody = $buildSourceJob.Groups['Body'].Value
+$publishSourceBody = $publishSourceJob.Groups['Body'].Value
+if (-not $buildSourceBody.Contains('contents: read', [StringComparison]::Ordinal) -or
+    $buildSourceBody.Contains('contents: write', [StringComparison]::Ordinal) -or
+    $buildSourceBody.Contains('secrets.GITHUB_TOKEN', [StringComparison]::Ordinal)) {
+    throw 'Source assembly must run with read-only contents permission and without a publication token.'
+}
+if (-not $publishSourceBody.Contains('contents: write', [StringComparison]::Ordinal) -or
+    $publishSourceBody.Contains('package-ffmpeg-corresponding-source.sh', [StringComparison]::Ordinal) -or
+    $publishSourceBody.Contains('actions/checkout@', [StringComparison]::Ordinal)) {
+    throw 'Source publication must receive verified artifacts without checking out or rebuilding source.'
+}
 
 $ciWorkflow = Join-Path $projectRoot '.github\workflows\ci.yml'
 Assert-FileContainsLiteral $ciWorkflow 'EmbarkStudios/cargo-deny-action@' 'CI workflow'

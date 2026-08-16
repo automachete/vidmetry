@@ -45,6 +45,8 @@ variant="$(jq -er '.engine.variant' "$MANIFEST")"
 binary_url="$(jq -er '.archive.url' "$MANIFEST")"
 binary_sha256="$(jq -er '.archive.sha256' "$MANIFEST")"
 archive_name="$(jq -er '.correspondingSource.archiveName' "$MANIFEST")"
+archive_sha256="$(jq -er '.correspondingSource.archiveSha256' "$MANIFEST")"
+asset_tag="$(jq -er '.correspondingSource.assetTag' "$MANIFEST")"
 build_repository="$(jq -er '.correspondingSource.buildRepository' "$MANIFEST")"
 build_commit="$(jq -er '.correspondingSource.buildCommit' "$MANIFEST")"
 ffmpeg_repository="$(jq -er '.correspondingSource.ffmpegRepository' "$MANIFEST")"
@@ -57,6 +59,8 @@ ffmpeg_commit="$(jq -er '.correspondingSource.ffmpegCommit' "$MANIFEST")"
 [[ "$binary_url" != */latest/* ]]
 [[ "$binary_sha256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$archive_name" =~ ^vidmetry-ffmpeg-[A-Za-z0-9.-]+-corresponding-source\.tar\.xz$ ]]
+[[ "$archive_sha256" =~ ^[0-9a-f]{64}$ ]]
+[[ "$asset_tag" =~ ^ffmpeg-source-[A-Za-z0-9.-]+$ ]]
 [[ "$build_repository" == "https://github.com/BtbN/FFmpeg-Builds.git" ]]
 [[ "$ffmpeg_repository" == "https://github.com/FFmpeg/FFmpeg.git" ]]
 [[ "$build_commit" =~ ^[0-9a-f]{40}$ ]]
@@ -180,5 +184,11 @@ tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
   cd "$(dirname -- "$OUTPUT")"
   sha256sum "$(basename -- "$OUTPUT")" > "$(basename -- "$OUTPUT").sha256"
 )
+
+actual_archive_sha256="$(sha256sum "$OUTPUT" | cut -d ' ' -f 1)"
+if [[ "$actual_archive_sha256" != "$archive_sha256" ]]; then
+  echo "Corresponding-source archive checksum mismatch. Expected $archive_sha256 but generated $actual_archive_sha256." >&2
+  exit 1
+fi
 
 echo "Created $OUTPUT with ${#dependency_archives[@]} dependency source archives."
