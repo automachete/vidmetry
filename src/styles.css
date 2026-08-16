@@ -878,7 +878,7 @@ select:focus-visible {
 }
 
 .trim-readout .selected-duration {
-  color: #96a098;
+  color: var(--text-soft);
 }
 
 .trim-readout .selected-duration strong {
@@ -1451,7 +1451,7 @@ select:focus-visible {
   padding: 13px 14px;
   border: 1px solid var(--accent-border);
   border-radius: 10px;
-  color: #ddfff4;
+  color: var(--text);
   background: color-mix(in srgb, var(--accent) 18%, #15181e);
   box-shadow: 0 16px 50px rgb(0 0 0 / 35%);
   font-size: 11px;
@@ -1641,7 +1641,7 @@ select:focus-visible {
 }
 
 :root[data-theme="light"] .success-banner {
-  color: #1e2523;
+  color: var(--text);
   background: color-mix(in srgb, var(--accent) 12%, #fff);
   box-shadow: 0 16px 50px rgb(0 0 0 / 18%);
 }

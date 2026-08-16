@@ -274,21 +274,50 @@ test('time trim handles use exact frame steps and export the selected range', as
   expect(trim).toEqual({ startFrame: 11, endFrame: 229 });
 });
 
-test('trim drag stays under the pointer after the range is narrowed', async ({ page }) => {
+test('timeline clicks and trim handles stay under the pointer after the selection is halved', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Open video' }).click();
 
   const timeline = page.locator('.trim-timeline');
   const start = page.getByRole('slider', { name: 'Adjust start frame' });
+  const end = page.getByRole('slider', { name: 'Adjust end frame' });
   await start.click();
-  for (let index = 0; index < 8; index += 1) await page.keyboard.press('Shift+ArrowRight');
-  await expect(start).toHaveAttribute('aria-valuenow', '80');
+  for (let index = 0; index < 6; index += 1) await page.keyboard.press('Shift+ArrowRight');
+  await end.click();
+  for (let index = 0; index < 6; index += 1) await page.keyboard.press('Shift+ArrowLeft');
+  await expect(start).toHaveAttribute('aria-valuenow', '60');
+  await expect(end).toHaveAttribute('aria-valuenow', '180');
+
+  const timelineBox = await timeline.boundingBox();
+  expect(timelineBox).not.toBeNull();
+  const pointerY = timelineBox!.y + timelineBox!.height / 2;
+  const seekPointerX = timelineBox!.x + timelineBox!.width * 0.4;
+  await page.mouse.click(seekPointerX, pointerY);
+  const playheadBox = await page.locator('.timeline-playhead').boundingBox();
+  expect(playheadBox).not.toBeNull();
+  const halfFrameWidth = timelineBox!.width / 240 / 2;
+  expect(Math.abs(playheadBox!.x + playheadBox!.width / 2 - seekPointerX)).toBeLessThanOrEqual(
+    halfFrameWidth + 1,
+  );
 
   const handleBox = await start.boundingBox();
   expect(handleBox).not.toBeNull();
-  const pointerX = handleBox!.x + handleBox!.width / 2 + 42;
-  const pointerY = handleBox!.y + handleBox!.height / 2;
-  await page.mouse.move(handleBox!.x + handleBox!.width / 2, pointerY);
+  const pointerX = timelineBox!.x + timelineBox!.width * 0.35;
+  await page.mouse.move(handleBox!.x + 2, pointerY);
+  await page.mouse.down();
+  await page.mouse.move(pointerX, pointerY);
+  await page.mouse.up();
+
+  const movedBox = await start.boundingBox();
+  expect(movedBox).not.toBeNull();
+  expect(Math.abs(movedBox!.x + movedBox!.width / 2 - pointerX)).toBeLessThanOrEqual(
+    halfFrameWidth + 1,
+  );
+
+  const endBox = await end.boundingBox();
+  expect(endBox).not.toBeNull();
+  const finalPointerX = timelineBox!.x + timelineBox!.width * 0.65;
+  await page.mouse.move(endBox!.x + endBox!.width / 2, pointerY);
   await page.mouse.down();
   await page.evaluate(
     ({ finalX, y }) => {
@@ -306,9 +335,7 @@ test('trim drag stays under the pointer after the range is narrowed', async ({ p
         pointerId: 1,
         pointerType: 'mouse',
       });
-      Object.defineProperty(finalEvent, 'getCoalescedEvents', {
-        value: () => [staleSample],
-      });
+      Object.defineProperty(finalEvent, 'getCoalescedEvents', { value: () => [staleSample] });
       window.dispatchEvent(finalEvent);
       window.dispatchEvent(
         new PointerEvent('pointerup', {
@@ -320,15 +347,14 @@ test('trim drag stays under the pointer after the range is narrowed', async ({ p
         }),
       );
     },
-    { finalX: pointerX, y: pointerY },
+    { finalX: finalPointerX, y: pointerY },
   );
   await page.mouse.up();
-
-  const movedBox = await start.boundingBox();
-  const timelineBox = await timeline.boundingBox();
-  expect(movedBox).not.toBeNull();
-  expect(timelineBox).not.toBeNull();
-  expect(Math.abs(movedBox!.x + movedBox!.width / 2 - pointerX)).toBeLessThanOrEqual(2);
+  const finalEndBox = await end.boundingBox();
+  expect(finalEndBox).not.toBeNull();
+  expect(Math.abs(finalEndBox!.x + finalEndBox!.width / 2 - finalPointerX)).toBeLessThanOrEqual(
+    halfFrameWidth + 1,
+  );
 });
 
 test('Windows light mode and accent color drive the whole editor and trim bar', async ({ page }) => {

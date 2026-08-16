@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document version | 1.4 |
-| Product version | 0.4.1 |
+| Product version | 0.4.2 |
 | Status | Implemented and verified |
 | Primary platform | Windows 11 x64 |
 | UI languages | Japanese and English |
@@ -34,7 +34,7 @@ The application must not imply that physical video cropping can normally use str
 - Keep all media processing local.
 - Remain responsive while probing, proxying, and exporting.
 
-### 2.2 Non-goals for 0.4.1
+### 2.2 Non-goals for 0.4.2
 
 - Multi-clip timelines, internal cuts, transitions, filters, captions, or independent audio editing.
 - Animated crop/keyframes.
@@ -68,7 +68,7 @@ The application must not imply that physical video cropping can normally use str
 - **FR-020** The UI provides play/pause, current time, duration, mute, a frame strip, a playhead scrubber, and start/end trim handles.
 - **FR-021** Start is inclusive and end is exclusive. The selected range always contains at least one integer source frame.
 - **FR-022** The crop overlay remains spatially stable during playback, seek, resize, and fullscreen layout changes.
-- **FR-023** Trim dragging maps the dispatched pointer event's final absolute timeline position to the handle, with one-frame snapping at low speed and timeline-scale snapping at high speed. Coalesced samples may estimate velocity but cannot replace the final position. This prevents accumulated or one-event pointer/handle drift. Focused trim handles move by one frame with an arrow key or ten with Shift.
+- **FR-023** Timeline clicks and trim dragging use the video's full-duration coordinate system even after the selected range is narrowed. Clicks clamp to the selection, a dragged handle centers on the final dispatched pointer position, and coalesced samples may estimate velocity but cannot replace that final position. Focused trim handles move by one frame with an arrow key or ten with Shift.
 - **FR-024** An icon-only control toggles loop playback. The selected state is persisted and reused for subsequent videos and sessions.
 - **FR-025** Playback and loop boundaries follow the selected time range. Space toggles playback even while a trim handle has focus; otherwise left/right keys seek by one frame or ten with Shift.
 - **FR-026** The UI follows the current Windows light/dark app mode and selected accent color. Theme change notifications apply the mode immediately, and the accent is refreshed at startup, on theme change, and when the app regains focus.
@@ -247,7 +247,7 @@ The main window uses three regions:
 2. A flexible, neutrally colored video stage containing optional directory navigation, the video, and crop overlay.
 3. A collapsible frame-strip footer with velocity-sensitive time handles, playback/scrub, persistent loop, and mute, plus a collapsible spatial inspector with coordinates, dimensions, aspect ratio, and Reset.
 
-The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. Windows mode/accent changes are projected through CSS variables; fixed app-icon artwork is achromatic. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
+The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. Windows mode/accent changes are projected through CSS variables; fixed app-icon artwork is strictly achromatic. The NSIS installer assigns shortcuts a versioned icon path and refreshes the Windows Shell cache after upgrades. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
 
 ## 9. Preview strategy
 
@@ -298,7 +298,8 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 ### 13.2 Component and UI regression tests
 
 - Testing Library covers launcher content, settings, save shortcuts, Space playback from trim focus, localization, trim-frame key steps, pane collapse, F11 state, Windows appearance projection, notice dismissal, and completed-output links.
-- Playwright exercises the same critical flows in Chromium, including absolute trim-handle alignment, trim export ranges, theme/accent projection, collapsible panes, F11, notification expiry, and screenshot layout.
+- Playwright exercises the same critical flows in Chromium, including full-duration click alignment after halving the selection, off-center trim-handle grabs, trim export ranges, theme/accent projection, collapsible panes, F11, notification expiry, and screenshot layout.
+- Asset verification scans generated PNG/ICO pixels and source SVG colors for chromatic fixed artwork, rejects legacy green tints, and checks the Windows shortcut refresh configuration.
 - Screenshot baselines cover launcher, settings, save-menu, successful-save, and Windows light-theme states.
 
 ### 13.3 Rust unit tests
@@ -334,7 +335,7 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - Windows light/dark and several light/dark accent colors, including runtime changes
 - output cancellation and disk/permission errors
 
-## 14. Acceptance criteria for 0.4.1
+## 14. Acceptance criteria for 0.4.2
 
 - **AC-001** A user can open a video, drag every crop handle, scrub, play, and reset without leaving the main window.
 - **AC-002** Pixel readouts match the crop shown and remain in bounds after resize.
@@ -350,11 +351,11 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - **AC-012** Save controls, folder arrows, and success notification pass component and Chromium layout/visual regression tests; the notification reveals rather than launches the output.
 - **AC-013** Start/end handles provide velocity-sensitive mouse adjustment and keyboard frame steps, and the exported video contains the selected ordinal frames.
 - **AC-014** The save notice expires after three seconds or another interaction; its link opens Explorer with the saved file selected.
-- **AC-015** Windows light/dark app mode and accent color drive all app surfaces and the trim bar; fixed icon assets contain no brand accent color.
+- **AC-015** Windows light/dark app mode and accent color drive all app surfaces and the trim bar; fixed icon assets are achromatic, and an upgraded NSIS installation replaces cached green shortcut artwork.
 - **AC-016** Ctrl+S starts Copy and save, while Ctrl+Shift+S starts confirmed in-place Save when eligible.
-- **AC-017** Start/end handles move by 1 or 10 frames from keyboard focus, Space still toggles playback, and a narrowed-range pointer drag keeps its handle aligned with the pointer.
+- **AC-017** Start/end handles move by 1 or 10 frames from keyboard focus, Space still toggles playback, and both timeline clicks and off-center handle drags remain aligned with the pointer after the selected range is reduced to half the video.
 - **AC-018** The crop inspector and time-trim footer collapse independently, and F11/Escape toggle a video-only window fullscreen preview.
 
 ## 15. Verification status
 
-The 0.4.1 implementation satisfies AC-001 through AC-018 at automated or implementation-inspection level. Native picker interaction, live Windows personalization changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.
+The 0.4.2 implementation satisfies AC-001 through AC-018 at automated or implementation-inspection level. Native picker interaction, live Windows personalization changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.

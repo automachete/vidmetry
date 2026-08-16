@@ -1,7 +1,7 @@
 {
   "name": "vidmetry",
   "private": true,
-  "version": "0.4.1",
+  "version": "0.4.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,10 +10,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:assets": "pwsh -NoProfile -File scripts/test-icon-assets.ps1",
     "test:ui": "playwright test",
     "test:ui:update": "playwright test --update-snapshots",
     "test:integration": "pwsh -NoProfile -File scripts/test-integration.ps1",
-    "verify": "npm run check && npm test && npm run build",
+    "verify": "npm run check && npm run test:assets && npm test && npm run build",
     "tauri": "tauri"
   },
   "dependencies": {

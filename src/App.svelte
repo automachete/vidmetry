@@ -114,9 +114,13 @@
   interface TimeTrimDragState {
     handle: TrimHandle;
     timelineLeft: number;
-    grabOffsetX: number;
     lastPointerX: number;
     lastTimestamp: number;
+    renderedWidth: number;
+  }
+
+  interface TimelineScrubState {
+    timelineLeft: number;
     renderedWidth: number;
   }
 
@@ -144,6 +148,7 @@
   let successTimer: ReturnType<typeof setTimeout> | null = null;
   let dragState: DragState | null = null;
   let timeTrimDragState: TimeTrimDragState | null = null;
+  let timelineScrubState: TimelineScrubState | null = null;
   let selectedTrimHandle: TrimHandle | null = null;
   let seekFrame: number | null = null;
   let unlistenDragDrop: UnlistenFn | undefined;
@@ -270,6 +275,7 @@
     window.removeEventListener('focus', refreshSystemAccent);
     endCropDrag();
     endTimeTrimDrag();
+    endTimelineScrub();
     if (seekFrame !== null) cancelAnimationFrame(seekFrame);
     if (successTimer !== null) clearTimeout(successTimer);
   });
@@ -487,6 +493,47 @@
     seekToTime(next);
   }
 
+  function seekToTimelinePointer(clientX: number, state: TimelineScrubState) {
+    const requestedFrame = pointerFrameFromTimeline(
+      clientX,
+      state.timelineLeft,
+      state.renderedWidth,
+      totalFrames,
+      0,
+      0,
+    );
+    seekToFrame(Math.min(safeTrim.endFrame, Math.max(safeTrim.startFrame, requestedFrame)));
+  }
+
+  function beginTimelineScrub(event: PointerEvent) {
+    if (!media || event.button !== 0 || exportJobId) return;
+    const input = event.currentTarget as HTMLInputElement;
+    const timeline = input.closest('.trim-timeline');
+    if (!(timeline instanceof HTMLElement)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    input.focus({ preventScroll: true });
+    const timelineRect = timeline.getBoundingClientRect();
+    timelineScrubState = {
+      timelineLeft: timelineRect.left,
+      renderedWidth: timelineRect.width,
+    };
+    seekToTimelinePointer(event.clientX, timelineScrubState);
+    window.addEventListener('pointermove', continueTimelineScrub);
+    window.addEventListener('pointerup', endTimelineScrub, { once: true });
+  }
+
+  function continueTimelineScrub(event: PointerEvent) {
+    if (!timelineScrubState) return;
+    seekToTimelinePointer(event.clientX, timelineScrubState);
+  }
+
+  function endTimelineScrub() {
+    timelineScrubState = null;
+    window.removeEventListener('pointermove', continueTimelineScrub);
+    window.removeEventListener('pointerup', endTimelineScrub);
+  }
+
   function seekToTime(next: number) {
     currentTime = Math.min(trimEndSeconds, Math.max(trimStartSeconds, next));
     if (seekFrame !== null) cancelAnimationFrame(seekFrame);
@@ -658,13 +705,10 @@
     selectedTrimHandle = handle;
     handleElement.focus({ preventScroll: true });
     videoElement?.pause();
-    const framePosition = handle === 'start' ? safeTrim.startFrame : safeTrim.endFrame;
     const timelineRect = timeline.getBoundingClientRect();
-    const handleCenterX = timelineRect.left + (framePosition / totalFrames) * timelineRect.width;
     timeTrimDragState = {
       handle,
       timelineLeft: timelineRect.left,
-      grabOffsetX: event.clientX - handleCenterX,
       lastPointerX: event.clientX,
       lastTimestamp: event.timeStamp,
       renderedWidth: timelineRect.width,
@@ -687,7 +731,7 @@
       timeTrimDragState.timelineLeft,
       timeTrimDragState.renderedWidth,
       totalFrames,
-      timeTrimDragState.grabOffsetX,
+      0,
       velocity,
     );
     timeTrimDragState.lastPointerX = event.clientX;
@@ -1125,11 +1169,12 @@
             class="timeline-scrubber"
             type="range"
             aria-label={text('seek')}
-            min={trimStartSeconds}
-            max={trimEndSeconds}
+            min="0"
+            max={duration}
             step={duration / Math.max(1, totalFrames)}
             value={currentTime}
             oninput={scrubTo}
+            onpointerdown={beginTimelineScrub}
           />
           <span class="timeline-playhead" style={playheadStyle} aria-hidden="true"></span>
           <button
