@@ -4,6 +4,8 @@
   "version": "0.4.6",
   "type": "module",
   "scripts": {
+    "generate:contracts": "node scripts/generate-error-contract.mjs",
+    "check:contracts": "node scripts/generate-error-contract.mjs --check",
     "dev": "vite",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.app.json",
@@ -14,12 +16,15 @@
     "test:ui": "playwright test",
     "test:ui:update": "playwright test --update-snapshots",
     "test:integration": "pwsh -NoProfile -File scripts/test-integration.ps1",
-    "verify": "npm run check && npm run test:assets && npm test && npm run build",
+    "verify": "npm run check:contracts && npm run check && npm run test:assets && npm test && npm run build",
     "tauri": "tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.2",
+    "@tauri-apps/plugin-log": "^2.9.0",
+    "@tauri-apps/plugin-store": "^2.4.4",
+    "i18next": "^26.3.6",
     "svelte": "^5.56.9"
   },
   "devDependencies": {

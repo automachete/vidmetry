@@ -27,6 +27,7 @@ async function installTauriMock(page: Page): Promise<void> {
     const listeners = new Map<string, number[]>();
     let nextCallback = 1;
     const invocations: Array<{ command: string; args: unknown }> = [];
+    let storedSettings: unknown = structuredClone(persistedSettings);
     const sourceExtension = new URLSearchParams(location.search).get('source') === 'mov' ? 'mov' : 'mp4';
     const requestedTheme = new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark';
     const sourcePath = `C:\\clips\\sample.${sourceExtension}`;
@@ -63,6 +64,14 @@ async function installTauriMock(page: Page): Promise<void> {
         return null;
       }
       if (command === 'system_accent_color') return '#FF8C00';
+      if (command === 'plugin:store|load') return 1;
+      if (command === 'plugin:store|get') return [storedSettings, storedSettings !== undefined];
+      if (command === 'plugin:store|set') {
+        storedSettings = structuredClone(args.value);
+        return null;
+      }
+      if (command === 'plugin:store|save') return null;
+      if (command === 'plugin:log|log') return null;
       if (command === 'plugin:dialog|open') {
         return args.options?.directory ? 'C:\\clips' : sourcePath;
       }
@@ -154,7 +163,6 @@ async function installTauriMock(page: Page): Promise<void> {
       pausedState.set(this, true);
       if (!wasPaused) this.dispatchEvent(new Event('pause'));
     };
-    localStorage.setItem('vidmetry.settings.v1', JSON.stringify(persistedSettings));
   }, settings);
 }
 

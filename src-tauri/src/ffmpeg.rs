@@ -6,7 +6,10 @@ use std::{
     time::UNIX_EPOCH,
 };
 
-use crate::media::{ColorDescriptor, MediaDescriptor, ProbeDocument, ProbeStream};
+use crate::{
+    cache,
+    media::{ColorDescriptor, MediaDescriptor, ProbeDocument, ProbeStream},
+};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_shell::ShellExt;
 
@@ -94,18 +97,16 @@ pub async fn create_preview(app: &AppHandle, source: &Path) -> Result<PathBuf, M
     fs::create_dir_all(&cache_root).map_err(|error| MediaError::Cache(error.to_string()))?;
 
     let output_path = cache_root.join(format!("{:016x}.mp4", source_cache_key(source)?));
-    if output_path.is_file()
-        && output_path
-            .metadata()
-            .map(|item| item.len() > 0)
-            .unwrap_or(false)
-    {
+    if cache::reusable_entry(&output_path).map_err(|error| MediaError::Cache(error.to_string()))? {
+        prune_cache(&cache_root, &output_path, cache::PREVIEW_LIMITS);
         return Ok(output_path);
     }
 
+    let staged_path =
+        cache::staging_path(&output_path).map_err(|error| MediaError::Cache(error.to_string()))?;
     let source_text = source.to_string_lossy().into_owned();
-    let output_text = output_path.to_string_lossy().into_owned();
-    let output = app
+    let output_text = staged_path.to_string_lossy().into_owned();
+    let output = match app
         .shell()
         .sidecar("ffmpeg")
         .map_err(|error| MediaError::ProcessStart {
@@ -148,19 +149,28 @@ pub async fn create_preview(app: &AppHandle, source: &Path) -> Result<PathBuf, M
         ])
         .output()
         .await
-        .map_err(|error| MediaError::ProcessStart {
-            tool: "ffmpeg",
-            message: error.to_string(),
-        })?;
+    {
+        Ok(output) => output,
+        Err(error) => {
+            remove_partial_cache_output(&staged_path);
+            return Err(MediaError::ProcessStart {
+                tool: "ffmpeg",
+                message: error.to_string(),
+            });
+        }
+    };
 
     if !output.status.success() {
-        let _ = fs::remove_file(&output_path);
+        remove_partial_cache_output(&staged_path);
         return Err(MediaError::ProcessFailed {
             tool: "ffmpeg preview",
             message: compact_stderr(&output.stderr),
         });
     }
 
+    cache::commit(&staged_path, &output_path)
+        .map_err(|error| MediaError::Cache(error.to_string()))?;
+    prune_cache(&cache_root, &output_path, cache::PREVIEW_LIMITS);
     Ok(output_path)
 }
 
@@ -177,11 +187,8 @@ pub async fn create_timeline_strip(
     fs::create_dir_all(&cache_root).map_err(|error| MediaError::Cache(error.to_string()))?;
 
     let output_path = cache_root.join(format!("{:016x}.jpg", source_cache_key(source)?));
-    if output_path
-        .metadata()
-        .map(|item| item.len() > 0)
-        .unwrap_or(false)
-    {
+    if cache::reusable_entry(&output_path).map_err(|error| MediaError::Cache(error.to_string()))? {
+        prune_cache(&cache_root, &output_path, cache::TIMELINE_LIMITS);
         return Ok(output_path);
     }
 
@@ -194,9 +201,11 @@ pub async fn create_timeline_strip(
     let filter = format!(
         "fps={sample_rate:.9},scale=160:90:force_original_aspect_ratio=increase,crop=160:90,tile=12x1:nb_frames=12"
     );
+    let staged_path =
+        cache::staging_path(&output_path).map_err(|error| MediaError::Cache(error.to_string()))?;
     let source_text = source.to_string_lossy().into_owned();
-    let output_text = output_path.to_string_lossy().into_owned();
-    let output = app
+    let output_text = staged_path.to_string_lossy().into_owned();
+    let output = match app
         .shell()
         .sidecar("ffmpeg")
         .map_err(|error| MediaError::ProcessStart {
@@ -225,19 +234,45 @@ pub async fn create_timeline_strip(
         ])
         .output()
         .await
-        .map_err(|error| MediaError::ProcessStart {
-            tool: "ffmpeg timeline",
-            message: error.to_string(),
-        })?;
+    {
+        Ok(output) => output,
+        Err(error) => {
+            remove_partial_cache_output(&staged_path);
+            return Err(MediaError::ProcessStart {
+                tool: "ffmpeg timeline",
+                message: error.to_string(),
+            });
+        }
+    };
 
     if !output.status.success() {
-        let _ = fs::remove_file(&output_path);
+        remove_partial_cache_output(&staged_path);
         return Err(MediaError::ProcessFailed {
             tool: "ffmpeg timeline",
             message: compact_stderr(&output.stderr),
         });
     }
+    cache::commit(&staged_path, &output_path)
+        .map_err(|error| MediaError::Cache(error.to_string()))?;
+    prune_cache(&cache_root, &output_path, cache::TIMELINE_LIMITS);
     Ok(output_path)
+}
+
+fn prune_cache(root: &Path, retained_path: &Path, limits: cache::CacheLimits) {
+    if let Err(error) = cache::prune(root, retained_path, limits) {
+        log::warn!("unable to prune media cache {}: {error}", root.display());
+    }
+}
+
+fn remove_partial_cache_output(path: &Path) {
+    match fs::remove_file(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => log::warn!(
+            "unable to remove partial cache output {}: {error}",
+            path.display()
+        ),
+    }
 }
 
 fn descriptor_from_probe(
@@ -368,12 +403,20 @@ fn source_cache_key(source: &Path) -> Result<u64, MediaError> {
     let mut hasher = DefaultHasher::new();
     source.hash(&mut hasher);
     metadata.len().hash(&mut hasher);
-    metadata
-        .modified()
-        .ok()
-        .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
-        .map(|value| value.as_nanos())
-        .hash(&mut hasher);
+    match metadata.modified().and_then(|value| {
+        value
+            .duration_since(UNIX_EPOCH)
+            .map_err(std::io::Error::other)
+    }) {
+        Ok(value) => value.as_nanos().hash(&mut hasher),
+        Err(error) => {
+            log::warn!(
+                "source modification time is unavailable for {}; cache reuse is disabled: {error}",
+                source.display()
+            );
+            uuid::Uuid::new_v4().hash(&mut hasher);
+        }
+    }
     Ok(hasher.finish())
 }
 

@@ -5,6 +5,7 @@
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { open, save } from '@tauri-apps/plugin-dialog';
+  import { warn as logWarning } from '@tauri-apps/plugin-log';
   import appIconUrl from '../assets/app-icon.svg';
 
   import { applySystemAppearance, fallbackTheme, normalizeAccent, type AppTheme } from './lib/appearance';
@@ -155,6 +156,9 @@
   let unlistenDragDrop: UnlistenFn | undefined;
   let unlistenTheme: UnlistenFn | undefined;
   let unlistenExportEvents: UnlistenFn[] = [];
+  let exportEventsReady = false;
+  let exportEventsError = '';
+  let destroyed = false;
   let playlist: string[] = [];
   let playlistIndex = 0;
   let directoryPath: string | null = null;
@@ -172,6 +176,7 @@
   let systemAccent = '#0078D4';
   let trim: TrimRange = fullTrimRange(1);
   let timelineStripSrc = '';
+  let settingsReady = false;
   let settings: AppSettings = cloneSettings(defaultSettings);
   let settingsDraft: AppSettings = cloneSettings(defaultSettings);
   let systemLanguage = 'en-US';
@@ -214,51 +219,11 @@
 
   onMount(() => {
     systemLanguage = navigator.language || 'en-US';
-    settings = loadSettings();
-    settingsDraft = cloneSettings(settings);
+    void initializeSettings();
     void initializeSystemAppearance();
 
-    void getCurrentWebview()
-      .onDragDropEvent((event) => {
-        if (event.payload.type !== 'drop' || event.payload.paths.length === 0) return;
-        if (event.payload.paths.length === 1) {
-          void loadSelection(event.payload.paths[0]);
-        } else {
-          playlist = [...event.payload.paths];
-          directoryPath = null;
-          playlistIndex = 0;
-          void loadVideo(playlist[0], true);
-        }
-      })
-      .then((unlisten) => {
-        unlistenDragDrop = unlisten;
-      })
-      .catch(() => undefined);
-
-    void Promise.all([
-      listen<ExportProgressEvent>('export-progress', (event) => {
-        if (event.payload.jobId !== exportJobId) return;
-        exportProgress = clampProgress(event.payload.fraction);
-        exportOutTime = event.payload.outTimeSeconds;
-      }),
-      listen<ExportCompleteEvent>('export-complete', (event) => {
-        if (event.payload.jobId !== exportJobId) return;
-        void handleExportComplete(event.payload);
-      }),
-      listen<ExportErrorEvent>('export-error', (event) => {
-        if (event.payload.jobId !== exportJobId) return;
-        const shouldRestore = inPlaceExportPath !== null;
-        exportJobId = null;
-        exportProgress = 0;
-        inPlaceExportPath = null;
-        if (shouldRestore) restoreSourcePreview();
-        if (!event.payload.cancelled) {
-          errorMessage = `${text('exportFailed')}${readableError(event.payload.error)}`;
-        }
-      }),
-    ]).then((unlisteners) => {
-      unlistenExportEvents = unlisteners;
-    });
+    void initializeDragDrop();
+    void initializeExportEvents();
 
     window.addEventListener('keydown', handleKeyboard);
     window.addEventListener('pointerdown', handleGlobalPointerDown);
@@ -266,7 +231,21 @@
     window.addEventListener('focus', refreshSystemAccent);
   });
 
+  async function initializeSettings() {
+    try {
+      const loaded = await loadSettings();
+      if (destroyed) return;
+      settings = loaded;
+      settingsDraft = cloneSettings(loaded);
+    } catch (error) {
+      if (!destroyed) errorMessage = clientError('settingsLoadFailed', error);
+    } finally {
+      if (!destroyed) settingsReady = true;
+    }
+  }
+
   onDestroy(() => {
+    destroyed = true;
     unlistenDragDrop?.();
     unlistenTheme?.();
     for (const unlisten of unlistenExportEvents) unlisten();
@@ -281,23 +260,87 @@
     if (successTimer !== null) clearTimeout(successTimer);
   });
 
+  async function initializeDragDrop() {
+    try {
+      const unlisten = await getCurrentWebview().onDragDropEvent((event) => {
+        if (event.payload.type !== 'drop' || event.payload.paths.length === 0) return;
+        void loadDroppedPaths(event.payload.paths);
+      });
+      if (destroyed) {
+        unlisten();
+      } else {
+        unlistenDragDrop = unlisten;
+      }
+    } catch (error) {
+      if (!destroyed) errorMessage = clientError('dragDropUnavailable', error);
+    }
+  }
+
+  async function initializeExportEvents() {
+    const acquired: UnlistenFn[] = [];
+    try {
+      acquired.push(
+        await listen<ExportProgressEvent>('export-progress', (event) => {
+          if (event.payload.jobId !== exportJobId) return;
+          exportProgress = clampProgress(event.payload.fraction);
+          exportOutTime = event.payload.outTimeSeconds;
+        }),
+      );
+      acquired.push(
+        await listen<ExportCompleteEvent>('export-complete', (event) => {
+          if (event.payload.jobId !== exportJobId) return;
+          void handleExportComplete(event.payload);
+        }),
+      );
+      acquired.push(
+        await listen<ExportErrorEvent>('export-error', (event) => {
+          if (event.payload.jobId !== exportJobId) return;
+          const shouldRestore = inPlaceExportPath !== null;
+          exportJobId = null;
+          exportProgress = 0;
+          inPlaceExportPath = null;
+          if (shouldRestore) restoreSourcePreview();
+          if (!event.payload.cancelled) {
+            errorMessage = `${text('exportFailed')}${readableError(event.payload.error)}`;
+          }
+        }),
+      );
+      if (destroyed) {
+        for (const unlisten of acquired) unlisten();
+        return;
+      }
+      unlistenExportEvents = acquired;
+      exportEventsReady = true;
+    } catch (error) {
+      for (const unlisten of acquired) unlisten();
+      if (!destroyed) {
+        exportEventsError = clientError('exportEventsUnavailable', error);
+        errorMessage = exportEventsError;
+      }
+    }
+  }
+
   async function initializeSystemAppearance() {
     const appWindow = getCurrentWindow();
     try {
       const current = await appWindow.theme();
       systemTheme = current ?? fallbackTheme(prefersDarkMode());
-    } catch {
+    } catch (error) {
+      recordWarning('system theme query failed', error);
       systemTheme = fallbackTheme(prefersDarkMode());
     }
     applySystemAppearance(systemTheme, systemAccent);
     await refreshSystemAccent();
     try {
-      unlistenTheme = await appWindow.onThemeChanged((event) => {
+      const unlisten = await appWindow.onThemeChanged((event) => {
         systemTheme = event.payload;
         applySystemAppearance(systemTheme, systemAccent);
         void refreshSystemAccent();
       });
-    } catch {
+      if (destroyed) unlisten();
+      else unlistenTheme = unlisten;
+    } catch (error) {
+      recordWarning('system theme listener registration failed', error);
       // Browser-only development keeps the media-query fallback.
     }
   }
@@ -310,7 +353,8 @@
     try {
       systemAccent = normalizeAccent(await invoke<string>('system_accent_color'));
       applySystemAppearance(systemTheme, systemAccent);
-    } catch {
+    } catch (error) {
+      recordWarning('system accent query failed', error);
       applySystemAppearance(systemTheme, systemAccent);
     }
   }
@@ -340,41 +384,95 @@
   }
 
   async function chooseVideo() {
-    const selected = await open({
-      multiple: false,
-      directory: false,
-      filters: [
-        {
-          name: text('selectVideoFilter'),
-          extensions: ['mp4', 'mov', 'mkv', 'webm', 'avi', 'm4v', 'wmv', 'mts', 'm2ts', 'mpg', 'mpeg'],
-        },
-      ],
-    });
-    if (typeof selected === 'string') await loadSelection(selected);
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        filters: [
+          {
+            name: text('selectVideoFilter'),
+            extensions: ['mp4', 'mov', 'mkv', 'webm', 'avi', 'm4v', 'wmv', 'mts', 'm2ts', 'mpg', 'mpeg'],
+          },
+        ],
+      });
+      if (typeof selected === 'string') await loadSelection(selected);
+    } catch (error) {
+      errorMessage = clientError('openDialogFailed', error);
+    }
   }
 
   async function chooseDirectory() {
-    const selected = await open({ multiple: false, directory: true });
-    if (typeof selected === 'string') await loadSelection(selected);
+    try {
+      const selected = await open({ multiple: false, directory: true });
+      if (typeof selected === 'string') await loadSelection(selected);
+    } catch (error) {
+      errorMessage = clientError('openDialogFailed', error);
+    }
   }
 
   async function loadSelection(path: string) {
     if (isLoading || isPreparingProxy || exportJobId) return;
+    isLoading = true;
     try {
       const selection = await invoke<SelectionDescriptor>('inspect_selection', { path });
-      playlist = selection.videoPaths;
-      directoryPath = selection.kind === 'directory' ? selection.rootPath : null;
-      playlistIndex = 0;
-      await loadVideo(playlist[0], true);
+      isLoading = false;
+      await replacePlaylist(
+        selection.videoPaths,
+        selection.kind === 'directory' ? selection.rootPath : null,
+      );
     } catch (error) {
-      errorMessage = readableError(error);
+      errorMessage = backendOrClientError('selectionFailed', error);
+    } finally {
+      isLoading = false;
     }
   }
 
-  async function loadVideo(path: string, keepPlaylist = false) {
-    if (isLoading || isPreparingProxy || exportJobId) return;
+  async function loadDroppedPaths(paths: readonly string[]) {
+    if (paths.length === 0 || isLoading || isPreparingProxy || exportJobId) return;
     isLoading = true;
-    errorMessage = '';
+    try {
+      const selections = await Promise.all(
+        paths.map((path) => invoke<SelectionDescriptor>('inspect_selection', { path })),
+      );
+      const seen = new Set<string>();
+      const videoPaths = selections
+        .flatMap((selection) => selection.videoPaths)
+        .filter((path) => {
+          const key = path.toLowerCase();
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      const selectedDirectory =
+        selections.length === 1 && selections[0].kind === 'directory'
+          ? selections[0].rootPath
+          : null;
+      isLoading = false;
+      await replacePlaylist(videoPaths, selectedDirectory);
+    } catch (error) {
+      errorMessage = backendOrClientError('selectionFailed', error);
+    } finally {
+      isLoading = false;
+    }
+  }
+
+  async function replacePlaylist(videoPaths: string[], selectedDirectory: string | null) {
+    if (videoPaths.length === 0) return;
+    const previous = { playlist, playlistIndex, directoryPath };
+    playlist = [...videoPaths];
+    playlistIndex = 0;
+    directoryPath = selectedDirectory;
+    if (!(await loadVideo(playlist[0], true))) {
+      playlist = previous.playlist;
+      playlistIndex = previous.playlistIndex;
+      directoryPath = previous.directoryPath;
+    }
+  }
+
+  async function loadVideo(path: string, keepPlaylist = false): Promise<boolean> {
+    if (isLoading || isPreparingProxy || exportJobId) return false;
+    isLoading = true;
+    errorMessage = exportEventsError;
     dismissSuccess();
     usingProxy = false;
     timelineStripSrc = '';
@@ -399,15 +497,17 @@
         directoryPath = null;
       } else {
         const found = playlist.findIndex(
-          (item) => item.toLocaleLowerCase() === descriptor.sourcePath.toLocaleLowerCase(),
+          (item) => item.toLowerCase() === descriptor.sourcePath.toLowerCase(),
         );
         if (found >= 0) playlistIndex = found;
       }
       await tick();
       videoElement?.load();
       void loadTimelineStrip(descriptor);
+      return true;
     } catch (error) {
-      errorMessage = readableError(error);
+      errorMessage = backendOrClientError('selectionFailed', error);
+      return false;
     } finally {
       isLoading = false;
     }
@@ -422,7 +522,8 @@
       if (media?.sourcePath === descriptor.sourcePath) {
         timelineStripSrc = convertFileSrc(stripPath);
       }
-    } catch {
+    } catch (error) {
+      recordWarning('timeline strip generation failed', error);
       // The timeline remains fully usable with its lightweight fallback pattern.
     }
   }
@@ -431,14 +532,12 @@
     if (playlist.length < 2 || isLoading || exportJobId) return;
     const next = Math.min(playlist.length - 1, Math.max(0, playlistIndex + offset));
     if (next === playlistIndex) return;
-    playlistIndex = next;
     await loadVideo(playlist[next], true);
   }
 
   async function selectPlaylistVideo(event: Event) {
     const next = Number((event.currentTarget as HTMLSelectElement).value);
     if (!Number.isInteger(next) || !playlist[next] || next === playlistIndex) return;
-    playlistIndex = next;
     await loadVideo(playlist[next], true);
   }
 
@@ -471,16 +570,21 @@
   async function togglePlayback() {
     if (!videoElement || !media) return;
     if (videoElement.paused) {
-      try {
-        if (currentTime < trimStartSeconds || currentTime >= trimEndSeconds) {
-          seekToFrame(safeTrim.startFrame);
-        }
-        await videoElement.play();
-      } catch (error) {
-        errorMessage = readableError(error);
+      if (currentTime < trimStartSeconds || currentTime >= trimEndSeconds) {
+        seekToFrame(safeTrim.startFrame);
       }
+      await playVideo();
     } else {
       videoElement.pause();
+    }
+  }
+
+  async function playVideo() {
+    if (!videoElement) return;
+    try {
+      await videoElement.play();
+    } catch (error) {
+      errorMessage = clientError('playbackFailed', error);
     }
   }
 
@@ -567,7 +671,7 @@
       if (settings.loopPlayback) {
         const shouldResume = !videoElement.paused;
         seekToFrame(safeTrim.startFrame);
-        if (shouldResume) void videoElement.play();
+        if (shouldResume) void playVideo();
       } else {
         videoElement.pause();
         currentTime = trimEndSeconds;
@@ -581,7 +685,7 @@
     isPlaying = false;
     if (settings.loopPlayback) {
       seekToFrame(safeTrim.startFrame);
-      void videoElement.play();
+      void playVideo();
     } else {
       currentTime = trimEndSeconds;
     }
@@ -592,9 +696,14 @@
     if (videoElement) videoElement.muted = isMuted;
   }
 
-  function toggleLoop() {
-    settings = { ...settings, loopPlayback: !settings.loopPlayback };
-    persistSettings(settings);
+  async function toggleLoop() {
+    const next = { ...settings, loopPlayback: !settings.loopPlayback };
+    try {
+      await persistSettings(next);
+      settings = next;
+    } catch (error) {
+      errorMessage = clientError('settingsSaveFailed', error);
+    }
   }
 
   function handleKeyboard(event: KeyboardEvent) {
@@ -654,7 +763,7 @@
       isVideoFullscreen = fullscreen;
       showSaveMenu = false;
     } catch (error) {
-      errorMessage = readableError(error);
+      errorMessage = clientError('fullscreenFailed', error);
     }
   }
 
@@ -811,23 +920,27 @@
 
   async function saveCopy() {
     showSaveMenu = false;
-    if (!media || !profileSupported || exportJobId || isStartingExport) return;
+    if (!media || !profileSupported || !exportEventsReady || exportJobId || isStartingExport) return;
     const suggestion = suggestOutput(media.sourcePath, settings.export.profile);
-    const outputPath = await save({
-      defaultPath: suggestion.path,
-      filters: [
-        {
-          name: text('outputVideoFilter', { extension: suggestion.extension.toUpperCase() }),
-          extensions: [suggestion.extension],
-        },
-      ],
-    });
-    if (outputPath) await startExport(outputPath, false);
+    try {
+      const outputPath = await save({
+        defaultPath: suggestion.path,
+        filters: [
+          {
+            name: text('outputVideoFilter', { extension: suggestion.extension.toUpperCase() }),
+            extensions: [suggestion.extension],
+          },
+        ],
+      });
+      if (outputPath) await startExport(outputPath, false);
+    } catch (error) {
+      errorMessage = clientError('saveDialogFailed', error);
+    }
   }
 
   async function saveInPlace() {
     showSaveMenu = false;
-    if (!media || !canOverwrite || exportJobId || isStartingExport) return;
+    if (!media || !canOverwrite || !exportEventsReady || exportJobId || isStartingExport) return;
     if (!window.confirm(text('overwriteConfirm', { name: media.fileName }))) return;
     await startExport(media.sourcePath, true);
   }
@@ -910,7 +1023,7 @@
     try {
       await invoke('cancel_export', { jobId: exportJobId });
     } catch (error) {
-      errorMessage = readableError(error);
+      errorMessage = backendOrClientError('cancelExportFailed', error);
     }
   }
 
@@ -932,10 +1045,15 @@
     showSettings = false;
   }
 
-  function applySettings() {
-    settings = normalizeSettings(settingsDraft);
-    persistSettings(settings);
-    showSettings = false;
+  async function applySettings() {
+    const next = normalizeSettings(settingsDraft);
+    try {
+      await persistSettings(next);
+      settings = next;
+      showSettings = false;
+    } catch (error) {
+      errorMessage = clientError('settingsSaveFailed', error);
+    }
   }
 
   function updateDraft<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
@@ -975,6 +1093,30 @@
     if (error instanceof Error) return error.message;
     return text('unknownError');
   }
+
+  function clientError(key: TranslationKey, error: unknown): string {
+    const message = text(key);
+    const detail = typeof error === 'string' ? error : error instanceof Error ? error.message : '';
+    return detail ? text('errorWithDetail', { message, detail }) : message;
+  }
+
+  function backendOrClientError(key: TranslationKey, error: unknown): string {
+    return isAppErrorPayload(error) ? readableError(error) : clientError(key, error);
+  }
+
+  function recordWarning(context: string, error: unknown) {
+    const detail = error instanceof Error ? error.message : serializeDiagnostic(error);
+    void logWarning(`${context}: ${detail}`).catch(() => undefined);
+  }
+
+  function serializeDiagnostic(value: unknown): string {
+    try {
+      if (typeof value === 'string') return value;
+      return JSON.stringify(value) ?? String(value);
+    } catch {
+      return String(value);
+    }
+  }
 </script>
 
 <svelte:head>
@@ -1007,7 +1149,7 @@
         <button class="square-button" type="button" aria-label={text('openFolder')} title={text('openFolder')} onclick={chooseDirectory} disabled={isLoading || isPreparingProxy || exportJobId !== null}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l2 2h9v10.5a1.5 1.5 0 0 1-1.5 1.5h-14A1.5 1.5 0 0 1 3.5 19z" /><path d="M3.5 9h17" /></svg>
         </button>
-        <button class="square-button settings-button" type="button" aria-label={text('settings')} title={text('settings')} onclick={openSettingsDialog}>
+        <button class="square-button settings-button" type="button" aria-label={text('settings')} title={text('settings')} onclick={openSettingsDialog} disabled={!settingsReady}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.06.06-2.78 2.78-.06-.06A1.8 1.8 0 0 0 15 19.4a1.8 1.8 0 0 0-1.08 1.65V21h-3.84v-.08A1.8 1.8 0 0 0 9 19.4a1.8 1.8 0 0 0-1.98.36l-.06.06-2.78-2.78.06-.06A1.8 1.8 0 0 0 4.6 15a1.8 1.8 0 0 0-1.65-1.08H3v-3.84h.08A1.8 1.8 0 0 0 4.6 9a1.8 1.8 0 0 0-.36-1.98l-.06-.06 2.78-2.78.06.06A1.8 1.8 0 0 0 9 4.6a1.8 1.8 0 0 0 1.08-1.65V3h3.84v.08A1.8 1.8 0 0 0 15 4.6a1.8 1.8 0 0 0 1.98-.36l.06-.06 2.78 2.78-.06.06A1.8 1.8 0 0 0 19.4 9a1.8 1.8 0 0 0 1.65 1.08H21v3.84h-.08A1.8 1.8 0 0 0 19.4 15Z" /></svg>
         </button>
         {#if canOverwrite}
@@ -1017,8 +1159,8 @@
               type="button"
               aria-haspopup="menu"
               aria-expanded={showSaveMenu}
-              title={!profileSupported ? (timeTrimmed ? text('timeTrimMetadataUnavailable') : text('metadataUnavailable')) : `${text('saveOptions')} (Ctrl+S / Ctrl+Shift+S)`}
-              disabled={!profileSupported || exportJobId !== null || isStartingExport}
+              title={!exportEventsReady ? text('exportEventsUnavailable') : !profileSupported ? (timeTrimmed ? text('timeTrimMetadataUnavailable') : text('metadataUnavailable')) : `${text('saveOptions')} (Ctrl+S / Ctrl+Shift+S)`}
+              disabled={!exportEventsReady || !profileSupported || exportJobId !== null || isStartingExport}
               onclick={() => (showSaveMenu = !showSaveMenu)}
             >
               <span>{text('saveOptions')}</span>
@@ -1032,13 +1174,13 @@
             {/if}
           </div>
         {:else}
-          <button class="button primary" type="button" disabled={!profileSupported || exportJobId !== null || isStartingExport} onclick={saveCopy} title={!profileSupported ? (timeTrimmed ? text('timeTrimMetadataUnavailable') : text('metadataUnavailable')) : `${text('copySave')} (Ctrl+S)`}>
+          <button class="button primary" type="button" disabled={!exportEventsReady || !profileSupported || exportJobId !== null || isStartingExport} onclick={saveCopy} title={!exportEventsReady ? text('exportEventsUnavailable') : !profileSupported ? (timeTrimmed ? text('timeTrimMetadataUnavailable') : text('metadataUnavailable')) : `${text('copySave')} (Ctrl+S)`}>
             {text('copySave')}
           </button>
         {/if}
       </div>
     {:else}
-      <button class="square-button settings-button launcher-settings" type="button" aria-label={text('settings')} title={text('settings')} onclick={openSettingsDialog}>
+      <button class="square-button settings-button launcher-settings" type="button" aria-label={text('settings')} title={text('settings')} onclick={openSettingsDialog} disabled={!settingsReady}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.06.06-2.78 2.78-.06-.06A1.8 1.8 0 0 0 15 19.4a1.8 1.8 0 0 0-1.08 1.65V21h-3.84v-.08A1.8 1.8 0 0 0 9 19.4a1.8 1.8 0 0 0-1.98.36l-.06.06-2.78-2.78.06-.06A1.8 1.8 0 0 0 4.6 15a1.8 1.8 0 0 0-1.65-1.08H3v-3.84h.08A1.8 1.8 0 0 0 4.6 9a1.8 1.8 0 0 0-.36-1.98l-.06-.06 2.78-2.78.06.06A1.8 1.8 0 0 0 9 4.6a1.8 1.8 0 0 0 1.08-1.65V3h3.84v.08A1.8 1.8 0 0 0 15 4.6a1.8 1.8 0 0 0 1.98-.36l.06-.06 2.78 2.78-.06.06A1.8 1.8 0 0 0 19.4 9a1.8 1.8 0 0 0 1.65 1.08H21v3.84h-.08A1.8 1.8 0 0 0 19.4 15Z" /></svg>
       </button>
     {/if}
@@ -1261,7 +1403,7 @@
     <div class="modal-backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && closeSettingsDialog()}>
       <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div class="dialog-heading">
-          <div><span class="section-label">SETTINGS</span><h2 id="settings-title">{text('settingsTitle')}</h2><p>{text('settingsDescription')}</p></div>
+          <div><span class="section-label">{text('settings')}</span><h2 id="settings-title">{text('settingsTitle')}</h2><p>{text('settingsDescription')}</p></div>
           <button class="dialog-close" type="button" aria-label={text('close')} onclick={closeSettingsDialog}>×</button>
         </div>
 

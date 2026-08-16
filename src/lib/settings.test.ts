@@ -5,22 +5,30 @@ import {
   normalizeSettings,
   persistSettings,
   resolveLanguage,
+  type SettingsStore,
 } from './settings';
 
-class MemoryStorage {
-  value: string | null = null;
-  getItem() {
-    return this.value;
+class MemoryStore implements SettingsStore {
+  values = new Map<string, unknown>();
+  saveCount = 0;
+
+  async get<T>(key: string) {
+    return this.values.get(key) as T | undefined;
   }
-  setItem(_key: string, value: string) {
-    this.value = value;
+
+  async set(key: string, value: unknown) {
+    this.values.set(key, structuredClone(value));
+  }
+
+  async save() {
+    this.saveCount += 1;
   }
 }
 
 describe('persistent settings', () => {
-  it('round-trips export, loop, and language preferences', () => {
-    const storage = new MemoryStorage();
-    persistSettings(
+  it('round-trips export, loop, and language preferences through the durable store', async () => {
+    const store = new MemoryStore();
+    await persistSettings(
       {
         ...defaultSettings,
         languageMode: 'manual',
@@ -28,14 +36,19 @@ describe('persistent settings', () => {
         loopPlayback: true,
         export: { ...defaultSettings.export, videoCodec: 'h265', crf: 21 },
       },
-      storage,
+      store,
     );
-    expect(loadSettings(storage)).toMatchObject({
+    await expect(loadSettings(store)).resolves.toMatchObject({
       languageMode: 'manual',
       language: 'en',
       loopPlayback: true,
       export: { videoCodec: 'h265', crf: 21 },
     });
+    expect(store.saveCount).toBe(1);
+  });
+
+  it('uses defaults when the durable store has no settings yet', async () => {
+    await expect(loadSettings(new MemoryStore())).resolves.toEqual(defaultSettings);
   });
 
   it('repairs invalid persisted values', () => {

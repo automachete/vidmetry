@@ -4,10 +4,20 @@ import { open as dialogOpen, save as dialogSave } from '@tauri-apps/plugin-dialo
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App from './App.svelte';
-import { defaultSettings, persistSettings } from './lib/settings';
+import { defaultSettings } from './lib/settings';
 
 const eventState = vi.hoisted(() => ({
   handlers: new Map<string, (event: { payload: never }) => void>(),
+  failOn: undefined as string | undefined,
+}));
+
+const storeState = vi.hoisted(() => ({
+  value: undefined as unknown,
+  save: vi.fn().mockResolvedValue(undefined),
+}));
+
+const dragDropState = vi.hoisted(() => ({
+  handler: undefined as ((event: { payload: { type: string; paths: string[] } }) => void) | undefined,
 }));
 
 const windowState = vi.hoisted(() => ({
@@ -23,13 +33,19 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async (name: string, handler: (event: { payload: never }) => void) => {
+    if (eventState.failOn === name) throw new Error(`listener failed: ${name}`);
     eventState.handlers.set(name, handler);
     return vi.fn();
   }),
 }));
 
 vi.mock('@tauri-apps/api/webview', () => ({
-  getCurrentWebview: () => ({ onDragDropEvent: vi.fn().mockResolvedValue(vi.fn()) }),
+  getCurrentWebview: () => ({
+    onDragDropEvent: vi.fn(async (handler) => {
+      dragDropState.handler = handler;
+      return vi.fn();
+    }),
+  }),
 }));
 
 vi.mock('@tauri-apps/api/window', () => ({
@@ -39,6 +55,20 @@ vi.mock('@tauri-apps/api/window', () => ({
 vi.mock('@tauri-apps/plugin-dialog', () => ({
   open: vi.fn(),
   save: vi.fn(),
+}));
+
+vi.mock('@tauri-apps/plugin-log', () => ({
+  warn: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@tauri-apps/plugin-store', () => ({
+  load: vi.fn(async () => ({
+    get: vi.fn(async () => storeState.value),
+    set: vi.fn(async (_key: string, value: unknown) => {
+      storeState.value = structuredClone(value);
+    }),
+    save: storeState.save,
+  })),
 }));
 
 class ResizeObserverStub {
@@ -73,10 +103,10 @@ function mediaDescriptor(sourcePath: string) {
 }
 
 function useEnglish(): void {
-  persistSettings({ ...defaultSettings, languageMode: 'manual', language: 'en' });
+  storeState.value = { ...defaultSettings, languageMode: 'manual', language: 'en' };
 }
 
-function mockSelection(paths = videoPaths): void {
+function mockSelection(paths = videoPaths, failingProbePath?: string): void {
   vi.mocked(invoke).mockImplementation(async (command, args) => {
     if (command === 'inspect_selection') {
       return {
@@ -86,7 +116,9 @@ function mockSelection(paths = videoPaths): void {
       } as never;
     }
     if (command === 'probe_video') {
-      return mediaDescriptor(String((args as { path: string }).path)) as never;
+      const path = String((args as { path: string }).path);
+      if (path === failingProbePath) throw new Error('probe failed');
+      return mediaDescriptor(path) as never;
     }
     if (command === 'system_accent_color') return '#FF8C00' as never;
     if (command === 'start_export') return 'job-1' as never;
@@ -97,8 +129,11 @@ function mockSelection(paths = videoPaths): void {
 
 describe('application shell', () => {
   beforeEach(() => {
-    localStorage.clear();
+    storeState.value = undefined;
+    dragDropState.handler = undefined;
+    storeState.save.mockReset().mockResolvedValue(undefined);
     eventState.handlers.clear();
+    eventState.failOn = undefined;
     vi.stubGlobal('ResizeObserver', ResizeObserverStub);
     vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => undefined);
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
@@ -134,7 +169,9 @@ describe('application shell', () => {
   it('opens common settings with the language section last', async () => {
     useEnglish();
     const { container } = render(App);
-    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    const settingsButton = screen.getByRole('button', { name: 'Settings' });
+    await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(settingsButton);
 
     expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy();
     expect(screen.getByText('Video export method')).toBeTruthy();
@@ -146,14 +183,17 @@ describe('application shell', () => {
   });
 
   it('applies Japanese UI and persists loop playback', async () => {
-    persistSettings({ ...defaultSettings, languageMode: 'manual', language: 'ja' });
+    storeState.value = { ...defaultSettings, languageMode: 'manual', language: 'ja' };
     render(App);
 
-    await fireEvent.click(screen.getByRole('button', { name: '共通設定' }));
+    const settingsButton = await screen.findByRole('button', { name: '共通設定' });
+    await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(settingsButton);
     await fireEvent.click(screen.getByRole('checkbox', { name: 'ループ再生を有効化' }));
     await fireEvent.click(screen.getByRole('button', { name: '適用' }));
 
-    expect(JSON.parse(localStorage.getItem('vidmetry.settings.v1') ?? '{}')).toMatchObject({
+    await waitFor(() => expect(storeState.save).toHaveBeenCalledOnce());
+    expect(storeState.value).toMatchObject({
       languageMode: 'manual',
       language: 'ja',
       loopPlayback: true,
@@ -184,6 +224,40 @@ describe('application shell', () => {
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Save a copy' }));
 
     expect(dialogSave).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the current playlist position when the next video cannot be probed', async () => {
+    useEnglish();
+    const paths = ['C:\\clips\\a.mp4', 'C:\\clips\\b.mp4'];
+    vi.mocked(dialogOpen).mockResolvedValue('C:\\clips');
+    mockSelection(paths, paths[1]);
+    render(App);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Open folder' }));
+    await screen.findByText('a.mp4');
+    const nextButton = screen.getByRole('button', { name: 'Next video' });
+    await waitFor(() => expect((nextButton as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(nextButton);
+
+    expect((await screen.findByRole('alert')).textContent).toContain('probe failed');
+    expect(screen.getByText('a.mp4')).toBeTruthy();
+    expect((screen.getByRole('combobox', { name: 'Videos in folder' }) as HTMLSelectElement).value).toBe(
+      '0',
+    );
+  });
+
+  it('validates every path in a multi-file drop through the backend selection boundary', async () => {
+    useEnglish();
+    const paths = ['C:\\clips\\a.mp4', 'C:\\clips\\b.mp4'];
+    mockSelection(paths);
+    render(App);
+    await waitFor(() => expect(dragDropState.handler).toBeTypeOf('function'));
+
+    dragDropState.handler?.({ payload: { type: 'drop', paths } });
+
+    await screen.findByText('a.mp4');
+    expect(invoke).toHaveBeenCalledWith('inspect_selection', { path: paths[0] });
+    expect(invoke).toHaveBeenCalledWith('inspect_selection', { path: paths[1] });
   });
 
   it('shows a direct non-expandable Save a copy button when extensions differ', async () => {
@@ -265,6 +339,57 @@ describe('application shell', () => {
 
     expect((await screen.findByRole('alert')).textContent).toContain(
       'Export failed. The export process did not complete. (exit code 1)',
+    );
+  });
+
+  it('disables saving and reports an error when export event registration is incomplete', async () => {
+    useEnglish();
+    eventState.failOn = 'export-complete';
+    vi.mocked(dialogOpen).mockResolvedValue(videoPaths[0]);
+    mockSelection();
+    render(App);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Open video' }));
+    await screen.findByText('a.mp4');
+
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'Saving is unavailable because export notifications could not be initialized.',
+    );
+    expect((screen.getByRole('button', { name: 'Save options' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it('keeps settings open and reports a durable-store save failure', async () => {
+    useEnglish();
+    storeState.save.mockRejectedValueOnce(new Error('disk unavailable'));
+    render(App);
+
+    const settingsButton = screen.getByRole('button', { name: 'Settings' });
+    await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(settingsButton);
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Enable loop playback' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'Could not save settings. (disk unavailable)',
+    );
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeTruthy();
+  });
+
+  it('reports a rejected media play request instead of leaving an unhandled promise', async () => {
+    useEnglish();
+    vi.mocked(dialogOpen).mockResolvedValue(videoPaths[0]);
+    mockSelection();
+    vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValueOnce(new Error('decoder busy'));
+    render(App);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Open video' }));
+    await screen.findByText('a.mp4');
+    await fireEvent.keyDown(document.body, { key: ' ', code: 'Space' });
+
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'Could not play the video. (decoder busy)',
     );
   });
 

@@ -2,59 +2,7 @@ use serde::Serialize;
 
 use crate::ffmpeg::MediaError;
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ErrorCode {
-    SelectedVideoUnavailable,
-    MediaProcessStartFailed,
-    MediaProcessFailed,
-    InvalidMediaInformation,
-    VideoStreamMissing,
-    VideoWidthMissing,
-    VideoHeightMissing,
-    PreviewCacheUnavailable,
-    PreviewAuthorizationFailed,
-    SelectedPathUnavailable,
-    SelectedPathUnsupported,
-    FolderReadFailed,
-    FolderContainsNoSupportedVideos,
-    ExportProcessPrepareFailed,
-    ExportProcessStartFailed,
-    ExportStateUpdateFailed,
-    ExportCancelled,
-    ExportProcessFailed,
-    ExportStateReadFailed,
-    CancellationStateUpdateFailed,
-    ExportProcessStopFailed,
-    CropTooSmall,
-    CropEvenValuesRequired,
-    CropInvalid,
-    CropOutsideVideo,
-    TrimOutsideVideo,
-    MetadataTrimUnsupported,
-    MetadataCodecUnsupported,
-    CrfOutOfRange,
-    AudioBitrateOutOfRange,
-    FrameRateOutOfRange,
-    CompatibleAudioUnsupported,
-    DestinationMustBeAbsolute,
-    DestinationFolderUnavailable,
-    DestinationFolderMissing,
-    DestinationFileNameMissing,
-    DestinationFileInspectionFailed,
-    SourceReplacementRequiresSave,
-    DestinationAlreadyExists,
-    SaveDestinationMismatch,
-    CompatibleExtensionRequired,
-    LosslessExtensionRequired,
-    MetadataExtensionUnsupported,
-    DestinationExtensionMissing,
-    CommitOutputFailed,
-    ExplorerOpenFailed,
-    #[cfg(not(windows))]
-    ExplorerUnsupported,
-    AccentColorUnavailable,
-}
+include!("app_error_codes.generated.rs");
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

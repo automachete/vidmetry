@@ -33,8 +33,12 @@ impl Drop for ExportState {
     fn drop(&mut self) {
         if let Ok(jobs) = self.jobs.get_mut() {
             for (_, child) in jobs.drain() {
-                let _ = child.kill();
+                if let Err(error) = child.kill() {
+                    log::warn!("unable to stop an export process during shutdown: {error}");
+                }
             }
+        } else {
+            log::warn!("unable to access export jobs during shutdown");
         }
     }
 }
@@ -241,6 +245,7 @@ pub async fn start(
     let overwrite = request.overwrite;
     tauri::async_runtime::spawn(async move {
         let mut diagnostics = Vec::new();
+        let mut received_termination = false;
         while let Some(event) = receiver.recv().await {
             match event {
                 CommandEvent::Stdout(bytes) => {
@@ -250,14 +255,16 @@ pub async fn start(
                         } else {
                             0.0
                         };
-                        let _ = task_app.emit(
+                        if let Err(error) = task_app.emit(
                             PROGRESS_EVENT,
                             ExportProgress {
                                 job_id: task_job_id.clone(),
                                 fraction,
                                 out_time_seconds: seconds,
                             },
-                        );
+                        ) {
+                            log::warn!("unable to emit export progress: {error}");
+                        }
                     }
                 }
                 CommandEvent::Stderr(bytes) => {
@@ -271,26 +278,29 @@ pub async fn start(
                 }
                 CommandEvent::Error(message) => diagnostics.push(message),
                 CommandEvent::Terminated(status) => {
-                    remove_job(&task_app, &task_job_id);
+                    received_termination = true;
+                    take_job(&task_app, &task_job_id);
                     let cancelled = take_cancelled(&task_app, &task_job_id);
                     if status.code == Some(0) && !cancelled {
                         match commit_output(&temporary, &output, overwrite) {
                             Ok(()) => {
-                                let _ = task_app.emit(
+                                if let Err(error) = task_app.emit(
                                     COMPLETED_EVENT,
                                     ExportCompleted {
                                         job_id: task_job_id.clone(),
                                         output_path: ffmpeg::display_path(&output),
                                     },
-                                );
+                                ) {
+                                    log::warn!("unable to emit export completion: {error}");
+                                }
                             }
                             Err(error) => {
-                                let _ = fs::remove_file(&temporary);
+                                remove_partial_export(&temporary);
                                 emit_failure(&task_app, &task_job_id, error, false);
                             }
                         }
                     } else {
-                        let _ = fs::remove_file(&temporary);
+                        remove_partial_export(&temporary);
                         let error = if cancelled {
                             AppError::new(ErrorCode::ExportCancelled)
                         } else if diagnostics.is_empty() {
@@ -312,6 +322,28 @@ pub async fn start(
                 _ => {}
             }
         }
+        if !received_termination {
+            if let Some(child) = take_job(&task_app, &task_job_id)
+                && let Err(error) = child.kill()
+            {
+                log::warn!("unable to stop export after its event channel closed: {error}");
+            }
+            let cancelled = take_cancelled(&task_app, &task_job_id);
+            remove_partial_export(&temporary);
+            emit_failure(
+                &task_app,
+                &task_job_id,
+                if cancelled {
+                    AppError::new(ErrorCode::ExportCancelled)
+                } else {
+                    AppError::with_detail(
+                        ErrorCode::ExportProcessFailed,
+                        "process event channel closed",
+                    )
+                },
+                cancelled,
+            );
+        }
     });
 
     Ok(job_id)
@@ -330,10 +362,19 @@ pub fn cancel(state: State<'_, ExportState>, job_id: String) -> Result<(), AppEr
         .cancelled
         .lock()
         .map_err(|_| AppError::new(ErrorCode::CancellationStateUpdateFailed))?
-        .insert(job_id);
-    child.kill().map_err(|error| {
-        AppError::with_detail(ErrorCode::ExportProcessStopFailed, error.to_string())
-    })
+        .insert(job_id.clone());
+    match child.kill() {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            if let Ok(mut cancelled) = state.cancelled.lock() {
+                cancelled.remove(&job_id);
+            }
+            Err(AppError::with_detail(
+                ErrorCode::ExportProcessStopFailed,
+                error.to_string(),
+            ))
+        }
+    }
 }
 
 fn build_export_args(
@@ -834,9 +875,13 @@ fn parse_progress_time(bytes: &[u8]) -> Option<f64> {
     Some(value / 1_000_000.0)
 }
 
-fn remove_job(app: &AppHandle, job_id: &str) {
-    if let Ok(mut jobs) = app.state::<ExportState>().jobs.lock() {
-        jobs.remove(job_id);
+fn take_job(app: &AppHandle, job_id: &str) -> Option<CommandChild> {
+    match app.state::<ExportState>().jobs.lock() {
+        Ok(mut jobs) => jobs.remove(job_id),
+        Err(_) => {
+            log::warn!("unable to access export jobs while finishing {job_id}");
+            None
+        }
     }
 }
 
@@ -845,18 +890,34 @@ fn take_cancelled(app: &AppHandle, job_id: &str) -> bool {
         .cancelled
         .lock()
         .map(|mut jobs| jobs.remove(job_id))
-        .unwrap_or(false)
+        .unwrap_or_else(|_| {
+            log::warn!("unable to access export cancellation state for {job_id}");
+            false
+        })
 }
 
 fn emit_failure(app: &AppHandle, job_id: &str, error: AppError, cancelled: bool) {
-    let _ = app.emit(
+    if let Err(error) = app.emit(
         FAILED_EVENT,
         ExportFailed {
             job_id: job_id.to_owned(),
             error,
             cancelled,
         },
-    );
+    ) {
+        log::warn!("unable to emit export failure: {error}");
+    }
+}
+
+fn remove_partial_export(path: &Path) {
+    match fs::remove_file(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => log::warn!(
+            "unable to remove partial export {}: {error}",
+            path.display()
+        ),
+    }
 }
 
 #[cfg(windows)]

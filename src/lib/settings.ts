@@ -7,6 +7,7 @@ import type {
   PixelFormat,
   VideoCodec,
 } from './export';
+import { load as loadStore } from '@tauri-apps/plugin-store';
 
 export type Language = 'ja' | 'en';
 export type LanguageMode = 'system' | 'manual';
@@ -19,12 +20,15 @@ export interface AppSettings {
   export: ExportSettings;
 }
 
-interface StorageLike {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
+export interface SettingsStore {
+  get<T>(key: string): Promise<T | undefined>;
+  set(key: string, value: unknown): Promise<void>;
+  save(): Promise<void>;
 }
 
-const storageKey = 'vidmetry.settings.v1';
+const settingsFile = 'settings.json';
+const settingsKey = 'settings';
+let settingsStorePromise: Promise<SettingsStore> | undefined;
 
 export const defaultSettings: AppSettings = {
   version: 1,
@@ -72,20 +76,21 @@ const pixelFormats: PixelFormat[] = [
 const audioModes: AudioMode[] = ['auto', 'copy', 'aac', 'flac', 'pcm', 'none'];
 const frameRateModes: FrameRateMode[] = ['passthrough', 'constant'];
 
-export function loadSettings(storage: StorageLike = window.localStorage): AppSettings {
-  try {
-    const stored = storage.getItem(storageKey);
-    return stored ? normalizeSettings(JSON.parse(stored)) : cloneSettings(defaultSettings);
-  } catch {
-    return cloneSettings(defaultSettings);
-  }
+export async function loadSettings(
+  store?: SettingsStore,
+): Promise<AppSettings> {
+  const settingsStore = store ?? (await openSettingsStore());
+  const stored = await settingsStore.get<unknown>(settingsKey);
+  return stored === undefined ? cloneSettings(defaultSettings) : normalizeSettings(stored);
 }
 
-export function persistSettings(
+export async function persistSettings(
   settings: AppSettings,
-  storage: StorageLike = window.localStorage,
-): void {
-  storage.setItem(storageKey, JSON.stringify(normalizeSettings(settings)));
+  store?: SettingsStore,
+): Promise<void> {
+  const settingsStore = store ?? (await openSettingsStore());
+  await settingsStore.set(settingsKey, normalizeSettings(settings));
+  await settingsStore.save();
 }
 
 export function cloneSettings(settings: AppSettings): AppSettings {
@@ -144,4 +149,12 @@ function numberInRange(value: unknown, minimum: number, maximum: number, fallbac
 
 function booleanValue(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
+}
+
+async function openSettingsStore(): Promise<SettingsStore> {
+  settingsStorePromise ??= loadStore(settingsFile, { autoSave: false }).catch((error) => {
+    settingsStorePromise = undefined;
+    throw error;
+  });
+  return settingsStorePromise;
 }

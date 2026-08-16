@@ -1,5 +1,6 @@
 mod app_error;
 mod appearance;
+mod cache;
 mod export;
 mod ffmpeg;
 mod media;
@@ -9,11 +10,6 @@ mod selection;
 use tauri::Manager;
 
 use app_error::{AppError, ErrorCode};
-
-#[tauri::command]
-fn health_check() -> &'static str {
-    "Vidmetry media service is ready"
-}
 
 #[tauri::command]
 async fn probe_video(
@@ -93,11 +89,12 @@ fn reveal_in_explorer(path: String) -> Result<(), AppError> {
 pub fn run() {
     tauri::Builder::default()
         .manage(export::ExportState::default())
+        .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
             appearance::system_accent_color,
-            health_check,
             probe_video,
             create_preview,
             create_timeline_strip,

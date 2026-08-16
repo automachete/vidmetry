@@ -1,3 +1,4 @@
+import { createInstance } from 'i18next';
 import type { AppErrorCode, AppErrorPayload } from './app-error';
 import type { Language } from './settings';
 
@@ -81,6 +82,16 @@ const ja = {
   exportStartError: '書き出しを開始できませんでした。',
   exportFailed: '書き出しに失敗しました。',
   previewFailed: 'プレビューを準備できませんでした。',
+  dragDropUnavailable: 'ドラッグ＆ドロップを初期化できませんでした。',
+  exportEventsUnavailable: '保存処理の通知を初期化できないため、動画を保存できません。',
+  openDialogFailed: 'ファイル選択画面を開けませんでした。',
+  saveDialogFailed: '保存先の選択画面を開けませんでした。',
+  selectionFailed: '選択した動画またはフォルダーを開けませんでした。',
+  settingsLoadFailed: '設定を読み込めませんでした。既定値を使用します。',
+  settingsSaveFailed: '設定を保存できませんでした。',
+  playbackFailed: '動画を再生できませんでした。',
+  fullscreenFailed: '全画面表示を切り替えられませんでした。',
+  cancelExportFailed: '書き出しをキャンセルできませんでした。',
   unknownError: '不明なエラーが発生しました。',
   closeError: 'エラーを閉じる',
   closeNotice: '通知を閉じる',
@@ -268,6 +279,16 @@ const en: Record<TranslationKey, string> = {
   exportStartError: 'Could not start export. ',
   exportFailed: 'Export failed. ',
   previewFailed: 'Could not prepare the preview. ',
+  dragDropUnavailable: 'Could not initialize drag and drop.',
+  exportEventsUnavailable: 'Saving is unavailable because export notifications could not be initialized.',
+  openDialogFailed: 'Could not open the file picker.',
+  saveDialogFailed: 'Could not open the save location picker.',
+  selectionFailed: 'Could not open the selected video or folder.',
+  settingsLoadFailed: 'Could not load settings. Defaults will be used.',
+  settingsSaveFailed: 'Could not save settings.',
+  playbackFailed: 'Could not play the video.',
+  fullscreenFailed: 'Could not change fullscreen mode.',
+  cancelExportFailed: 'Could not cancel the export.',
   unknownError: 'An unknown error occurred.',
   closeError: 'Dismiss error',
   closeNotice: 'Dismiss notification',
@@ -373,16 +394,26 @@ const en: Record<TranslationKey, string> = {
   errorAccentColorUnavailable: 'The Windows accent color could not be read.',
 };
 
+const i18n = createInstance();
+void i18n.init({
+  resources: {
+    ja: { translation: ja },
+    en: { translation: en },
+  },
+  lng: 'en',
+  fallbackLng: 'en',
+  supportedLngs: ['ja', 'en'],
+  initAsync: false,
+  interpolation: { escapeValue: false },
+  returnNull: false,
+});
+
 export function translate(
   language: Language,
   key: TranslationKey,
   values: Record<string, string | number> = {},
 ): string {
-  const template = language === 'ja' ? ja[key] : en[key];
-  return Object.entries(values).reduce(
-    (result, [name, value]) => result.replaceAll(`{{${name}}}`, String(value)),
-    template,
-  );
+  return i18n.t(key, { lng: language, ...values });
 }
 
 const appErrorTranslationKeys: Record<AppErrorCode, TranslationKey> = {

@@ -43,12 +43,21 @@ pub fn inspect(path: &str) -> Result<SelectionDescriptor, AppError> {
         return Err(AppError::new(ErrorCode::SelectedPathUnsupported));
     }
 
-    let mut videos = fs::read_dir(&selected)
+    let mut videos = Vec::<PathBuf>::new();
+    for entry in fs::read_dir(&selected)
         .map_err(|error| AppError::with_detail(ErrorCode::FolderReadFailed, error.to_string()))?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|entry| entry.is_file() && is_video_path(entry))
-        .collect::<Vec<PathBuf>>();
+    {
+        let entry = entry.map_err(|error| {
+            AppError::with_detail(ErrorCode::FolderReadFailed, error.to_string())
+        })?;
+        let metadata = entry.metadata().map_err(|error| {
+            AppError::with_detail(ErrorCode::FolderReadFailed, error.to_string())
+        })?;
+        let path = entry.path();
+        if metadata.is_file() && is_video_path(&path) {
+            videos.push(path);
+        }
+    }
     videos.sort_by(|left, right| {
         left.file_name()
             .unwrap_or_default()
