@@ -53,7 +53,7 @@ jobs:
       - name: Verify source archive
         shell: bash
         run: |
-          sha256sum --check "release-assets/$SOURCE_ARCHIVE_NAME.sha256"
+          (cd release-assets && sha256sum --check "$SOURCE_ARCHIVE_NAME.sha256")
           tar -tf "release-assets/$SOURCE_ARCHIVE_NAME" > source-archive-files.txt
           grep -q '/SOURCE_METADATA.json$' source-archive-files.txt
 
