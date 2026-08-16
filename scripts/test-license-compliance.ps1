@@ -174,9 +174,10 @@ if (-not $buildSourceBody.Contains('contents: read', [StringComparison]::Ordinal
     throw 'Source assembly must run with read-only contents permission and without a publication token.'
 }
 if (-not $publishSourceBody.Contains('contents: write', [StringComparison]::Ordinal) -or
+    -not $publishSourceBody.Contains('GH_REPO: ${{ github.repository }}', [StringComparison]::Ordinal) -or
     $publishSourceBody.Contains('package-ffmpeg-corresponding-source.sh', [StringComparison]::Ordinal) -or
     $publishSourceBody.Contains('actions/checkout@', [StringComparison]::Ordinal)) {
-    throw 'Source publication must receive verified artifacts without checking out or rebuilding source.'
+    throw 'Source publication must target the repository explicitly and receive verified artifacts without checking out or rebuilding source.'
 }
 
 $ciWorkflow = Join-Path $projectRoot '.github\workflows\ci.yml'
