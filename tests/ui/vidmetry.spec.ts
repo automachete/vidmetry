@@ -249,12 +249,40 @@ test('different extensions use direct Save a copy and Space starts playback', as
   await expect.poll(() => page.evaluate(() => (window as any).__vidmetryPlayCount)).toBe(1);
 });
 
-test('time trim handles use exact frame steps and export the selected range', async ({ page }) => {
+test('Space toggles playback from the focused white playback-position handle', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Open video' }).click();
 
-  const start = page.getByRole('slider', { name: 'Adjust start frame' });
-  const end = page.getByRole('slider', { name: 'Adjust end frame' });
+  const timeline = page.locator('.trim-timeline');
+  const timelineBox = await timeline.boundingBox();
+  expect(timelineBox).not.toBeNull();
+  const pointerY = timelineBox!.y + timelineBox!.height / 2;
+  await page.mouse.click(timelineBox!.x + timelineBox!.width * 0.4, pointerY);
+
+  const whitePlaybackHandle = page.locator('.timeline-playhead');
+  await expect
+    .poll(() => whitePlaybackHandle.evaluate((element) => getComputedStyle(element).backgroundColor))
+    .toBe('rgb(247, 248, 250)');
+  const handleBox = await whitePlaybackHandle.boundingBox();
+  expect(handleBox).not.toBeNull();
+  await page.mouse.click(handleBox!.x + handleBox!.width / 2, pointerY);
+
+  const playbackScrubber = page.getByRole('slider', { name: 'White playback-position handle' });
+  await expect(playbackScrubber).toBeFocused();
+  const video = page.locator('video');
+  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).paused)).toBe(true);
+  await page.keyboard.press('Space');
+  await expect.poll(() => page.evaluate(() => (window as any).__vidmetryPlayCount)).toBe(1);
+  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).paused)).toBe(false);
+  await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
+});
+
+test('accent-colored trim-boundary handles use exact frame steps and export the selected range', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open video' }).click();
+
+  const start = page.getByRole('slider', { name: 'Accent-colored start trim-boundary handle' });
+  const end = page.getByRole('slider', { name: 'Accent-colored end trim-boundary handle' });
   await expect(start).toHaveAttribute('aria-valuenow', '0');
   await expect(end).toHaveAttribute('aria-valuenow', '240');
   await start.click();
@@ -273,24 +301,6 @@ test('time trim handles use exact frame steps and export the selected range', as
   await page.keyboard.press('Shift+ArrowLeft');
   await expect(end).toHaveAttribute('aria-valuenow', '229');
 
-  await page.keyboard.press('Space');
-  await expect.poll(() => page.evaluate(() => (window as any).__vidmetryPlayCount)).toBe(1);
-  await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
-  const video = page.locator('video');
-  await expect
-    .poll(() => video.evaluate((element) => (element as HTMLVideoElement).paused))
-    .toBe(false);
-  await expect
-    .poll(() => video.evaluate((element) => (element as HTMLVideoElement).currentTime))
-    .toBeCloseTo((11 / 240) * 8, 3);
-  await video.evaluate((element) => {
-    const media = element as HTMLVideoElement;
-    media.currentTime += 8 / 240;
-    media.dispatchEvent(new Event('timeupdate'));
-  });
-  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).paused)).toBe(false);
-  await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
-
   await page.getByRole('button', { name: 'Save options' }).click();
   await page.getByRole('menuitem', { name: 'Save a copy' }).click();
   const trim = await page.evaluate(() => {
@@ -302,13 +312,13 @@ test('time trim handles use exact frame steps and export the selected range', as
   expect(trim).toEqual({ startFrame: 11, endFrame: 229 });
 });
 
-test('timeline clicks and trim handles stay under the pointer after the selection is halved', async ({ page }) => {
+test('playback-scrubber clicks and trim-boundary handles stay under the pointer after the selection is halved', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Open video' }).click();
 
   const timeline = page.locator('.trim-timeline');
-  const start = page.getByRole('slider', { name: 'Adjust start frame' });
-  const end = page.getByRole('slider', { name: 'Adjust end frame' });
+  const start = page.getByRole('slider', { name: 'Accent-colored start trim-boundary handle' });
+  const end = page.getByRole('slider', { name: 'Accent-colored end trim-boundary handle' });
   await start.click();
   for (let index = 0; index < 6; index += 1) await page.keyboard.press('Shift+ArrowRight');
   await end.click();

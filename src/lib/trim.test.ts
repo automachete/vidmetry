@@ -49,7 +49,7 @@ describe('frame-accurate time trimming', () => {
     expect(adaptiveFrameQuantum(300, 900, 0.05)).toBe(1);
   });
 
-  it('maps from the absolute pointer position without accumulating handle drift', () => {
+  it('maps from the absolute pointer position without accumulating trim-boundary handle drift', () => {
     expect(pointerFrameFromTimeline(475, 100, 800, 800, 5, 0.05)).toBe(370);
     expect(pointerFrameFromTimeline(475, 100, 800, 16_000, 5, 2)).toBe(7_400);
     expect(pointerFrameFromTimeline(-100, 100, 800, 800, 0, 0.05)).toBe(0);

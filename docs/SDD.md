@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document version | 1.4 |
-| Product version | 0.4.3 |
+| Product version | 0.4.4 |
 | Status | Implemented and verified |
 | Primary platform | Windows 11 x64 |
 | UI languages | Japanese and English |
@@ -14,6 +14,14 @@
 Vidmetry is a lightweight desktop GUI for cropping a video's spatial frame and trimming its start/end time. Its interaction model follows the crop and frame-viewer tools in photo applications: open a video or folder, adjust the visible frame and selected duration, preview, and save with minimal intermediate UI.
 
 The application must not imply that physical video cropping can normally use stream copy. It presents three distinct export behaviors so the user can choose compatibility, decoded-pixel fidelity, or metadata-only stream preservation.
+
+### 1.1 Interaction terminology
+
+The following terms are distinct and must not be shortened to an unqualified “handle” in requirements, code comments, or test names:
+
+- **Playback-position handle (white)**: the white vertical playhead shown over the frame strip. Its interactive control is the full-width playback scrubber. Pointer input seeks within the selected trim range; when this control has keyboard focus, Space toggles video play/pause and arrow keys seek.
+- **Start trim-boundary handle / end trim-boundary handle (accent-colored)**: the two accent-colored controls that define the inclusive first frame and exclusive end frame. Pointer input or arrow keys change the saved trim range.
+- **Spatial-crop handles**: the eight controls around the crop rectangle that change the exported frame area. They are unrelated to playback time.
 
 ## 2. Goals and non-goals
 
@@ -34,7 +42,7 @@ The application must not imply that physical video cropping can normally use str
 - Keep all media processing local.
 - Remain responsive while probing, proxying, and exporting.
 
-### 2.2 Non-goals for 0.4.3
+### 2.2 Non-goals for 0.4.4
 
 - Multi-clip timelines, internal cuts, transitions, filters, captions, or independent audio editing.
 - Animated crop/keyframes.
@@ -55,7 +63,7 @@ The application must not imply that physical video cropping can normally use str
 
 ### 3.2 Crop interaction
 
-- **FR-010** The crop rectangle has four edge handles, four corner handles, and a draggable interior.
+- **FR-010** The crop rectangle has four spatial-crop edge handles, four spatial-crop corner handles, and a draggable interior.
 - **FR-011** The area outside the crop rectangle is visibly dimmed.
 - **FR-012** The rectangle cannot leave the visible video frame and cannot become smaller than 16 by 16 source pixels.
 - **FR-013** Coordinates are stored in display-oriented source pixels as `{x, y, width, height}` and normalized values are derived only for responsive rendering.
@@ -65,14 +73,14 @@ The application must not imply that physical video cropping can normally use str
 
 ### 3.3 Playback and scrub
 
-- **FR-020** The UI provides play/pause, current time, duration, mute, a frame strip, a playhead scrubber, and start/end trim handles.
+- **FR-020** The UI provides play/pause, current time, duration, mute, a frame strip, one white playback-position handle backed by a full-width scrubber, and two accent-colored trim-boundary handles.
 - **FR-021** Start is inclusive and end is exclusive. The selected range always contains at least one integer source frame.
 - **FR-022** The crop overlay remains spatially stable during playback, seek, resize, and fullscreen layout changes.
-- **FR-023** Timeline clicks and trim dragging use the video's full-duration coordinate system even after the selected range is narrowed. Clicks clamp to the selection, a dragged handle centers on the final dispatched pointer position, and coalesced samples may estimate velocity but cannot replace that final position. Focused trim handles move by one frame with an arrow key or ten with Shift.
+- **FR-023** Playback-scrubber clicks and trim-boundary dragging use the video's full-duration coordinate system even after the selected range is narrowed. Playback-position clicks clamp to the selection; a dragged trim-boundary handle centers on the final dispatched pointer position. Coalesced samples may estimate velocity but cannot replace that final position. Focused trim-boundary handles move by one frame with an arrow key or ten with Shift.
 - **FR-024** An icon-only control toggles loop playback. The selected state is persisted and reused for subsequent videos and sessions.
-- **FR-025** Playback and loop boundaries follow the selected time range. Space toggles playback even while a trim handle has focus; if the end handle placed the preview on the last selected frame, playback restarts from the selected start instead of stopping immediately. Otherwise left/right keys seek by one frame or ten with Shift.
+- **FR-025** Playback and loop boundaries follow the selected time range. Space toggles playback when the white playback-position handle/full-width scrubber has focus. Left/right keys on that control seek the preview; left/right keys on an accent-colored trim-boundary handle adjust its boundary by one frame or ten with Shift.
 - **FR-026** The UI follows the current Windows light/dark app mode and selected accent color. Theme change notifications apply the mode immediately, and the accent is refreshed at startup, on theme change, and when the app regains focus.
-- **FR-027** The trim selection border and handles use the Windows accent color with a computed readable foreground.
+- **FR-027** The trim selection border and start/end trim-boundary handles use the Windows accent color with a computed readable foreground; the playback-position handle remains white.
 - **FR-028** The spatial crop inspector and time-trim footer can each be collapsed and restored with accessible icon-only controls.
 - **FR-029** F11 enters or exits a video-only window fullscreen preview. Escape exits fullscreen.
 
@@ -245,7 +253,7 @@ The main window uses three regions:
 
 1. A narrow header with the Vidmetry icon/wordmark, source details in the editor, icon-only Open/Folder/Settings actions, and one context-sensitive save control.
 2. A flexible, neutrally colored video stage containing optional directory navigation, the video, and crop overlay.
-3. A collapsible frame-strip footer with velocity-sensitive time handles, playback/scrub, persistent loop, and mute, plus a collapsible spatial inspector with coordinates, dimensions, aspect ratio, and Reset.
+3. A collapsible frame-strip footer with a white playback-position handle, accent-colored start/end trim-boundary handles, persistent loop, and mute, plus a collapsible spatial inspector with coordinates, dimensions, aspect ratio, and Reset.
 
 The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. Windows mode/accent changes are projected through CSS variables; fixed app-icon artwork is strictly achromatic. The NSIS installer assigns shortcuts a versioned icon path and refreshes the Windows Shell cache after upgrades. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
 
@@ -289,7 +297,7 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 ### 13.1 Frontend unit tests
 
 - Screen-to-source coordinate mapping.
-- Move and eight resize handles at every boundary.
+- Move and eight spatial-crop handles at every boundary.
 - Minimum size, clamping, modulus snapping, and aspect locks.
 - Time formatting and seek clamping.
 - Export-profile eligibility.
@@ -297,8 +305,8 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 
 ### 13.2 Component and UI regression tests
 
-- Testing Library covers launcher content, settings, save shortcuts, end-handle Space playback position, localization, trim-frame key steps, pane collapse, F11 state, Windows appearance projection, notice dismissal, and completed-output links.
-- Playwright exercises the same critical flows in Chromium, including full-duration click alignment after halving the selection, off-center trim-handle grabs, trim export ranges, theme/accent projection, collapsible panes, F11, notification expiry, and screenshot layout.
+- Testing Library covers launcher content, settings, save shortcuts, Space playback from the focused white playback scrubber, localization, trim-boundary frame steps, pane collapse, F11 state, Windows appearance projection, notice dismissal, and completed-output links.
+- Playwright exercises the same critical flows in Chromium, including clicking the rendered white playback-position handle before Space, real playback-state changes, full-duration click alignment after halving the selection, off-center trim-boundary grabs, trim export ranges, theme/accent projection, collapsible panes, F11, notification expiry, and screenshot layout.
 - Asset verification scans generated PNG/ICO pixels and source SVG colors for chromatic fixed artwork, rejects legacy green tints, and checks the Windows shortcut refresh configuration.
 - Screenshot baselines cover launcher, settings, save-menu, successful-save, and Windows light-theme states.
 
@@ -335,9 +343,9 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - Windows light/dark and several light/dark accent colors, including runtime changes
 - output cancellation and disk/permission errors
 
-## 14. Acceptance criteria for 0.4.3
+## 14. Acceptance criteria for 0.4.4
 
-- **AC-001** A user can open a video, drag every crop handle, scrub, play, and reset without leaving the main window.
+- **AC-001** A user can open a video, drag every spatial-crop handle, scrub, play, and reset without leaving the main window.
 - **AC-002** Pixel readouts match the crop shown and remain in bounds after resize.
 - **AC-003** Compatible and FFV1 exports have the selected physical frame dimensions according to ffprobe.
 - **AC-004** Metadata-only export never uses a video encoder and is disabled for non-H.264/HEVC input.
@@ -349,13 +357,13 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - **AC-010** Loop state follows video changes, and the normal UI can switch between Japanese and English.
 - **AC-011** In-place Save is unavailable for mismatched extensions and safely replaces the source only after confirmation and successful encoding.
 - **AC-012** Save controls, folder arrows, and success notification pass component and Chromium layout/visual regression tests; the notification reveals rather than launches the output.
-- **AC-013** Start/end handles provide velocity-sensitive mouse adjustment and keyboard frame steps, and the exported video contains the selected ordinal frames.
+- **AC-013** Start/end trim-boundary handles provide velocity-sensitive mouse adjustment and keyboard frame steps, and the exported video contains the selected ordinal frames.
 - **AC-014** The save notice expires after three seconds or another interaction; its link opens Explorer with the saved file selected.
 - **AC-015** Windows light/dark app mode and accent color drive all app surfaces and the trim bar; fixed icon assets are achromatic, and an upgraded NSIS installation replaces cached green shortcut artwork.
 - **AC-016** Ctrl+S starts Copy and save, while Ctrl+Shift+S starts confirmed in-place Save when eligible.
-- **AC-017** Start/end handles move by 1 or 10 frames from keyboard focus; Space from the focused end handle restarts at the selected start and enters a real playing state; timeline clicks and off-center handle drags remain aligned after the selected range is reduced to half the video.
+- **AC-017** Accent-colored start/end trim-boundary handles move by 1 or 10 frames from keyboard focus. Space from the focused white playback-position handle changes the media element to a real playing state and changes the UI to Pause. Playback-scrubber clicks and off-center trim-boundary drags remain aligned after the selected range is reduced to half the video.
 - **AC-018** The crop inspector and time-trim footer collapse independently, and F11/Escape toggle a video-only window fullscreen preview.
 
 ## 15. Verification status
 
-The 0.4.3 implementation satisfies AC-001 through AC-018 at automated or implementation-inspection level. Native picker interaction, live Windows personalization changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.
+The 0.4.4 implementation satisfies AC-001 through AC-018 at automated or implementation-inspection level. Native picker interaction, live Windows personalization changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.

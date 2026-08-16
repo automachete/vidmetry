@@ -35,7 +35,7 @@ describe('crop geometry', () => {
     });
   });
 
-  it('resizes from the north-west handle', () => {
+  it('resizes from the north-west spatial-crop handle', () => {
     const start = { x: 200, y: 100, width: 800, height: 600 };
     expect(dragCrop(start, 'north-west', -100, -50, bounds, null)).toEqual({
       x: 100,

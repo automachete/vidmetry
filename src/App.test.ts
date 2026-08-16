@@ -215,25 +215,20 @@ describe('application shell', () => {
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalledOnce();
   });
 
-  it('restarts the selected range when Space is pressed from the focused end handle', async () => {
+  it('toggles playback when the white playback-position scrubber has focus', async () => {
     useEnglish();
     vi.mocked(dialogOpen).mockResolvedValue(videoPaths[0]);
     mockSelection();
-    const { container } = render(App);
+    render(App);
 
     await fireEvent.click(screen.getByRole('button', { name: 'Open video' }));
-    const endHandle = await screen.findByRole('slider', { name: 'Adjust end frame' });
-    await fireEvent.pointerDown(endHandle, { button: 0, clientX: 0, clientY: 0 });
+    const playbackScrubber = await screen.findByRole('slider', { name: 'White playback-position handle' });
+    await fireEvent.pointerDown(playbackScrubber, { button: 0, clientX: 0, clientY: 0 });
     await fireEvent.pointerUp(window, { button: 0, clientX: 0, clientY: 0 });
-    expect(document.activeElement).toBe(endHandle);
-    expect(endHandle.classList.contains('selected')).toBe(true);
-    const video = container.querySelector('video');
-    expect(video).not.toBeNull();
-    await waitFor(() => expect(video!.currentTime).toBeCloseTo((119 / 120) * 4, 3));
-    await fireEvent.keyDown(endHandle, { key: ' ', code: 'Space' });
+    expect(document.activeElement).toBe(playbackScrubber);
+    await fireEvent.keyDown(playbackScrubber, { key: ' ', code: 'Space' });
 
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalledOnce();
-    await waitFor(() => expect(video!.currentTime).toBe(0));
   });
 
   it('localizes backend validation messages in English mode', async () => {
@@ -283,8 +278,8 @@ describe('application shell', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: 'Open video' }));
     await screen.findByText('a.mp4');
-    const startHandle = screen.getByRole('slider', { name: 'Adjust start frame' });
-    const endHandle = screen.getByRole('slider', { name: 'Adjust end frame' });
+    const startHandle = screen.getByRole('slider', { name: 'Accent-colored start trim-boundary handle' });
+    const endHandle = screen.getByRole('slider', { name: 'Accent-colored end trim-boundary handle' });
     expect(startHandle.getAttribute('aria-valuenow')).toBe('0');
     expect(endHandle.getAttribute('aria-valuenow')).toBe('120');
 

@@ -471,15 +471,7 @@
     if (!videoElement || !media) return;
     if (videoElement.paused) {
       try {
-        const lastPlayableFrameTime = frameToSeconds(
-          Math.max(safeTrim.startFrame, safeTrim.endFrame - 1),
-          totalFrames,
-          duration,
-        );
-        if (
-          currentTime < trimStartSeconds ||
-          currentTime >= lastPlayableFrameTime
-        ) {
+        if (currentTime < trimStartSeconds || currentTime >= trimEndSeconds) {
           seekToFrame(safeTrim.startFrame);
         }
         await videoElement.play();
@@ -499,6 +491,13 @@
     );
     const next = frameToSeconds(frame, totalFrames, duration);
     seekToTime(next);
+  }
+
+  function handlePlaybackScrubberKey(event: KeyboardEvent) {
+    if (event.code !== 'Space') return;
+    event.preventDefault();
+    event.stopPropagation();
+    void togglePlayback();
   }
 
   function seekToTimelinePointer(clientX: number, state: TimelineScrubState) {
@@ -631,7 +630,7 @@
       void navigatePlaylist(event.code === 'PageDown' ? 1 : -1);
       return;
     }
-    if (event.code === 'Space' && (!target?.matches('input, select, textarea, button') || target.closest('.trim-handle'))) {
+    if (event.code === 'Space' && !target?.matches('input, select, textarea, button')) {
       event.preventDefault();
       void togglePlayback();
       return;
@@ -762,12 +761,6 @@
   }
 
   function handleTrimKey(event: KeyboardEvent, handle: TrimHandle) {
-    if (event.code === 'Space') {
-      event.preventDefault();
-      event.stopPropagation();
-      void togglePlayback();
-      return;
-    }
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
     event.stopPropagation();
@@ -1183,6 +1176,7 @@
             value={currentTime}
             oninput={scrubTo}
             onpointerdown={beginTimelineScrub}
+            onkeydown={handlePlaybackScrubberKey}
           />
           <span class="timeline-playhead" style={playheadStyle} aria-hidden="true"></span>
           <button

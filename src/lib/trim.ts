@@ -114,7 +114,7 @@ export function adaptiveFrameQuantum(
 /**
  * Maps the pointer's absolute timeline position to a frame. Slow motion snaps to
  * a single frame; quick motion coarsens the snap without allowing accumulated
- * relative-drag error to separate the handle from the pointer.
+ * relative-drag error to separate a trim-boundary handle from the pointer.
  */
 export function pointerFrameFromTimeline(
   clientX: number,
