@@ -56,16 +56,20 @@ Vidmetryは、動画の**画面領域と開始・終了時間**を素早く切�
 npm ci
 npx playwright install chromium
 .\scripts\setup-ffmpeg.ps1
+.\scripts\setup-copyleft-sources.ps1
+.\scripts\generate-third-party-licenses.ps1
 npm run tauri dev
 ```
 
-FFmpegスクリプトは、バージョン固定されたGyan.devのGitHub Release資産、アーカイブ、各実行ファイル、ライセンス、ビルド情報を追跡済みSHA-256で検証し、Tauri用の`ffmpeg`／`ffprobe`サイドカーを配置します。バイナリと生成した通知ファイルはGit管理されません。
+FFmpegスクリプトは、公開されたビルド定義を持つBtbNの日時固定GPL Release資産について、アーカイブと各実行ファイルを追跡済みSHA-256で検証し、必要なエンコーダーも実行時に検査してからTauri用の`ffmpeg`／`ffprobe`サイドカーを配置します。バイナリと生成した通知ファイルはGit管理されません。
 
 ## テストとビルド
 
 ```powershell
 npm run verify
 npm run test:ui
+npm run check:licenses
+cargo deny --manifest-path src-tauri\Cargo.toml check licenses
 cargo audit --file src-tauri\Cargo.lock
 cargo test --manifest-path src-tauri\Cargo.toml
 cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings
@@ -80,14 +84,14 @@ npm run tauri build
 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`のバージョンを揃えてから、同じバージョンの`vX.Y.Z`タグをプッシュします。
 
 ```powershell
-git tag -a v0.4.6 -m "Vidmetry v0.4.6"
-git push origin v0.4.6
+git tag -a v0.4.7 -m "Vidmetry v0.4.7"
+git push origin v0.4.7
 ```
 
-タグを契機にGitHub Actionsが依存関係監査と全テストを再実行し、GitHub Releaseとリリースノートを作成して、Windows用MSI／セットアップEXEを添付します。タグとアプリのバージョンが一致しない場合は公開されません。ハイフンを含むタグ（例: `v0.4.6-beta.1`）はプレリリースとして扱います。CIが参照する外部ActionはコミットSHAへ固定し、Dependabotが更新候補を提出します。
+タグを契機にGitHub Actionsが依存関係とライセンスの監査、全テスト、FFmpeg完全対応ソースの組み立てを行います。Windows用MSI／セットアップEXEは、MPL依存ソースを内包し、FFmpeg対応ソースの圧縮ファイルとSHA-256が同じ下書きReleaseに揃ったことを確認した後にだけ公開されます。途中で失敗したReleaseは公開されません。タグとアプリのバージョンが一致しない場合も公開されず、ハイフンを含むタグ（例: `v0.4.7-beta.1`）はプレリリースとして扱います。CIが参照する外部ActionはコミットSHAへ固定し、Dependabotが更新候補を提出します。
 
 詳細な要件と設計は[docs/SDD.md](docs/SDD.md)、今回の検証結果は[docs/VERIFICATION.md](docs/VERIFICATION.md)を参照してください。
 
 ## License
 
-Vidmetry本体は[MIT License](LICENSE)です。同梱するFFmpegの条件は[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)も確認してください。
+Vidmetry本体は[MIT License](LICENSE)です。FFmpeg／ffprobeはライブラリとしてリンクせず、通常のコマンドライン引数・ファイル・進捗テキストで連携する別プログラムです。同梱物にはGPL-3.0-or-laterが適用され、公式Releaseはその完全な対応ソースを同じ配布場所で提供します。詳細は[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)を確認してください。

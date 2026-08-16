@@ -1,0 +1,67 @@
+name: FFmpeg Corresponding Source Audit
+
+on:
+  pull_request:
+    paths:
+      - "scripts/ffmpeg-sidecars.json"
+      - "scripts/package-ffmpeg-corresponding-source.sh"
+      - "scripts/setup-ffmpeg.ps1"
+      - "scripts/test-license-compliance.ps1"
+      - ".github/workflows/ffmpeg-source-audit.yml"
+      - ".github/workflows/release.yml"
+      - "THIRD_PARTY_NOTICES.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ffmpeg-source-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SOURCE_ARCHIVE_NAME: vidmetry-ffmpeg-N-126168-gb16b5f2a01-20260815-corresponding-source.tar.xz
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Cache pinned dependency sources
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache/ffmpeg-source-downloads
+          key: ffmpeg-source-${{ hashFiles('scripts/ffmpeg-sidecars.json', 'scripts/package-ffmpeg-corresponding-source.sh') }}
+
+      - name: Assemble complete corresponding source
+        shell: bash
+        run: |
+          scripts/package-ffmpeg-corresponding-source.sh \
+            --cache-dir .cache/ffmpeg-source-downloads \
+            --output "release-assets/$SOURCE_ARCHIVE_NAME"
+
+      - name: Inspect source archive completeness
+        shell: bash
+        run: |
+          test -s "release-assets/$SOURCE_ARCHIVE_NAME"
+          test -s "release-assets/$SOURCE_ARCHIVE_NAME.sha256"
+          sha256sum --check "release-assets/$SOURCE_ARCHIVE_NAME.sha256"
+          tar -tf "release-assets/$SOURCE_ARCHIVE_NAME" > source-archive-files.txt
+          grep -q '/ffmpeg/fftools/ffmpeg.c$' source-archive-files.txt
+          grep -q '/build-scripts/build.sh$' source-archive-files.txt
+          grep -q '/build-scripts/Dockerfile.vidmetry-source-graph$' source-archive-files.txt
+          grep -q '/SOURCE_METADATA.json$' source-archive-files.txt
+          test "$(grep -c '/build-scripts/.cache/downloads/.*\.tar\.xz$' source-archive-files.txt)" -ge 20
+
+      - name: Retain audited source bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ffmpeg-corresponding-source-audit
+          path: |
+            release-assets/${{ env.SOURCE_ARCHIVE_NAME }}
+            release-assets/${{ env.SOURCE_ARCHIVE_NAME }}.sha256
+          compression-level: 0
+          retention-days: 7

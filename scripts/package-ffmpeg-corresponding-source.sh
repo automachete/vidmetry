@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+MANIFEST="$SCRIPT_DIR/ffmpeg-sidecars.json"
+OUTPUT=""
+CACHE_DIR=""
+VALIDATE_ONLY=0
+
+usage() {
+  echo "Usage: $0 --output <archive.tar.xz> [--cache-dir <directory>] [--validate-only]" >&2
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --output)
+      [[ $# -ge 2 ]] || { usage; exit 2; }
+      OUTPUT="$2"
+      shift 2
+      ;;
+    --cache-dir)
+      [[ $# -ge 2 ]] || { usage; exit 2; }
+      CACHE_DIR="$2"
+      shift 2
+      ;;
+    --validate-only)
+      VALIDATE_ONLY=1
+      shift
+      ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+command -v jq >/dev/null
+[[ -f "$MANIFEST" ]]
+
+schema_version="$(jq -er '.schemaVersion' "$MANIFEST")"
+engine_id="$(jq -er '.engine.id' "$MANIFEST")"
+license="$(jq -er '.engine.license' "$MANIFEST")"
+variant="$(jq -er '.engine.variant' "$MANIFEST")"
+binary_url="$(jq -er '.archive.url' "$MANIFEST")"
+binary_sha256="$(jq -er '.archive.sha256' "$MANIFEST")"
+archive_name="$(jq -er '.correspondingSource.archiveName' "$MANIFEST")"
+build_repository="$(jq -er '.correspondingSource.buildRepository' "$MANIFEST")"
+build_commit="$(jq -er '.correspondingSource.buildCommit' "$MANIFEST")"
+ffmpeg_repository="$(jq -er '.correspondingSource.ffmpegRepository' "$MANIFEST")"
+ffmpeg_commit="$(jq -er '.correspondingSource.ffmpegCommit' "$MANIFEST")"
+
+[[ "$schema_version" == "1" ]]
+[[ "$license" == "GPL-3.0-or-later" ]]
+[[ "$variant" == "win64-gpl" ]]
+[[ "$binary_url" == https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-* ]]
+[[ "$binary_url" != */latest/* ]]
+[[ "$binary_sha256" =~ ^[0-9a-f]{64}$ ]]
+[[ "$archive_name" =~ ^vidmetry-ffmpeg-[A-Za-z0-9.-]+-corresponding-source\.tar\.xz$ ]]
+[[ "$build_repository" == "https://github.com/BtbN/FFmpeg-Builds.git" ]]
+[[ "$ffmpeg_repository" == "https://github.com/FFmpeg/FFmpeg.git" ]]
+[[ "$build_commit" =~ ^[0-9a-f]{40}$ ]]
+[[ "$ffmpeg_commit" =~ ^[0-9a-f]{40}$ ]]
+
+if [[ "$VALIDATE_ONLY" == "1" ]]; then
+  echo "Validated corresponding-source manifest for $engine_id."
+  exit 0
+fi
+
+[[ -n "$OUTPUT" ]] || { usage; exit 2; }
+[[ "$(basename -- "$OUTPUT")" == "$archive_name" ]] || {
+  echo "Output filename must match manifest archiveName: $archive_name" >&2
+  exit 2
+}
+
+for tool in docker git sha256sum tar xz; do
+  command -v "$tool" >/dev/null
+done
+
+work_root="$(mktemp -d)"
+trap 'rm -rf -- "$work_root"' EXIT
+checkout_root="$work_root/checkouts"
+stage_root="$work_root/stage"
+source_root_name="${archive_name%.tar.xz}"
+source_root="$stage_root/$source_root_name"
+build_checkout="$checkout_root/FFmpeg-Builds"
+ffmpeg_checkout="$checkout_root/FFmpeg"
+mkdir -p "$checkout_root" "$source_root/build-scripts/.cache/downloads" "$source_root/ffmpeg"
+
+git clone --filter=blob:none --no-checkout "$build_repository" "$build_checkout"
+git -C "$build_checkout" fetch --depth=1 origin "$build_commit"
+git -C "$build_checkout" checkout --detach "$build_commit"
+[[ "$(git -C "$build_checkout" rev-parse HEAD)" == "$build_commit" ]]
+
+if [[ -n "$CACHE_DIR" ]]; then
+  mkdir -p "$CACHE_DIR" "$build_checkout/.cache"
+  CACHE_DIR="$(cd -- "$CACHE_DIR" && pwd)"
+  rm -rf -- "$build_checkout/.cache/downloads"
+  ln -s "$CACHE_DIR" "$build_checkout/.cache/downloads"
+fi
+
+(
+  cd "$build_checkout"
+  env -u GITHUB_REPOSITORY ./download.sh
+  env -u GITHUB_REPOSITORY ./generate.sh win64 gpl
+)
+
+mapfile -t dependency_archives < <(
+  grep -oE '\.cache/downloads/[A-Za-z0-9._-]+\.tar\.xz' "$build_checkout/Dockerfile" | sort -u
+)
+if [[ "${#dependency_archives[@]}" -lt 20 ]]; then
+  echo "The selected GPL build graph exposed too few dependency sources: ${#dependency_archives[@]}" >&2
+  exit 1
+fi
+
+git -C "$build_checkout" archive --format=tar HEAD | tar -xf - -C "$source_root/build-scripts"
+cp -- "$build_checkout/Dockerfile" "$source_root/build-scripts/Dockerfile.vidmetry-source-graph"
+for relative_archive in "${dependency_archives[@]}"; do
+  source_archive="$build_checkout/$relative_archive"
+  [[ -f "$source_archive" ]] || {
+    echo "Missing dependency source archive selected by the build graph: $relative_archive" >&2
+    exit 1
+  }
+  cp -L -- "$source_archive" "$source_root/build-scripts/.cache/downloads/$(basename -- "$source_archive")"
+done
+
+git clone --filter=blob:none --no-checkout "$ffmpeg_repository" "$ffmpeg_checkout"
+git -C "$ffmpeg_checkout" fetch --depth=1 origin "$ffmpeg_commit"
+git -C "$ffmpeg_checkout" checkout --detach "$ffmpeg_commit"
+[[ "$(git -C "$ffmpeg_checkout" rev-parse HEAD)" == "$ffmpeg_commit" ]]
+git -C "$ffmpeg_checkout" archive --format=tar HEAD | tar -xf - -C "$source_root/ffmpeg"
+
+jq -n \
+  --arg engineId "$engine_id" \
+  --arg license "$license" \
+  --arg variant "$variant" \
+  --arg binaryUrl "$binary_url" \
+  --arg binarySha256 "$binary_sha256" \
+  --arg buildRepository "$build_repository" \
+  --arg buildCommit "$build_commit" \
+  --arg ffmpegRepository "$ffmpeg_repository" \
+  --arg ffmpegCommit "$ffmpeg_commit" \
+  --argjson dependencyArchiveCount "${#dependency_archives[@]}" \
+  '{
+    schemaVersion: 1,
+    engineId: $engineId,
+    license: $license,
+    variant: $variant,
+    conveyedBinary: { url: $binaryUrl, sha256: $binarySha256 },
+    buildDefinition: { repository: $buildRepository, commit: $buildCommit },
+    ffmpegSource: { repository: $ffmpegRepository, commit: $ffmpegCommit },
+    dependencyArchiveCount: $dependencyArchiveCount
+  }' > "$source_root/SOURCE_METADATA.json"
+
+cat > "$source_root/README.md" <<'EOF'
+# FFmpeg Complete Corresponding Source
+
+This archive accompanies the FFmpeg and ffprobe object code conveyed in the same Vidmetry release.
+
+- `ffmpeg/` is the exact FFmpeg source revision used by the binary.
+- `build-scripts/` is the exact BtbN/FFmpeg-Builds revision containing the Windows GPL build controls, patches, Docker definitions, and license-selection logic.
+- `build-scripts/.cache/downloads/` contains every dependency source archive selected by the generated `win64-gpl` build graph.
+- `build-scripts/Dockerfile.vidmetry-source-graph` records the resolved dependency graph and configuration used to select those archives.
+- `SOURCE_SHA256SUMS` authenticates every file in the archive other than the checksum list itself.
+
+The upstream build entry points are `build-scripts/makeimage.sh win64 gpl` and `build-scripts/build.sh win64 gpl`. The included FFmpeg tree replaces the moving branch checkout in the upstream build script when reproducing this historical binary. General-purpose build tools and operating-system system libraries are not included.
+
+The sources retain their original licenses. The binary's GPL license text is distributed next to the installed executables and with the Vidmetry repository notices.
+EOF
+
+(
+  cd "$source_root"
+  find . -type f ! -name SOURCE_SHA256SUMS -print0 | sort -z | xargs -0 sha256sum
+) > "$source_root/SOURCE_SHA256SUMS"
+
+mkdir -p "$(dirname -- "$OUTPUT")"
+tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+  -cJf "$OUTPUT" -C "$stage_root" "$source_root_name"
+(
+  cd "$(dirname -- "$OUTPUT")"
+  sha256sum "$(basename -- "$OUTPUT")" > "$(basename -- "$OUTPUT").sha256"
+)
+
+echo "Created $OUTPUT with ${#dependency_archives[@]} dependency source archives."

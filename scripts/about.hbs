@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Vidmetry Rust third-party licenses</title>
+  <style>
+    body { font: 14px/1.5 system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #888; padding: 0.35rem; text-align: left; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <h1>Vidmetry Rust third-party licenses</h1>
+  <p>This document lists the Rust packages used to build the Windows application and their license texts.</p>
+  <table>
+    <thead><tr><th>Package</th><th>Version</th><th>License</th><th>Source</th></tr></thead>
+    <tbody>
+    {{#each crates}}
+      <tr>
+        <td>{{package.name}}</td>
+        <td>{{package.version}}</td>
+        <td>{{license}}</td>
+        <td><a href="{{#if package.repository}}{{package.repository}}{{else}}https://crates.io/crates/{{package.name}}{{/if}}">source</a></td>
+      </tr>
+    {{/each}}
+    </tbody>
+  </table>
+  <h2>License texts</h2>
+  {{#each overview}}
+    <h3 id="{{id}}">{{name}}</h3>
+    <pre>{{text}}</pre>
+  {{/each}}
+</body>
+</html>

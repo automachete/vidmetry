@@ -33,14 +33,27 @@ jobs:
       - name: Install pinned npm
         run: npm install --global npm@11.18.0
 
+      - name: Install JavaScript dependencies
+        run: npm ci
+
       - name: Audit JavaScript dependencies
         run: npm audit --audit-level=high
+
+      - name: Audit JavaScript licenses
+        run: npm run check:licenses
 
       - name: Audit Rust dependencies
         uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           working-directory: src-tauri
+
+      - name: Audit Rust licenses
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+          command-arguments: licenses
+          manifest-path: src-tauri/Cargo.toml
 
   verify-windows:
     runs-on: windows-latest
@@ -84,6 +97,17 @@ jobs:
       - name: Prepare verified FFmpeg sidecars
         shell: pwsh
         run: ./scripts/setup-ffmpeg.ps1
+
+      - name: Prepare copyleft dependency sources
+        shell: pwsh
+        run: ./scripts/setup-copyleft-sources.ps1
+
+      - name: Generate third-party license reports
+        shell: pwsh
+        run: ./scripts/generate-third-party-licenses.ps1
+
+      - name: Verify distribution-license contracts
+        run: npm run test:licenses
 
       - name: Verify frontend
         run: npm run verify
