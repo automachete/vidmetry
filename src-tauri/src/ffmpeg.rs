@@ -22,6 +22,9 @@ pub enum MediaError {
     MissingVideo,
     MissingVideoWidth,
     MissingVideoHeight,
+    MissingVideoDuration,
+    MissingVideoFrameCount,
+    MissingVideoFrameRate,
     Cache(String),
 }
 
@@ -52,7 +55,32 @@ pub fn display_path(path: &Path) -> String {
 }
 
 pub async fn probe(app: &AppHandle, source: &Path) -> Result<MediaDescriptor, MediaError> {
+    let initial = run_probe(app, source, false).await?;
+    match descriptor_from_probe(source, initial) {
+        Err(MediaError::MissingVideoFrameCount) => {
+            descriptor_from_probe(source, run_probe(app, source, true).await?)
+        }
+        result => result,
+    }
+}
+
+async fn run_probe(
+    app: &AppHandle,
+    source: &Path,
+    count_frames: bool,
+) -> Result<ProbeDocument, MediaError> {
     let source_text = source.to_string_lossy().into_owned();
+    let mut arguments = vec!["-v".to_owned(), "error".to_owned()];
+    if count_frames {
+        arguments.push("-count_frames".to_owned());
+    }
+    arguments.extend([
+        "-show_streams".to_owned(),
+        "-show_format".to_owned(),
+        "-of".to_owned(),
+        "json".to_owned(),
+        source_text,
+    ]);
     let output = app
         .shell()
         .sidecar("ffprobe")
@@ -60,15 +88,7 @@ pub async fn probe(app: &AppHandle, source: &Path) -> Result<MediaDescriptor, Me
             tool: "ffprobe",
             message: error.to_string(),
         })?
-        .args([
-            "-v",
-            "error",
-            "-show_streams",
-            "-show_format",
-            "-of",
-            "json",
-            &source_text,
-        ])
+        .args(arguments)
         .output()
         .await
         .map_err(|error| MediaError::ProcessStart {
@@ -83,9 +103,8 @@ pub async fn probe(app: &AppHandle, source: &Path) -> Result<MediaDescriptor, Me
         });
     }
 
-    let document: ProbeDocument = serde_json::from_slice(&output.stdout)
-        .map_err(|error| MediaError::InvalidProbe(error.to_string()))?;
-    descriptor_from_probe(source, document)
+    serde_json::from_slice(&output.stdout)
+        .map_err(|error| MediaError::InvalidProbe(error.to_string()))
 }
 
 pub async fn create_preview(app: &AppHandle, source: &Path) -> Result<PathBuf, MediaError> {
@@ -300,40 +319,41 @@ fn descriptor_from_probe(
     let duration_seconds = video
         .duration
         .as_deref()
-        .and_then(parse_nonnegative)
+        .and_then(parse_positive)
         .or_else(|| {
             document
                 .format
                 .as_ref()
                 .and_then(|format| format.duration.as_deref())
-                .and_then(parse_nonnegative)
+                .and_then(parse_positive)
         })
-        .unwrap_or(0.0);
+        .ok_or(MediaError::MissingVideoDuration)?;
+    let frame_count = video
+        .nb_read_frames
+        .as_deref()
+        .or(video.nb_frames.as_deref())
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .ok_or(MediaError::MissingVideoFrameCount)?;
+    let frame_rate = preferred_frame_rate(video).ok_or(MediaError::MissingVideoFrameRate)?;
     let video_codec = video.codec_name.clone().unwrap_or_else(|| "unknown".into());
     let pixel_format = video.pix_fmt.clone().unwrap_or_else(|| "unknown".into());
+    let file_name = source
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .ok_or_else(|| MediaError::InvalidSource(display_path(source)))?;
 
     Ok(MediaDescriptor {
         source_path: display_path(source),
-        file_name: source
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "video".into()),
+        file_name,
         duration_seconds,
-        frame_count: video
-            .nb_frames
-            .as_deref()
-            .and_then(|value| value.parse::<u64>().ok())
-            .filter(|value| *value > 0),
+        frame_count,
         coded_width,
         coded_height,
         display_width,
         display_height,
         rotation_degrees: rotation,
-        sample_aspect_ratio: video
-            .sample_aspect_ratio
-            .clone()
-            .unwrap_or_else(|| "1:1".into()),
-        frame_rate: preferred_frame_rate(video),
+        frame_rate,
         video_codec: video_codec.clone(),
         pixel_format: pixel_format.clone(),
         bit_depth: parse_bit_depth(video, &pixel_format),
@@ -366,14 +386,14 @@ fn normalized_rotation(stream: &ProbeStream) -> i32 {
     ((rounded % 360) + 360) % 360
 }
 
-fn preferred_frame_rate(stream: &ProbeStream) -> String {
+fn preferred_frame_rate(stream: &ProbeStream) -> Option<String> {
     stream
         .avg_frame_rate
         .as_deref()
-        .filter(|value| *value != "0/0")
+        .filter(|value| parse_frame_rate(value).is_some())
         .or(stream.r_frame_rate.as_deref())
-        .unwrap_or("0/0")
-        .to_owned()
+        .filter(|value| parse_frame_rate(value).is_some())
+        .map(str::to_owned)
 }
 
 fn parse_bit_depth(stream: &ProbeStream, pixel_format: &str) -> Option<u8> {
@@ -386,14 +406,24 @@ fn parse_bit_depth(stream: &ProbeStream, pixel_format: &str) -> Option<u8> {
                 .into_iter()
                 .find(|depth| pixel_format.contains(&depth.to_string()))
         })
-        .or(Some(8))
 }
 
-fn parse_nonnegative(value: &str) -> Option<f64> {
+fn parse_positive(value: &str) -> Option<f64> {
     value
         .parse::<f64>()
         .ok()
-        .filter(|parsed| parsed.is_finite() && *parsed >= 0.0)
+        .filter(|parsed| parsed.is_finite() && *parsed > 0.0)
+}
+
+fn parse_frame_rate(value: &str) -> Option<f64> {
+    let mut parts = value.split('/');
+    let numerator = parts.next()?.parse::<f64>().ok()?;
+    let denominator = parts.next().unwrap_or("1").parse::<f64>().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    let rate = numerator / denominator;
+    (rate.is_finite() && rate > 0.0).then_some(rate)
 }
 
 fn source_cache_key(source: &Path) -> Result<u64, MediaError> {
@@ -439,8 +469,8 @@ mod tests {
             duration: Some("10.5".into()),
             avg_frame_rate: Some("30000/1001".into()),
             r_frame_rate: Some("30000/1001".into()),
-            nb_frames: Some("315".into()),
-            sample_aspect_ratio: Some("1:1".into()),
+            nb_frames: Some("314".into()),
+            nb_read_frames: Some("315".into()),
             pix_fmt: Some("yuv420p".into()),
             bits_per_raw_sample: Some("8".into()),
             color_primaries: Some("bt709".into()),
@@ -486,8 +516,48 @@ mod tests {
         let descriptor = descriptor_from_probe(Path::new("clip.mp4"), document).unwrap();
 
         assert_eq!(descriptor.duration_seconds, 7.25);
-        assert_eq!(descriptor.frame_count, Some(315));
+        assert_eq!(descriptor.frame_count, 315);
         assert!(descriptor.metadata_crop_supported);
+    }
+
+    #[test]
+    fn rejects_probe_data_without_exact_timing_information() {
+        let mut video = video_stream();
+        video.duration = None;
+        video.nb_frames = None;
+        video.nb_read_frames = None;
+        video.avg_frame_rate = Some("0/0".into());
+        video.r_frame_rate = Some("0/0".into());
+
+        let no_duration = descriptor_from_probe(
+            Path::new("clip.mp4"),
+            ProbeDocument {
+                streams: vec![video.clone()],
+                format: Some(ProbeFormat { duration: None }),
+            },
+        );
+        assert!(matches!(no_duration, Err(MediaError::MissingVideoDuration)));
+
+        video.duration = Some("10".into());
+        let no_count = descriptor_from_probe(
+            Path::new("clip.mp4"),
+            ProbeDocument {
+                streams: vec![video.clone()],
+                format: None,
+            },
+        );
+        assert!(matches!(no_count, Err(MediaError::MissingVideoFrameCount)));
+
+        video.nb_read_frames = Some("300".into());
+        let no_rate = descriptor_from_probe(
+            Path::new("clip.mp4"),
+            ProbeDocument {
+                streams: vec![video],
+                format: None,
+            },
+        );
+        assert!(matches!(no_rate, Err(MediaError::MissingVideoFrameRate)));
+        assert_eq!(parse_frame_rate("30/1/2"), None);
     }
 
     #[cfg(windows)]

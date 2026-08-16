@@ -7,30 +7,13 @@ export interface TrimRange {
 
 export type TrimHandle = 'start' | 'end';
 
-export function parseFrameRate(value: string): number {
-  const [numeratorText, denominatorText = '1'] = value.split('/');
-  const numerator = Number(numeratorText);
-  const denominator = Number(denominatorText);
-  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return 0;
-  const rate = numerator / denominator;
-  return Number.isFinite(rate) && rate > 0 ? rate : 0;
-}
-
 export function totalVideoFrames(
-  durationSeconds: number,
-  frameRate: string,
-  reportedFrameCount: number | null = null,
+  reportedFrameCount: number,
 ): number {
-  if (
-    reportedFrameCount !== null &&
-    Number.isSafeInteger(reportedFrameCount) &&
-    reportedFrameCount > 0
-  ) {
-    return reportedFrameCount;
+  if (!Number.isSafeInteger(reportedFrameCount) || reportedFrameCount <= 0) {
+    throw new RangeError('reportedFrameCount must be a positive safe integer');
   }
-  const duration = Number.isFinite(durationSeconds) ? Math.max(0, durationSeconds) : 0;
-  const rate = parseFrameRate(frameRate);
-  return Math.max(1, Math.round(duration * (rate || 30)));
+  return reportedFrameCount;
 }
 
 export function fullTrimRange(totalFrames: number): TrimRange {

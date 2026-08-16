@@ -1,4 +1,4 @@
-mod app_error;
+pub mod app_error;
 mod appearance;
 mod cache;
 mod export;

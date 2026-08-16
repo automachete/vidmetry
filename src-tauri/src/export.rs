@@ -103,7 +103,7 @@ pub enum FrameRateMode {
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExportSettings {
     pub profile: ExportProfile,
     pub video_codec: VideoCodec,
@@ -119,27 +119,8 @@ pub struct ExportSettings {
     pub copy_subtitles: bool,
 }
 
-impl Default for ExportSettings {
-    fn default() -> Self {
-        Self {
-            profile: ExportProfile::Compatible,
-            video_codec: VideoCodec::H264,
-            crf: 17,
-            preset: EncoderPreset::Medium,
-            pixel_format: PixelFormat::Yuv420p,
-            audio_mode: AudioMode::Auto,
-            audio_bitrate_kbps: 192,
-            frame_rate_mode: FrameRateMode::Passthrough,
-            constant_frame_rate: 30.0,
-            fast_start: true,
-            preserve_metadata: true,
-            copy_subtitles: true,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CropRect {
     pub x: u32,
     pub y: u32,
@@ -148,24 +129,21 @@ pub struct CropRect {
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TrimRange {
     pub start_frame: u64,
     pub end_frame: u64,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExportRequest {
     pub source_path: String,
     pub output_path: String,
     pub crop: CropRect,
-    pub trim: Option<TrimRange>,
-    #[serde(default)]
+    pub trim: TrimRange,
     pub settings: ExportSettings,
-    #[serde(default)]
     pub overwrite: bool,
-    #[serde(default)]
     pub in_place: bool,
 }
 
@@ -207,7 +185,7 @@ pub async fn start(
     )?;
     let media = ffmpeg::probe(&app, &source).await.map_err(AppError::from)?;
     validate_crop(request.crop, &media)?;
-    let trim = request.trim.unwrap_or_else(|| full_trim(&media));
+    let trim = request.trim;
     validate_trim(trim, &media, request.settings.profile)?;
     validate_export_settings(&request.settings, &media)?;
 
@@ -408,7 +386,7 @@ fn build_export_args(
                 "-map".into(),
                 "0:a:0?".into(),
                 "-vf".into(),
-                crop_filter(crop, time_trimmed.then_some(trim)),
+                crop_filter(crop, time_trimmed.then_some(trim), media),
                 "-c:v".into(),
                 video_encoder(settings.video_codec).into(),
                 "-preset".into(),
@@ -440,7 +418,7 @@ fn build_export_args(
             }
             args.extend([
                 "-vf".into(),
-                crop_filter(crop, time_trimmed.then_some(trim)),
+                crop_filter(crop, time_trimmed.then_some(trim), media),
                 "-c:v".into(),
                 "ffv1".into(),
                 "-level".into(),
@@ -622,7 +600,7 @@ fn format_float(value: f64) -> String {
     text.trim_end_matches('0').trim_end_matches('.').to_owned()
 }
 
-fn crop_filter(crop: CropRect, trim: Option<TrimRange>) -> String {
+fn crop_filter(crop: CropRect, trim: Option<TrimRange>, media: &MediaDescriptor) -> String {
     let mut filter = format!(
         "crop=w={}:h={}:x={}:y={},setsar=1",
         crop.width, crop.height, crop.x, crop.y
@@ -633,7 +611,37 @@ fn crop_filter(crop: CropRect, trim: Option<TrimRange>) -> String {
             trim.start_frame, trim.end_frame
         ));
     }
+    let mut color_values = Vec::new();
+    for (name, value) in [
+        ("color_primaries", media.color.primaries.as_deref()),
+        ("color_trc", media.color.transfer.as_deref()),
+        ("colorspace", media.color.matrix.as_deref()),
+        ("range", media.color.range.as_deref()),
+    ] {
+        let Some(value) = value.and_then(color_filter_value) else {
+            continue;
+        };
+        color_values.push(format!("{name}={value}"));
+    }
+    if !color_values.is_empty() {
+        filter.push_str(",setparams=");
+        filter.push_str(&color_values.join(":"));
+    }
     filter
+}
+
+fn color_filter_value(value: &str) -> Option<&str> {
+    let value = match value {
+        "tv" => "limited",
+        "pc" => "full",
+        value => value,
+    };
+    (!value.is_empty()
+        && value != "unknown"
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')))
+    .then_some(value)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -701,23 +709,8 @@ fn validate_crop(crop: CropRect, media: &MediaDescriptor) -> Result<(), AppError
     Ok(())
 }
 
-fn parse_frame_rate(value: &str) -> Option<f64> {
-    let mut parts = value.split('/');
-    let numerator = parts.next()?.parse::<f64>().ok()?;
-    let denominator = parts.next().unwrap_or("1").parse::<f64>().ok()?;
-    let rate = numerator / denominator;
-    (rate.is_finite() && rate > 0.0).then_some(rate)
-}
-
 fn total_frames(media: &MediaDescriptor) -> u64 {
-    media
-        .frame_count
-        .filter(|value| *value > 0)
-        .unwrap_or_else(|| {
-            let estimated = media.duration_seconds.max(0.0)
-                * parse_frame_rate(&media.frame_rate).unwrap_or(30.0);
-            estimated.round().max(1.0) as u64
-        })
+    media.frame_count
 }
 
 fn full_trim(media: &MediaDescriptor) -> TrimRange {
@@ -834,7 +827,7 @@ fn validated_output(
         .extension()
         .and_then(|value| value.to_str())
         .map(str::to_ascii_lowercase)
-        .unwrap_or_default();
+        .ok_or_else(|| AppError::new(ErrorCode::DestinationExtensionMissing))?;
     let valid = match profile {
         ExportProfile::Compatible => extension == "mp4",
         ExportProfile::Lossless => extension == "mkv",
@@ -856,8 +849,8 @@ fn temporary_output(output: &Path, job_id: &str) -> Result<PathBuf, AppError> {
         .ok_or_else(|| AppError::new(ErrorCode::DestinationFolderUnavailable))?;
     let stem = output
         .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or("vidmetry");
+        .map(|value| value.to_string_lossy())
+        .ok_or_else(|| AppError::new(ErrorCode::DestinationFileNameMissing))?;
     let extension = output
         .extension()
         .and_then(|value| value.to_str())
@@ -968,6 +961,61 @@ mod tests {
     use super::*;
     use crate::media::ColorDescriptor;
 
+    fn default_settings() -> ExportSettings {
+        ExportSettings {
+            profile: ExportProfile::Compatible,
+            video_codec: VideoCodec::H264,
+            crf: 17,
+            preset: EncoderPreset::Medium,
+            pixel_format: PixelFormat::Yuv420p,
+            audio_mode: AudioMode::Auto,
+            audio_bitrate_kbps: 192,
+            frame_rate_mode: FrameRateMode::Passthrough,
+            constant_frame_rate: 30.0,
+            fast_start: true,
+            preserve_metadata: true,
+            copy_subtitles: true,
+        }
+    }
+
+    fn request_json() -> serde_json::Value {
+        serde_json::json!({
+            "sourcePath": "C:\\input.mp4",
+            "outputPath": "C:\\output.mp4",
+            "crop": { "x": 0, "y": 0, "width": 1920, "height": 1080 },
+            "trim": { "startFrame": 0, "endFrame": 360 },
+            "settings": {
+                "profile": "compatible",
+                "videoCodec": "h264",
+                "crf": 17,
+                "preset": "medium",
+                "pixelFormat": "yuv420p",
+                "audioMode": "auto",
+                "audioBitrateKbps": 192,
+                "frameRateMode": "passthrough",
+                "constantFrameRate": 30,
+                "fastStart": true,
+                "preserveMetadata": true,
+                "copySubtitles": true
+            },
+            "overwrite": true,
+            "inPlace": false
+        })
+    }
+
+    #[test]
+    fn rejects_incomplete_or_obsolete_export_request_shapes() {
+        let mut missing_trim = request_json();
+        missing_trim.as_object_mut().unwrap().remove("trim");
+        assert!(serde_json::from_value::<ExportRequest>(missing_trim).is_err());
+
+        let mut obsolete_extra = request_json();
+        obsolete_extra["legacyMode"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<ExportRequest>(obsolete_extra).is_err());
+
+        assert!(serde_json::from_value::<ExportRequest>(request_json()).is_ok());
+    }
+
     fn media(rotation_degrees: i32) -> MediaDescriptor {
         let (display_width, display_height) = if [90, 270].contains(&rotation_degrees) {
             (1080, 1920)
@@ -978,20 +1026,24 @@ mod tests {
             source_path: "input.mp4".into(),
             file_name: "input.mp4".into(),
             duration_seconds: 12.0,
-            frame_count: Some(360),
+            frame_count: 360,
             coded_width: 1920,
             coded_height: 1080,
             display_width,
             display_height,
             rotation_degrees,
-            sample_aspect_ratio: "1:1".into(),
             frame_rate: "30/1".into(),
             video_codec: "h264".into(),
             pixel_format: "yuv420p".into(),
             bit_depth: Some(8),
             has_audio: true,
             audio_codec: Some("aac".into()),
-            color: ColorDescriptor::default(),
+            color: ColorDescriptor {
+                primaries: Some("bt709".into()),
+                transfer: Some("bt709".into()),
+                matrix: Some("bt709".into()),
+                range: Some("tv".into()),
+            },
             metadata_crop_supported: true,
         }
     }
@@ -1063,6 +1115,15 @@ mod tests {
     }
 
     #[test]
+    fn accepts_only_ffmpeg_enum_tokens_in_color_filters() {
+        assert_eq!(color_filter_value("tv"), Some("limited"));
+        assert_eq!(color_filter_value("pc"), Some("full"));
+        assert_eq!(color_filter_value("bt2020nc"), Some("bt2020nc"));
+        assert_eq!(color_filter_value("unknown"), None);
+        assert_eq!(color_filter_value("bt709,setpts=0"), None);
+    }
+
+    #[test]
     fn builds_compatible_physical_crop_arguments() {
         let args = build_export_args(
             Path::new("input.mp4"),
@@ -1074,12 +1135,12 @@ mod tests {
                 height: 600,
             },
             full_trim(&media(0)),
-            &ExportSettings::default(),
+            &default_settings(),
             &media(0),
         );
         assert!(args.windows(2).any(|pair| pair == ["-c:v", "libx264"]));
         assert!(args.windows(2).any(|pair| pair == ["-crf", "17"]));
-        assert!(args.contains(&"crop=w=800:h=600:x=100:y=80,setsar=1".to_owned()));
+        assert!(args.contains(&"crop=w=800:h=600:x=100:y=80,setsar=1,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=limited".to_owned()));
         assert!(
             !args.contains(&"copy".to_owned())
                 || args.windows(2).any(|pair| pair == ["-c:a", "copy"])
@@ -1091,7 +1152,7 @@ mod tests {
         let settings = ExportSettings {
             profile: ExportProfile::Lossless,
             pixel_format: PixelFormat::Source,
-            ..ExportSettings::default()
+            ..default_settings()
         };
         let args = build_export_args(
             Path::new("input.mov"),
@@ -1114,7 +1175,7 @@ mod tests {
     fn metadata_profile_uses_copy_and_codec_crop_filter() {
         let settings = ExportSettings {
             profile: ExportProfile::Metadata,
-            ..ExportSettings::default()
+            ..default_settings()
         };
         let args = build_export_args(
             Path::new("input.mp4"),
@@ -1149,7 +1210,7 @@ mod tests {
             constant_frame_rate: 29.97,
             fast_start: false,
             preserve_metadata: false,
-            ..ExportSettings::default()
+            ..default_settings()
         };
         let args = build_export_args(
             Path::new("input.mp4"),
@@ -1182,12 +1243,12 @@ mod tests {
         let descriptor = media(0);
         let invalid_crf = ExportSettings {
             crf: 52,
-            ..ExportSettings::default()
+            ..default_settings()
         };
         assert!(validate_export_settings(&invalid_crf, &descriptor).is_err());
         let invalid_mp4_audio = ExportSettings {
             audio_mode: AudioMode::Flac,
-            ..ExportSettings::default()
+            ..default_settings()
         };
         assert!(validate_export_settings(&invalid_mp4_audio, &descriptor).is_err());
     }
@@ -1208,7 +1269,7 @@ mod tests {
                 start_frame: 30,
                 end_frame: 90,
             },
-            &ExportSettings::default(),
+            &default_settings(),
             &descriptor,
         );
 

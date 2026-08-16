@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   defaultSettings,
   loadSettings,
-  normalizeSettings,
+  parseSettings,
   persistSettings,
   resolveLanguage,
   type SettingsStore,
@@ -51,13 +51,19 @@ describe('persistent settings', () => {
     await expect(loadSettings(new MemoryStore())).resolves.toEqual(defaultSettings);
   });
 
-  it('repairs invalid persisted values', () => {
-    const normalized = normalizeSettings({
+  it('rejects invalid persisted values instead of silently repairing them', async () => {
+    const store = new MemoryStore();
+    store.values.set('settings', {
       languageMode: 'invalid',
       loopPlayback: 'yes',
       export: { crf: 200, profile: 'unknown', audioBitrateKbps: -1 },
     });
-    expect(normalized).toEqual(defaultSettings);
+    await expect(loadSettings(store)).rejects.toThrow();
+  });
+
+  it('rejects obsolete and partial settings shapes', () => {
+    expect(() => parseSettings({ ...defaultSettings, version: 1 })).toThrow();
+    expect(() => parseSettings({ languageMode: 'system' })).toThrow();
   });
 
   it('resolves Japanese from the OS and supports a manual override', () => {

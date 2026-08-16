@@ -1,7 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
 const settings = {
-  version: 1,
   languageMode: 'manual',
   language: 'en',
   loopPlayback: false,
@@ -28,8 +27,10 @@ async function installTauriMock(page: Page): Promise<void> {
     let nextCallback = 1;
     const invocations: Array<{ command: string; args: unknown }> = [];
     let storedSettings: unknown = structuredClone(persistedSettings);
-    const sourceExtension = new URLSearchParams(location.search).get('source') === 'mov' ? 'mov' : 'mp4';
-    const requestedTheme = new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark';
+    const query = new URLSearchParams(location.search);
+    const sourceExtension = query.get('source') === 'mov' ? 'mov' : 'mp4';
+    const requestedTheme = query.get('theme') === 'light' ? 'light' : 'dark';
+    const simulatedMediaDuration = Number(query.get('mediaDuration'));
     const sourcePath = `C:\\clips\\sample.${sourceExtension}`;
 
     const transformCallback = (callback?: (data: unknown) => unknown, once = false) => {
@@ -99,14 +100,12 @@ async function installTauriMock(page: Page): Promise<void> {
           displayWidth: 1920,
           displayHeight: 1080,
           rotationDegrees: 0,
-          sampleAspectRatio: '1:1',
           frameRate: '30000/1001',
           videoCodec: 'h264',
           pixelFormat: 'yuv420p',
           bitDepth: 8,
           hasAudio: true,
           audioCodec: 'aac',
-          color: { primaries: 'bt709', transfer: 'bt709', matrix: 'bt709', range: 'tv' },
           metadataCropSupported: true,
         };
       }
@@ -153,6 +152,12 @@ async function installTauriMock(page: Page): Promise<void> {
         return pausedState.get(this) ?? true;
       },
     });
+    if (Number.isFinite(simulatedMediaDuration) && simulatedMediaDuration > 0) {
+      Object.defineProperty(HTMLMediaElement.prototype, 'duration', {
+        configurable: true,
+        get: () => simulatedMediaDuration,
+      });
+    }
     HTMLMediaElement.prototype.play = async function () {
       (window as any).__vidmetryPlayCount += 1;
       pausedState.set(this, false);
@@ -189,6 +194,13 @@ test('structured backend errors use the selected UI language', async ({ page }) 
   await expect(page.getByRole('alert')).toContainText(
     'The folder could not be read. (access denied)',
   );
+});
+
+test('ffprobe timing remains authoritative over the preview element duration', async ({ page }) => {
+  await page.goto('/?mediaDuration=80');
+  await page.getByRole('button', { name: 'Open video' }).click();
+
+  await expect(page.locator('.time.total')).toHaveText('0:08.000');
 });
 
 test('settings place display language at the bottom', async ({ page }) => {

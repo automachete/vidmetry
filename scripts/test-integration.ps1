@@ -27,26 +27,32 @@ $losslessFrames = Join-Path $resultRoot 'lossless.framemd5'
 & $ffmpeg -hide_banner -loglevel error -y `
     -f lavfi -i 'testsrc2=size=1280x720:rate=30' `
     -f lavfi -i 'sine=frequency=880:sample_rate=48000' `
-    -t 4 -c:v libx264 -pix_fmt yuv420p -c:a aac -movflags +faststart $source
+    -t 4 -vf 'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=limited' `
+    -c:v libx264 -pix_fmt yuv420p `
+    -c:a aac -movflags +faststart $source
 if ($LASTEXITCODE -ne 0) { throw 'Unable to generate the integration fixture.' }
 $sourceHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash
 
 & $ffmpeg -hide_banner -loglevel error -nostdin -y -i $source `
-    -map '0:v:0' -map '0:a:0?' -vf 'crop=w=640:h=360:x=100:y=100,setsar=1' `
+    -map '0:v:0' -map '0:a:0?' `
+    -vf 'crop=w=640:h=360:x=100:y=100,setsar=1,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=limited' `
     -c:v libx264 -preset medium -crf 17 -pix_fmt yuv420p -fps_mode passthrough `
     -metadata:s:v:0 'rotate=0' -c:a copy -movflags +faststart $compatible
 if ($LASTEXITCODE -ne 0) { throw 'Compatible export failed.' }
 
 & $ffmpeg -hide_banner -loglevel error -nostdin -y -i $source `
-    -map '0:v:0' -map '0:a:0?' -vf 'crop=w=640:h=360:x=100:y=100,setsar=1' `
+    -map '0:v:0' -map '0:a:0?' `
+    -vf 'crop=w=640:h=360:x=100:y=100,setsar=1,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=limited' `
     -c:v libx265 -preset fast -crf 23 -pix_fmt yuv420p10le -r 24 -fps_mode cfr `
     -c:a aac -b:a 160k -map_metadata -1 $custom
 if ($LASTEXITCODE -ne 0) { throw 'Custom HEVC export failed.' }
 
 & $ffmpeg -hide_banner -loglevel error -nostdin -y -i $source `
-    -map '0:v:0' -map '0:a?' -map '0:s?' -vf 'crop=w=640:h=360:x=100:y=100,setsar=1' `
+    -map '0:v:0' -map '0:a?' -map '0:s?' `
+    -vf 'crop=w=640:h=360:x=100:y=100,setsar=1,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=limited' `
     -c:v ffv1 -level 3 -coder 1 -context 1 -slicecrc 1 -c:a copy -c:s copy `
-    -fps_mode passthrough -metadata:s:v:0 'rotate=0' $lossless
+    -fps_mode passthrough `
+    -metadata:s:v:0 'rotate=0' $lossless
 if ($LASTEXITCODE -ne 0) { throw 'Lossless export failed.' }
 
 & $ffmpeg -hide_banner -loglevel error -nostdin -y -noautorotate -i $source `
@@ -63,7 +69,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Frame-accurate time trim export failed.' }
 
 function Get-VideoDescriptor([string]$Path) {
     $json = & $ffprobe -v error -select_streams 'v:0' `
-        -show_entries 'stream=codec_name,width,height,pix_fmt,nb_frames,duration' -of json $Path
+        -show_entries 'stream=codec_name,width,height,pix_fmt,nb_frames,duration,color_primaries,color_transfer,color_space,color_range' -of json $Path
     if ($LASTEXITCODE -ne 0) { throw "ffprobe failed for $Path" }
     return ($json | ConvertFrom-Json).streams[0]
 }
@@ -82,6 +88,12 @@ if ($customInfo.codec_name -ne 'hevc' -or $customInfo.pix_fmt -ne 'yuv420p10le' 
 }
 if ($losslessInfo.codec_name -ne 'ffv1' -or $losslessInfo.width -ne 640 -or $losslessInfo.height -ne 360) {
     throw 'Lossless output descriptor does not match the selected crop.'
+}
+foreach ($descriptor in @($compatibleInfo, $customInfo, $losslessInfo)) {
+    if ($descriptor.color_primaries -ne 'bt709' -or $descriptor.color_transfer -ne 'bt709' -or `
+        $descriptor.color_space -ne 'bt709' -or $descriptor.color_range -ne 'tv') {
+        throw 'A re-encoded output did not preserve the source color description.'
+    }
 }
 if ($metadataInfo.codec_name -ne 'h264' -or $metadataInfo.width -ne 640 -or $metadataInfo.height -ne 360) {
     throw 'Metadata-only output did not expose the intended display crop.'

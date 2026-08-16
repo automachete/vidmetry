@@ -193,15 +193,13 @@ vidmetry/
 MediaDescriptor
   sourcePath: string
   durationSeconds: number
-  frameCount: optional integer
+  frameCount: positive integer counted by ffprobe
   codedWidth/codedHeight: integer
   displayWidth/displayHeight: integer
   rotationDegrees: integer
-  sampleAspectRatio: rational
   videoCodec/pixelFormat: string
   frameRate: rational
   hasAudio: boolean
-  color: optional ColorDescriptor
 
 CropRect
   x/y/width/height: integer display-oriented source pixels
@@ -259,11 +257,11 @@ The main window uses three regions:
 2. A flexible, neutrally colored video stage containing optional directory navigation, the video, and crop overlay.
 3. A collapsible frame-strip footer with a playback-position handle, start/end trim-boundary handles, persistent loop, and mute, plus a collapsible spatial inspector with coordinates, dimensions, aspect ratio, and Reset.
 
-The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. Settings are normalized at the application boundary and persisted in `settings.json` under Tauri's application-data directory by the official Store plugin. Windows mode/accent changes are projected through CSS variables; fixed app-icon artwork is strictly achromatic. The NSIS installer assigns shortcuts a versioned icon path and refreshes the Windows Shell cache after upgrades. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
+The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. A strict Zod schema is the runtime and compile-time source for `AppSettings`; missing, unknown, obsolete, or out-of-range fields are rejected rather than migrated or repaired. Valid settings are persisted in `settings.json` under Tauri's application-data directory by the official Store plugin. Windows mode/accent changes are projected through CSS variables; fixed app-icon artwork is strictly achromatic. The NSIS installer assigns shortcuts a versioned icon path and refreshes the Windows Shell cache after upgrades. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
 
 ## 9. Preview strategy
 
-The application first exposes the selected file through Tauri's scoped asset protocol and asks the native WebView media element to play it. If decoding fails, `create_preview` produces an orientation-normalized, square-pixel, maximum-1280-pixel H.264 MP4 proxy with frequent keyframes. The proxy is for interaction only; final export always reads the original.
+The application first reads duration, frame rate, and a declared exact frame count with ffprobe. Only when the container does not report a count does it run ffprobe's frame-counting pass. These values are required for the frame-index contract; the application reports a typed error instead of estimating a missing value. It then exposes the selected file through Tauri's scoped asset protocol and asks the native WebView media element to play it. If decoding fails, `create_preview` produces an orientation-normalized, square-pixel, maximum-1280-pixel H.264 MP4 proxy with frequent keyframes. The proxy is for interaction only; final export always reads the original.
 
 Proxy and timeline contact-sheet entries are stored under the operating-system cache directory and keyed by canonical path, file size, and last-write timestamp. Entries are reusable across sessions. Each cache has count, total-size, and age limits; least-recently-used entries are removed after creation or reuse. FFmpeg writes to unique staging paths, and only non-empty completed files are promoted to reusable entries.
 
@@ -286,8 +284,9 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 - The source is opened read-only during probe, preview, and encoding. Only confirmed in-place Save can replace it after successful encoding.
 - File access is limited to user-selected paths and the app cache.
 - FFmpeg is invoked as an allowlisted sidecar with structured arguments.
-- Sidecar archives are verified against the publisher-provided SHA-256 checksum by the setup script.
-- FFmpeg binaries are not committed to Git. Distribution must include the applicable FFmpeg license, build configuration, copyright notices, and corresponding-source obligations for the selected build.
+- The FFmpeg version, immutable GitHub Release URL, archive hash, executable hashes, license hash, and build-information hash are pinned in `scripts/ffmpeg-sidecars.json`. Existing files and fresh downloads are both verified.
+- FFmpeg binaries are not committed to Git. The setup step extracts the exact build's GPLv3 license and build/source information, and Tauri includes both in every installer.
+- Node.js, npm, and Rust are version-constrained. GitHub Actions are pinned to full commit SHAs; npm audit and RustSec run in CI, and Dependabot proposes dependency and Action updates.
 - A pushed `vX.Y.Z` tag must match every application version file. The release workflow reruns verification, builds on Windows, creates a GitHub Release with generated notes, and attaches MSI and NSIS installers. Hyphenated versions are marked as prereleases.
 
 ## 12. Performance requirements
@@ -307,7 +306,7 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 - Minimum size, clamping, modulus snapping, and aspect locks.
 - Time formatting and seek clamping.
 - Export-profile eligibility.
-- Settings normalization, persistence, OS/manual language resolution, output-extension and in-place eligibility.
+- Strict settings-schema rejection, persistence, OS/manual language resolution, output-extension and in-place eligibility.
 
 ### 13.2 Component and UI regression tests
 
@@ -333,7 +332,7 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 
 ### 13.4 Integration tests
 
-Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit output, FFV1, metadata-only crop, a 60-frame time trim, and staged in-place replacement. Tests ffprobe dimensions/codecs/pixel formats/frame count, compare lossless frame hashes, and verify the original fixture hash remains unchanged.
+Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit output, FFV1, metadata-only crop, a 60-frame time trim, and staged in-place replacement. Tests ffprobe dimensions/codecs/pixel formats/frame count and color characteristics, compare lossless frame hashes, and verify the original fixture hash remains unchanged.
 
 ### 13.5 Manual acceptance matrix
 

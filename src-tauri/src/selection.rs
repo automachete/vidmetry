@@ -43,7 +43,7 @@ pub fn inspect(path: &str) -> Result<SelectionDescriptor, AppError> {
         return Err(AppError::new(ErrorCode::SelectedPathUnsupported));
     }
 
-    let mut videos = Vec::<PathBuf>::new();
+    let mut videos = Vec::<(std::ffi::OsString, PathBuf)>::new();
     for entry in fs::read_dir(&selected)
         .map_err(|error| AppError::with_detail(ErrorCode::FolderReadFailed, error.to_string()))?
     {
@@ -53,23 +53,16 @@ pub fn inspect(path: &str) -> Result<SelectionDescriptor, AppError> {
         let metadata = entry.metadata().map_err(|error| {
             AppError::with_detail(ErrorCode::FolderReadFailed, error.to_string())
         })?;
+        let file_name = entry.file_name();
         let path = entry.path();
         if metadata.is_file() && is_video_path(&path) {
-            videos.push(path);
+            videos.push((file_name, path));
         }
     }
-    videos.sort_by(|left, right| {
-        left.file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
+    videos.sort_by(|(left, _), (right, _)| {
+        left.to_string_lossy()
             .to_lowercase()
-            .cmp(
-                &right
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_lowercase(),
-            )
+            .cmp(&right.to_string_lossy().to_lowercase())
     });
 
     if videos.is_empty() {
@@ -81,7 +74,7 @@ pub fn inspect(path: &str) -> Result<SelectionDescriptor, AppError> {
         root_path: ffmpeg::display_path(&selected),
         video_paths: videos
             .into_iter()
-            .map(|path| ffmpeg::display_path(&path))
+            .map(|(_, path)| ffmpeg::display_path(&path))
             .collect(),
     })
 }
