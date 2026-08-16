@@ -249,7 +249,7 @@ test('different extensions use direct Save a copy and Space starts playback', as
   await expect.poll(() => page.evaluate(() => (window as any).__vidmetryPlayCount)).toBe(1);
 });
 
-test('Space toggles playback from the focused white playback-position handle', async ({ page }) => {
+test('Space toggles playback from the focused playback-position handle', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Open video' }).click();
 
@@ -259,15 +259,12 @@ test('Space toggles playback from the focused white playback-position handle', a
   const pointerY = timelineBox!.y + timelineBox!.height / 2;
   await page.mouse.click(timelineBox!.x + timelineBox!.width * 0.4, pointerY);
 
-  const whitePlaybackHandle = page.locator('.timeline-playhead');
-  await expect
-    .poll(() => whitePlaybackHandle.evaluate((element) => getComputedStyle(element).backgroundColor))
-    .toBe('rgb(247, 248, 250)');
-  const handleBox = await whitePlaybackHandle.boundingBox();
+  const playbackPositionHandle = page.locator('.timeline-playhead');
+  const handleBox = await playbackPositionHandle.boundingBox();
   expect(handleBox).not.toBeNull();
   await page.mouse.click(handleBox!.x + handleBox!.width / 2, pointerY);
 
-  const playbackScrubber = page.getByRole('slider', { name: 'White playback-position handle' });
+  const playbackScrubber = page.getByRole('slider', { name: 'Playback-position handle' });
   await expect(playbackScrubber).toBeFocused();
   const video = page.locator('video');
   await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).paused)).toBe(true);
@@ -277,12 +274,12 @@ test('Space toggles playback from the focused white playback-position handle', a
   await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
 });
 
-test('accent-colored trim-boundary handles use exact frame steps and export the selected range', async ({ page }) => {
+test('trim-boundary handles use exact frame steps and export the selected range', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Open video' }).click();
 
-  const start = page.getByRole('slider', { name: 'Accent-colored start trim-boundary handle' });
-  const end = page.getByRole('slider', { name: 'Accent-colored end trim-boundary handle' });
+  const start = page.getByRole('slider', { name: 'Start trim-boundary handle' });
+  const end = page.getByRole('slider', { name: 'End trim-boundary handle' });
   await expect(start).toHaveAttribute('aria-valuenow', '0');
   await expect(end).toHaveAttribute('aria-valuenow', '240');
   await start.click();
@@ -317,8 +314,8 @@ test('playback-scrubber clicks and trim-boundary handles stay under the pointer 
   await page.getByRole('button', { name: 'Open video' }).click();
 
   const timeline = page.locator('.trim-timeline');
-  const start = page.getByRole('slider', { name: 'Accent-colored start trim-boundary handle' });
-  const end = page.getByRole('slider', { name: 'Accent-colored end trim-boundary handle' });
+  const start = page.getByRole('slider', { name: 'Start trim-boundary handle' });
+  const end = page.getByRole('slider', { name: 'End trim-boundary handle' });
   await start.click();
   for (let index = 0; index < 6; index += 1) await page.keyboard.press('Shift+ArrowRight');
   await end.click();

@@ -35,9 +35,9 @@ Vidmetryは、動画の**画面領域と開始・終了時間**を素早く切�
 
 | キー | 操作 |
 |---|---|
-| Space | 再生／一時停止（フレーム列上の白い再生位置ハンドル選択中も有効） |
-| ← / → | 白い再生位置ハンドルではプレビューを1フレーム移動。アクセント色の開始／終了トリム境界ハンドルでは境界を1フレーム調整 |
-| Shift + ← / → | アクセント色の開始／終了トリム境界ハンドルを10フレーム調整 |
+| Space | 再生／一時停止（フレーム列上の再生位置ハンドル選択中も有効） |
+| ← / → | 再生位置ハンドルではプレビューを1フレーム移動。開始／終了トリム境界ハンドルでは境界を1フレーム調整 |
+| Shift + ← / → | 開始／終了トリム境界ハンドルを10フレーム調整 |
 | Ctrl + S | コピーして保存 |
 | Ctrl + Shift + S | 元動画へ保存（対応する保存方式のみ、確認あり） |
 | F11 / Esc | 全画面動画プレビューの開始／終了 |
@@ -72,18 +72,18 @@ npm run test:integration
 npm run tauri build
 ```
 
-`test:ui`はPlaywrightのChromium実描画で、Windows配色、白い再生位置ハンドルとアクセント色のトリム境界ハンドル、ペイン開閉、F11、保存ショートカット、通知、保存メニューを操作・画像比較します。`test:integration`は生成動画から各方式を実際に書き出し、60フレームの時間トリム、カスタムHEVC設定、コーデックと寸法、可逆出力のフレームハッシュ、上書き置換、元テスト動画のSHA-256不変を検証します。Windowsインストーラーは`src-tauri\target\release\bundle`以下に生成されます。
+`test:ui`はPlaywrightのChromium実描画で、Windows配色、再生位置ハンドルと開始／終了トリム境界ハンドル、ペイン開閉、F11、保存ショートカット、通知、保存メニューを操作・画像比較します。`test:integration`は生成動画から各方式を実際に書き出し、60フレームの時間トリム、カスタムHEVC設定、コーデックと寸法、可逆出力のフレームハッシュ、上書き置換、元テスト動画のSHA-256不変を検証します。Windowsインストーラーは`src-tauri\target\release\bundle`以下に生成されます。
 
 ## リリース
 
 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`のバージョンを揃えてから、同じバージョンの`vX.Y.Z`タグをプッシュします。
 
 ```powershell
-git tag -a v0.4.4 -m "Vidmetry v0.4.4"
-git push origin v0.4.4
+git tag -a v0.4.5 -m "Vidmetry v0.4.5"
+git push origin v0.4.5
 ```
 
-タグを契機にGitHub Actionsが全テストを再実行し、GitHub Releaseとリリースノートを作成して、Windows用MSI／セットアップEXEを添付します。タグとアプリのバージョンが一致しない場合は公開されません。ハイフンを含むタグ（例: `v0.4.4-beta.1`）はプレリリースとして扱います。
+タグを契機にGitHub Actionsが全テストを再実行し、GitHub Releaseとリリースノートを作成して、Windows用MSI／セットアップEXEを添付します。タグとアプリのバージョンが一致しない場合は公開されません。ハイフンを含むタグ（例: `v0.4.5-beta.1`）はプレリリースとして扱います。
 
 詳細な要件と設計は[docs/SDD.md](docs/SDD.md)、今回の検証結果は[docs/VERIFICATION.md](docs/VERIFICATION.md)を参照してください。
 

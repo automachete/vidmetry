@@ -215,14 +215,14 @@ describe('application shell', () => {
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalledOnce();
   });
 
-  it('toggles playback when the white playback-position scrubber has focus', async () => {
+  it('toggles playback when the playback-position scrubber has focus', async () => {
     useEnglish();
     vi.mocked(dialogOpen).mockResolvedValue(videoPaths[0]);
     mockSelection();
     render(App);
 
     await fireEvent.click(screen.getByRole('button', { name: 'Open video' }));
-    const playbackScrubber = await screen.findByRole('slider', { name: 'White playback-position handle' });
+    const playbackScrubber = await screen.findByRole('slider', { name: 'Playback-position handle' });
     await fireEvent.pointerDown(playbackScrubber, { button: 0, clientX: 0, clientY: 0 });
     await fireEvent.pointerUp(window, { button: 0, clientX: 0, clientY: 0 });
     expect(document.activeElement).toBe(playbackScrubber);
@@ -278,8 +278,8 @@ describe('application shell', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: 'Open video' }));
     await screen.findByText('a.mp4');
-    const startHandle = screen.getByRole('slider', { name: 'Accent-colored start trim-boundary handle' });
-    const endHandle = screen.getByRole('slider', { name: 'Accent-colored end trim-boundary handle' });
+    const startHandle = screen.getByRole('slider', { name: 'Start trim-boundary handle' });
+    const endHandle = screen.getByRole('slider', { name: 'End trim-boundary handle' });
     expect(startHandle.getAttribute('aria-valuenow')).toBe('0');
     expect(endHandle.getAttribute('aria-valuenow')).toBe('120');
 
