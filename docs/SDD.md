@@ -259,17 +259,17 @@ The main window uses three regions:
 2. A flexible, neutrally colored video stage containing optional directory navigation, the video, and crop overlay.
 3. A collapsible frame-strip footer with a playback-position handle, start/end trim-boundary handles, persistent loop, and mute, plus a collapsible spatial inspector with coordinates, dimensions, aspect ratio, and Reset.
 
-The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. Windows mode/accent changes are projected through CSS variables; fixed app-icon artwork is strictly achromatic. The NSIS installer assigns shortcuts a versioned icon path and refreshes the Windows Shell cache after upgrades. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
+The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. Settings are normalized at the application boundary and persisted in `settings.json` under Tauri's application-data directory by the official Store plugin. Windows mode/accent changes are projected through CSS variables; fixed app-icon artwork is strictly achromatic. The NSIS installer assigns shortcuts a versioned icon path and refreshes the Windows Shell cache after upgrades. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
 
 ## 9. Preview strategy
 
 The application first exposes the selected file through Tauri's scoped asset protocol and asks the native WebView media element to play it. If decoding fails, `create_preview` produces an orientation-normalized, square-pixel, maximum-1280-pixel H.264 MP4 proxy with frequent keyframes. The proxy is for interaction only; final export always reads the original.
 
-Proxy and timeline contact-sheet entries are stored under the operating-system cache directory and keyed by canonical path, file size, and last-write timestamp. Entries are reusable across sessions; bounded LRU cleanup is deferred.
+Proxy and timeline contact-sheet entries are stored under the operating-system cache directory and keyed by canonical path, file size, and last-write timestamp. Entries are reusable across sessions. Each cache has count, total-size, and age limits; least-recently-used entries are removed after creation or reuse. FFmpeg writes to unique staging paths, and only non-empty completed files are promoted to reusable entries.
 
 ## 10. Error handling and recovery
 
-- Product-owned prose is not transported across IPC. The Rust layer returns `AppError` codes and optional OS/FFmpeg diagnostics; `i18n.ts` owns the Japanese and English messages and interpolates diagnostics only after selecting the active language.
+- Product-owned prose is not transported across IPC. The Rust layer returns generated `AppError` codes and optional OS/FFmpeg diagnostics. The i18next resource layer owns the Japanese and English messages and interpolates diagnostics only after selecting the active language.
 - Invalid or missing input: return a typed probe error without changing current UI state.
 - Unsupported direct preview: offer/perform proxy creation.
 - FFmpeg missing: display setup guidance and disable export.
@@ -278,6 +278,7 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 - Disk full or permission failure: retain the original and remove only the known partial file.
 - App closes during export: terminate owned child processes.
 - Sidecar output is logged without exposing unrelated environment variables.
+- Recoverable frontend fallbacks and backend cleanup failures are written through Tauri's official Log plugin to the operating-system application log directory.
 
 ## 11. Security, privacy, and distribution
 
@@ -328,6 +329,7 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 - Exact `start_frame`/`end_frame` FFmpeg filters, audio alignment, and metadata-only rejection.
 - Windows extended-path normalization and Explorer selection arguments.
 - DWM ARGB-to-CSS accent conversion.
+- Cache staging, non-empty promotion, and count/size/age pruning.
 
 ### 13.4 Integration tests
 
