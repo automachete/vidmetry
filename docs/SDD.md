@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document version | 1.4 |
-| Product version | 0.4.0 |
+| Product version | 0.4.1 |
 | Status | Implemented and verified |
 | Primary platform | Windows 11 x64 |
 | UI languages | Japanese and English |
@@ -34,7 +34,7 @@ The application must not imply that physical video cropping can normally use str
 - Keep all media processing local.
 - Remain responsive while probing, proxying, and exporting.
 
-### 2.2 Non-goals for 0.4.0
+### 2.2 Non-goals for 0.4.1
 
 - Multi-clip timelines, internal cuts, transitions, filters, captions, or independent audio editing.
 - Animated crop/keyframes.
@@ -68,7 +68,7 @@ The application must not imply that physical video cropping can normally use str
 - **FR-020** The UI provides play/pause, current time, duration, mute, a frame strip, a playhead scrubber, and start/end trim handles.
 - **FR-021** Start is inclusive and end is exclusive. The selected range always contains at least one integer source frame.
 - **FR-022** The crop overlay remains spatially stable during playback, seek, resize, and fullscreen layout changes.
-- **FR-023** Trim dragging maps the pointer's absolute timeline position to the handle, with one-frame snapping at low speed and timeline-scale snapping at high speed. This prevents accumulated pointer/handle drift. Focused trim handles move by one frame with an arrow key or ten with Shift.
+- **FR-023** Trim dragging maps the dispatched pointer event's final absolute timeline position to the handle, with one-frame snapping at low speed and timeline-scale snapping at high speed. Coalesced samples may estimate velocity but cannot replace the final position. This prevents accumulated or one-event pointer/handle drift. Focused trim handles move by one frame with an arrow key or ten with Shift.
 - **FR-024** An icon-only control toggles loop playback. The selected state is persisted and reused for subsequent videos and sessions.
 - **FR-025** Playback and loop boundaries follow the selected time range. Space toggles playback even while a trim handle has focus; otherwise left/right keys seek by one frame or ten with Shift.
 - **FR-026** The UI follows the current Windows light/dark app mode and selected accent color. Theme change notifications apply the mode immediately, and the accent is refreshed at startup, on theme change, and when the app regains focus.
@@ -334,7 +334,7 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - Windows light/dark and several light/dark accent colors, including runtime changes
 - output cancellation and disk/permission errors
 
-## 14. Acceptance criteria for 0.4.0
+## 14. Acceptance criteria for 0.4.1
 
 - **AC-001** A user can open a video, drag every crop handle, scrub, play, and reset without leaving the main window.
 - **AC-002** Pixel readouts match the crop shown and remain in bounds after resize.
@@ -357,4 +357,4 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 
 ## 15. Verification status
 
-The 0.4.0 implementation satisfies AC-001 through AC-018 at automated or implementation-inspection level. Native picker interaction, live Windows personalization changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.
+The 0.4.1 implementation satisfies AC-001 through AC-018 at automated or implementation-inspection level. Native picker interaction, live Windows personalization changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.

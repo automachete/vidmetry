@@ -1,4 +1,4 @@
-# Vidmetry 0.4.0 Verification Record
+# Vidmetry 0.4.1 Verification Record
 
 Verification date: 2026-08-16
 Platform: Windows x64  
@@ -16,7 +16,8 @@ Media engine: FFmpeg/ffprobe 9.0.1 essentials build
 | `cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings` | Pass |
 | `scripts/test-integration.ps1` | Pass |
 | `npm run tauri build` | Pass — MSI and NSIS bundles |
-| Component interaction | Pass — Windows mode/accent projection, launcher/logo, settings, save shortcuts/menu, focused-handle Space playback, 1/10-frame trim steps, collapsible panes, F11 state, notification dismissal, localization, and Explorer reveal |
+| Component interaction | Pass — Windows mode/accent projection, launcher/logo, settings, save shortcuts/menu, click-to-focus and visible trim-handle selection, focused-handle Space playback, start/end 1/10-frame steps, collapsible panes, F11 state, notification dismissal, localization, and Explorer reveal |
+| Pointer alignment regression | Pass — a narrowed range remains aligned within 2 px when a stale coalesced sample accompanies the final pointer position |
 | Packaged executable smoke launch | Pass — remained running until test shutdown |
 
 The MSVC linker emits a localized informational message while producing the Rust `cdylib` import library. It is surfaced by Cargo as `linker_messages` but is not a compiler or Clippy diagnostic.
@@ -38,12 +39,12 @@ The source SHA-256 before and after all exports is identical. Temporary test med
 
 ## Local release artifacts
 
-These artifacts were generated from the verified 0.4.0 source tree. They are build outputs and are intentionally not committed.
+These artifacts were generated from the verified 0.4.1 source tree. They are build outputs and are intentionally not committed.
 
 | Artifact | Size | SHA-256 |
 |---|---:|---|
-| `Vidmetry_0.4.0_x64_en-US.msi` | 75.36 MiB | `45FFF4D901DD90A8F7F573E3A310DC5599BBEE51C9A6FBFD4A91EB7827C0C903` |
-| `Vidmetry_0.4.0_x64-setup.exe` | 54.89 MiB | `888E5438A86070F536D41774EF2B7497BA90C488C22B139A670B3E0C53BE99B6` |
+| `Vidmetry_0.4.1_x64_en-US.msi` | 75.36 MiB | `CC82196422DFAA626338B8C76AC3BED284BEFAE764574340650F3AFA6D2B6DCF` |
+| `Vidmetry_0.4.1_x64-setup.exe` | 54.90 MiB | `00ED2A7CA6E3F56F65009ABD5FE6F1068F20F22695F39FDD1939E1FBCB5DCEAB` |
 
 ## Remaining manual acceptance
 

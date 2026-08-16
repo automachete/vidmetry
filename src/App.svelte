@@ -144,6 +144,7 @@
   let successTimer: ReturnType<typeof setTimeout> | null = null;
   let dragState: DragState | null = null;
   let timeTrimDragState: TimeTrimDragState | null = null;
+  let selectedTrimHandle: TrimHandle | null = null;
   let seekFrame: number | null = null;
   let unlistenDragDrop: UnlistenFn | undefined;
   let unlistenTheme: UnlistenFn | undefined;
@@ -372,6 +373,7 @@
     timelineStripSrc = '';
     currentTime = 0;
     isPlaying = false;
+    selectedTrimHandle = null;
     showSaveMenu = false;
     videoElement?.pause();
 
@@ -604,6 +606,7 @@
   function handleGlobalPointerDown(event: PointerEvent) {
     if (!(event.target instanceof Element)) return;
     if (!event.target.closest('.save-options')) showSaveMenu = false;
+    if (!event.target.closest('.trim-handle')) selectedTrimHandle = null;
     if (successPath && !event.target.closest('.success-banner')) dismissSuccess();
   }
 
@@ -647,10 +650,13 @@
 
   function beginTimeTrimDrag(event: PointerEvent, handle: TrimHandle) {
     if (!media || event.button !== 0 || exportJobId) return;
-    const timeline = (event.currentTarget as Element).closest('.trim-timeline');
+    const handleElement = event.currentTarget as HTMLButtonElement;
+    const timeline = handleElement.closest('.trim-timeline');
     if (!(timeline instanceof HTMLElement)) return;
     event.preventDefault();
     event.stopPropagation();
+    selectedTrimHandle = handle;
+    handleElement.focus({ preventScroll: true });
     videoElement?.pause();
     const framePosition = handle === 'start' ? safeTrim.startFrame : safeTrim.endFrame;
     const timelineRect = timeline.getBoundingClientRect();
@@ -671,23 +677,21 @@
   function continueTimeTrimDrag(event: PointerEvent) {
     if (!timeTrimDragState) return;
     const coalesced = event.getCoalescedEvents?.() ?? [];
-    const samples = coalesced.length > 0 ? coalesced : [event];
-    let requestedFrame = timeTrimDragState.handle === 'start' ? safeTrim.startFrame : safeTrim.endFrame;
-    for (const sample of samples) {
-      const elapsed = Math.max(1, sample.timeStamp - timeTrimDragState.lastTimestamp);
-      const deltaX = sample.clientX - timeTrimDragState.lastPointerX;
-      const velocity = Math.abs(deltaX) / elapsed;
-      requestedFrame = pointerFrameFromTimeline(
-        sample.clientX,
-        timeTrimDragState.timelineLeft,
-        timeTrimDragState.renderedWidth,
-        totalFrames,
-        timeTrimDragState.grabOffsetX,
-        velocity,
-      );
-      timeTrimDragState.lastPointerX = sample.clientX;
-      timeTrimDragState.lastTimestamp = sample.timeStamp;
-    }
+    const previous = coalesced.at(-1);
+    const previousX = previous?.clientX ?? timeTrimDragState.lastPointerX;
+    const previousTimestamp = previous?.timeStamp ?? timeTrimDragState.lastTimestamp;
+    const elapsed = Math.max(1, event.timeStamp - previousTimestamp);
+    const velocity = Math.abs(event.clientX - previousX) / elapsed;
+    const requestedFrame = pointerFrameFromTimeline(
+      event.clientX,
+      timeTrimDragState.timelineLeft,
+      timeTrimDragState.renderedWidth,
+      totalFrames,
+      timeTrimDragState.grabOffsetX,
+      velocity,
+    );
+    timeTrimDragState.lastPointerX = event.clientX;
+    timeTrimDragState.lastTimestamp = event.timeStamp;
     trim = updateTrimHandle(
       safeTrim,
       timeTrimDragState.handle,
@@ -706,6 +710,12 @@
   }
 
   function handleTrimKey(event: KeyboardEvent, handle: TrimHandle) {
+    if (event.code === 'Space') {
+      event.preventDefault();
+      event.stopPropagation();
+      void togglePlayback();
+      return;
+    }
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
     event.stopPropagation();
@@ -718,6 +728,17 @@
     if (event.key === 'End') requested = handle === 'start' ? safeTrim.endFrame - 1 : totalFrames;
     trim = updateTrimHandle(safeTrim, handle, requested, totalFrames);
     seekToFrame(handle === 'start' ? trim.startFrame : Math.max(trim.startFrame, trim.endFrame - 1));
+  }
+
+  function selectTrimHandle(handle: TrimHandle) {
+    selectedTrimHandle = handle;
+  }
+
+  function handleTrimBlur(event: FocusEvent) {
+    const next = event.relatedTarget;
+    if (!(next instanceof Element) || !next.closest('.trim-handle')) {
+      selectedTrimHandle = null;
+    }
   }
 
   function resetTimeTrim() {
@@ -1114,6 +1135,7 @@
           <button
             class="trim-handle start"
             class:active={timeTrimDragState?.handle === 'start'}
+            class:selected={selectedTrimHandle === 'start'}
             style={`left:${(safeTrim.startFrame / totalFrames) * 100}%`}
             type="button"
             role="slider"
@@ -1124,10 +1146,13 @@
             aria-valuetext={formatTime(trimStartSeconds)}
             onpointerdown={(event) => beginTimeTrimDrag(event, 'start')}
             onkeydown={(event) => handleTrimKey(event, 'start')}
+            onfocus={() => selectTrimHandle('start')}
+            onblur={handleTrimBlur}
           ><span aria-hidden="true"></span></button>
           <button
             class="trim-handle end"
             class:active={timeTrimDragState?.handle === 'end'}
+            class:selected={selectedTrimHandle === 'end'}
             style={`left:${(safeTrim.endFrame / totalFrames) * 100}%`}
             type="button"
             role="slider"
@@ -1138,6 +1163,8 @@
             aria-valuetext={formatTime(trimEndSeconds)}
             onpointerdown={(event) => beginTimeTrimDrag(event, 'end')}
             onkeydown={(event) => handleTrimKey(event, 'end')}
+            onfocus={() => selectTrimHandle('end')}
+            onblur={handleTrimBlur}
           ><span aria-hidden="true"></span></button>
         </div>
       </section>

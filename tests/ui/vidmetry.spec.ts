@@ -244,14 +244,23 @@ test('time trim handles use exact frame steps and export the selected range', as
   const end = page.getByRole('slider', { name: 'Adjust end frame' });
   await expect(start).toHaveAttribute('aria-valuenow', '0');
   await expect(end).toHaveAttribute('aria-valuenow', '240');
-  await start.press('ArrowRight');
+  await start.click();
+  await expect(start).toBeFocused();
+  await expect(start).toHaveClass(/selected/);
+  expect(await start.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe('none');
+  await page.keyboard.press('ArrowRight');
   await expect(start).toHaveAttribute('aria-valuenow', '1');
-  await start.press('Shift+ArrowRight');
+  await page.keyboard.press('Shift+ArrowRight');
   await expect(start).toHaveAttribute('aria-valuenow', '11');
-  await end.press('Shift+ArrowLeft');
-  await expect(end).toHaveAttribute('aria-valuenow', '230');
+  await end.click();
+  await expect(end).toBeFocused();
+  await expect(end).toHaveClass(/selected/);
+  await page.keyboard.press('ArrowLeft');
+  await expect(end).toHaveAttribute('aria-valuenow', '239');
+  await page.keyboard.press('Shift+ArrowLeft');
+  await expect(end).toHaveAttribute('aria-valuenow', '229');
 
-  await start.press('Space');
+  await page.keyboard.press('Space');
   await expect.poll(() => page.evaluate(() => (window as any).__vidmetryPlayCount)).toBe(1);
 
   await page.getByRole('button', { name: 'Save options' }).click();
@@ -262,7 +271,7 @@ test('time trim handles use exact frame steps and export the selected range', as
     );
     return invocation.args.request.trim;
   });
-  expect(trim).toEqual({ startFrame: 11, endFrame: 230 });
+  expect(trim).toEqual({ startFrame: 11, endFrame: 229 });
 });
 
 test('trim drag stays under the pointer after the range is narrowed', async ({ page }) => {
@@ -271,7 +280,8 @@ test('trim drag stays under the pointer after the range is narrowed', async ({ p
 
   const timeline = page.locator('.trim-timeline');
   const start = page.getByRole('slider', { name: 'Adjust start frame' });
-  for (let index = 0; index < 8; index += 1) await start.press('Shift+ArrowRight');
+  await start.click();
+  for (let index = 0; index < 8; index += 1) await page.keyboard.press('Shift+ArrowRight');
   await expect(start).toHaveAttribute('aria-valuenow', '80');
 
   const handleBox = await start.boundingBox();
@@ -280,7 +290,38 @@ test('trim drag stays under the pointer after the range is narrowed', async ({ p
   const pointerY = handleBox!.y + handleBox!.height / 2;
   await page.mouse.move(handleBox!.x + handleBox!.width / 2, pointerY);
   await page.mouse.down();
-  await page.mouse.move(pointerX, pointerY, { steps: 12 });
+  await page.evaluate(
+    ({ finalX, y }) => {
+      const staleSample = new PointerEvent('pointermove', {
+        bubbles: true,
+        clientX: finalX - 30,
+        clientY: y,
+        pointerId: 1,
+        pointerType: 'mouse',
+      });
+      const finalEvent = new PointerEvent('pointermove', {
+        bubbles: true,
+        clientX: finalX,
+        clientY: y,
+        pointerId: 1,
+        pointerType: 'mouse',
+      });
+      Object.defineProperty(finalEvent, 'getCoalescedEvents', {
+        value: () => [staleSample],
+      });
+      window.dispatchEvent(finalEvent);
+      window.dispatchEvent(
+        new PointerEvent('pointerup', {
+          bubbles: true,
+          clientX: finalX,
+          clientY: y,
+          pointerId: 1,
+          pointerType: 'mouse',
+        }),
+      );
+    },
+    { finalX: pointerX, y: pointerY },
+  );
   await page.mouse.up();
 
   const movedBox = await start.boundingBox();

@@ -223,7 +223,10 @@ describe('application shell', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: 'Open video' }));
     const startHandle = await screen.findByRole('slider', { name: 'Adjust start frame' });
-    startHandle.focus();
+    await fireEvent.pointerDown(startHandle, { button: 0, clientX: 0, clientY: 0 });
+    await fireEvent.pointerUp(window, { button: 0, clientX: 0, clientY: 0 });
+    expect(document.activeElement).toBe(startHandle);
+    expect(startHandle.classList.contains('selected')).toBe(true);
     await fireEvent.keyDown(startHandle, { key: ' ', code: 'Space' });
 
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalledOnce();
@@ -281,19 +284,27 @@ describe('application shell', () => {
     expect(startHandle.getAttribute('aria-valuenow')).toBe('0');
     expect(endHandle.getAttribute('aria-valuenow')).toBe('120');
 
+    await fireEvent.pointerDown(startHandle, { button: 0, clientX: 0, clientY: 0 });
+    await fireEvent.pointerUp(window, { button: 0, clientX: 0, clientY: 0 });
+    expect(document.activeElement).toBe(startHandle);
     await fireEvent.keyDown(startHandle, { key: 'ArrowRight', code: 'ArrowRight' });
     expect(startHandle.getAttribute('aria-valuenow')).toBe('1');
     await fireEvent.keyDown(startHandle, { key: 'ArrowRight', code: 'ArrowRight', shiftKey: true });
     expect(startHandle.getAttribute('aria-valuenow')).toBe('11');
+    await fireEvent.pointerDown(endHandle, { button: 0, clientX: 0, clientY: 0 });
+    await fireEvent.pointerUp(window, { button: 0, clientX: 0, clientY: 0 });
+    expect(document.activeElement).toBe(endHandle);
+    await fireEvent.keyDown(endHandle, { key: 'ArrowLeft', code: 'ArrowLeft' });
+    expect(endHandle.getAttribute('aria-valuenow')).toBe('119');
     await fireEvent.keyDown(endHandle, { key: 'ArrowLeft', code: 'ArrowLeft', shiftKey: true });
-    expect(endHandle.getAttribute('aria-valuenow')).toBe('110');
+    expect(endHandle.getAttribute('aria-valuenow')).toBe('109');
     await fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Save a copy' }));
 
     expect(invoke).toHaveBeenCalledWith(
       'start_export',
       expect.objectContaining({
-        request: expect.objectContaining({ trim: { startFrame: 11, endFrame: 110 } }),
+        request: expect.objectContaining({ trim: { startFrame: 11, endFrame: 109 } }),
       }),
     );
   });

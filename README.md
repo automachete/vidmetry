@@ -79,11 +79,11 @@ npm run tauri build
 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`のバージョンを揃えてから、同じバージョンの`vX.Y.Z`タグをプッシュします。
 
 ```powershell
-git tag -a v0.4.0 -m "Vidmetry v0.4.0"
-git push origin v0.4.0
+git tag -a v0.4.1 -m "Vidmetry v0.4.1"
+git push origin v0.4.1
 ```
 
-タグを契機にGitHub Actionsが全テストを再実行し、GitHub Releaseとリリースノートを作成して、Windows用MSI／セットアップEXEを添付します。タグとアプリのバージョンが一致しない場合は公開されません。ハイフンを含むタグ（例: `v0.4.0-beta.1`）はプレリリースとして扱います。
+タグを契機にGitHub Actionsが全テストを再実行し、GitHub Releaseとリリースノートを作成して、Windows用MSI／セットアップEXEを添付します。タグとアプリのバージョンが一致しない場合は公開されません。ハイフンを含むタグ（例: `v0.4.1-beta.1`）はプレリリースとして扱います。
 
 詳細な要件と設計は[docs/SDD.md](docs/SDD.md)、今回の検証結果は[docs/VERIFICATION.md](docs/VERIFICATION.md)を参照してください。
 
