@@ -189,6 +189,8 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: write
+    env:
+      GH_REPO: ${{ github.repository }}
 
     steps:
       - name: Download newly assembled source
