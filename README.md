@@ -45,8 +45,8 @@ Vidmetryは、動画の**画面領域と開始・終了時間**を素早く切�
 ## 開発環境
 
 - Windows 11 x64
-- Node.js 24系とnpm
-- Rust stable（MSVC）
+- `.node-version`に固定したNode.js 24.12.0とnpm 11.18.0
+- `rust-toolchain.toml`に固定したRust 1.97.1（MSVC）
 - Visual Studio Build ToolsのDesktop development with C++
 - Microsoft Edge WebView2 Runtime
 
@@ -59,13 +59,14 @@ npx playwright install chromium
 npm run tauri dev
 ```
 
-FFmpegスクリプトは配布元のSHA-256を検証し、Tauri用の`ffmpeg`／`ffprobe`サイドカーを配置します。バイナリはGit管理されません。
+FFmpegスクリプトは、バージョン固定されたGyan.devのGitHub Release資産、アーカイブ、各実行ファイル、ライセンス、ビルド情報を追跡済みSHA-256で検証し、Tauri用の`ffmpeg`／`ffprobe`サイドカーを配置します。バイナリと生成した通知ファイルはGit管理されません。
 
 ## テストとビルド
 
 ```powershell
 npm run verify
 npm run test:ui
+cargo audit --file src-tauri\Cargo.lock
 cargo test --manifest-path src-tauri\Cargo.toml
 cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings
 npm run test:integration
@@ -83,7 +84,7 @@ git tag -a v0.4.6 -m "Vidmetry v0.4.6"
 git push origin v0.4.6
 ```
 
-タグを契機にGitHub Actionsが全テストを再実行し、GitHub Releaseとリリースノートを作成して、Windows用MSI／セットアップEXEを添付します。タグとアプリのバージョンが一致しない場合は公開されません。ハイフンを含むタグ（例: `v0.4.6-beta.1`）はプレリリースとして扱います。
+タグを契機にGitHub Actionsが依存関係監査と全テストを再実行し、GitHub Releaseとリリースノートを作成して、Windows用MSI／セットアップEXEを添付します。タグとアプリのバージョンが一致しない場合は公開されません。ハイフンを含むタグ（例: `v0.4.6-beta.1`）はプレリリースとして扱います。CIが参照する外部ActionはコミットSHAへ固定し、Dependabotが更新候補を提出します。
 
 詳細な要件と設計は[docs/SDD.md](docs/SDD.md)、今回の検証結果は[docs/VERIFICATION.md](docs/VERIFICATION.md)を参照してください。
 
