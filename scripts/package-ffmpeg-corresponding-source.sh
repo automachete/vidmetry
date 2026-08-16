@@ -249,6 +249,15 @@ docker run --rm --network none --read-only --cap-drop ALL \
 actual_archive_sha256="$(sha256sum "$OUTPUT" | cut -d ' ' -f 1)"
 if [[ "$actual_archive_sha256" != "$archive_sha256" ]]; then
   echo "Corresponding-source archive checksum mismatch. Expected $archive_sha256 but generated $actual_archive_sha256." >&2
+  echo "Deterministic source-tree fingerprints:" >&2
+  sha256sum "$source_root/SOURCE_SHA256SUMS" >&2
+  grep -F '  ./ffmpeg/' "$source_root/SOURCE_SHA256SUMS" | sha256sum >&2
+  grep -F '  ./build-scripts/.cache/downloads/' \
+    "$source_root/SOURCE_SHA256SUMS" | sha256sum >&2
+  grep -F '  ./build-scripts/' "$source_root/SOURCE_SHA256SUMS" \
+    | grep -Fv '  ./build-scripts/.cache/downloads/' | sha256sum >&2
+  grep -F '  ./build-scripts/.cache/downloads/' \
+    "$source_root/SOURCE_SHA256SUMS" >&2
   exit 1
 fi
 
