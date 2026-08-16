@@ -43,6 +43,7 @@ done < <(find "$extract_root" -depth -name .git -print0)
 
 normalized="$work_root/normalized.tar.xz"
 tar --format=gnu --sort=name --mtime='UTC 1970-01-01' \
-  --owner=0 --group=0 --numeric-owner --hard-dereference \
+  --owner=0 --group=0 --numeric-owner \
+  --mode='u+rwX,go+rX,go-w' --hard-dereference \
   -cJf "$normalized" -C "$extract_root" .
 mv -- "$normalized" "$output"

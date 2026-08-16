@@ -28,6 +28,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 temporary_output="$output.tmp"
 trap 'rm -f -- "$temporary_output"' EXIT
 tar --format=gnu --sort=name --mtime='UTC 1970-01-01' \
-  --owner=0 --group=0 --numeric-owner --hard-dereference \
+  --owner=0 --group=0 --numeric-owner \
+  --mode='u+rwX,go+rX,go-w' --hard-dereference \
   -cJf "$temporary_output" -C "$input_directory" "$source_root_name"
 mv -- "$temporary_output" "$output"

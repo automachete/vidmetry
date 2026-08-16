@@ -48,13 +48,13 @@ binary_sha256="$(jq -er '.archive.sha256' "$MANIFEST")"
 archive_name="$(jq -er '.correspondingSource.archiveName' "$MANIFEST")"
 archive_sha256="$(jq -er '.correspondingSource.archiveSha256' "$MANIFEST")"
 asset_tag="$(jq -er '.correspondingSource.assetTag' "$MANIFEST")"
-packaging_image="$(jq -er '.correspondingSource.packagingImage' "$MANIFEST")"
+source_toolchain_image="$(jq -er '.correspondingSource.sourceToolchainImage' "$MANIFEST")"
 build_repository="$(jq -er '.correspondingSource.buildRepository' "$MANIFEST")"
 build_commit="$(jq -er '.correspondingSource.buildCommit' "$MANIFEST")"
 ffmpeg_repository="$(jq -er '.correspondingSource.ffmpegRepository' "$MANIFEST")"
 ffmpeg_commit="$(jq -er '.correspondingSource.ffmpegCommit' "$MANIFEST")"
 
-[[ "$schema_version" == "1" ]]
+[[ "$schema_version" == "2" ]]
 [[ "$license" == "GPL-3.0-or-later" ]]
 [[ "$variant" == "win64-gpl" ]]
 [[ "$binary_url" == https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-* ]]
@@ -63,7 +63,9 @@ ffmpeg_commit="$(jq -er '.correspondingSource.ffmpegCommit' "$MANIFEST")"
 [[ "$archive_name" =~ ^vidmetry-ffmpeg-[A-Za-z0-9.-]+-corresponding-source\.tar\.xz$ ]]
 [[ "$archive_sha256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$asset_tag" =~ ^ffmpeg-source-[A-Za-z0-9.-]+$ ]]
-[[ "$packaging_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]
+[[ "$source_toolchain_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]
+source_toolchain_tag="${source_toolchain_image%@sha256:*}:latest"
+[[ "$source_toolchain_tag" == "ghcr.io/btbn/ffmpeg-builds/base:latest" ]]
 [[ "$build_repository" == "https://github.com/BtbN/FFmpeg-Builds.git" ]]
 [[ "$ffmpeg_repository" == "https://github.com/FFmpeg/FFmpeg.git" ]]
 [[ "$build_commit" =~ ^[0-9a-f]{40}$ ]]
@@ -83,6 +85,13 @@ fi
 for tool in docker git sha256sum tar xz; do
   command -v "$tool" >/dev/null
 done
+
+# BtbN's source acquisition entry point invokes its base image by a moving
+# `latest` tag. Resolve that name locally to the manifest-pinned digest before
+# any upstream download command runs, so both acquisition and normalization use
+# one immutable toolchain image.
+docker pull "$source_toolchain_image" >/dev/null
+docker tag "$source_toolchain_image" "$source_toolchain_tag"
 
 work_root="$(mktemp -d)"
 trap 'rm -rf -- "$work_root"' EXIT
@@ -108,8 +117,10 @@ fi
 
 (
   cd "$build_checkout"
-  env -u GITHUB_REPOSITORY ./download.sh
-  env -u GITHUB_REPOSITORY ./generate.sh win64 gpl
+  env -u GITHUB_REPOSITORY -u REGISTRY_OVERRIDE -u DOCKER_TAG_SUFFIX \
+    ./download.sh
+  env -u GITHUB_REPOSITORY -u REGISTRY_OVERRIDE -u DOCKER_TAG_SUFFIX \
+    ./generate.sh win64 gpl
 )
 
 mapfile -t dependency_archives < <(
@@ -137,12 +148,27 @@ for relative_archive in "${dependency_archives[@]}"; do
   basename -- "$source_archive" >> "$dependency_list"
 done
 
+# The marker is written only after the complete source graph has been acquired.
+# Workflows may persist this cache even when a later normalization or checksum
+# check fails, avoiding another network-bound acquisition on the next audit.
+if [[ -n "$CACHE_DIR" ]]; then
+  cache_marker="$CACHE_DIR/.vidmetry-source-cache-v1"
+  cache_marker_tmp="$cache_marker.tmp"
+  {
+    printf 'engine=%s\n' "$engine_id"
+    printf 'buildCommit=%s\n' "$build_commit"
+    printf 'sourceToolchainImage=%s\n' "$source_toolchain_image"
+    printf 'dependencyArchiveCount=%s\n' "${#dependency_archives[@]}"
+    sort -- "$dependency_list"
+  } > "$cache_marker_tmp"
+  mv -- "$cache_marker_tmp" "$cache_marker"
+fi
+
 resolved_downloads="$(cd -P -- "$build_checkout/.cache/downloads" && pwd)"
 resolved_scripts="$(cd -P -- "$SCRIPT_DIR" && pwd)"
 resolved_dependency_list="$(cd -P -- "$(dirname -- "$dependency_list")" && pwd)/$(basename -- "$dependency_list")"
 resolved_dependency_output="$(cd -P -- "$source_root/build-scripts/.cache/downloads" && pwd)"
 
-docker pull "$packaging_image" >/dev/null
 docker run --rm --network none --read-only --cap-drop ALL \
   --security-opt no-new-privileges --user "$(id -u):$(id -g)" \
   --tmpfs /tmp:rw,nosuid,nodev \
@@ -150,7 +176,7 @@ docker run --rm --network none --read-only --cap-drop ALL \
   --mount "type=bind,src=$resolved_downloads,dst=/input,readonly" \
   --mount "type=bind,src=$resolved_dependency_list,dst=/archive-list.txt,readonly" \
   --mount "type=bind,src=$resolved_dependency_output,dst=/output" \
-  "$packaging_image" \
+  "$source_toolchain_image" \
   bash /opt/vidmetry-scripts/repack-source-directory.sh \
     /input /output /archive-list.txt "$repack_jobs"
 
@@ -164,7 +190,7 @@ jq -n \
   --arg engineId "$engine_id" \
   --arg license "$license" \
   --arg variant "$variant" \
-  --arg packagingImage "$packaging_image" \
+  --arg sourceToolchainImage "$source_toolchain_image" \
   --arg binaryUrl "$binary_url" \
   --arg binarySha256 "$binary_sha256" \
   --arg buildRepository "$build_repository" \
@@ -173,11 +199,11 @@ jq -n \
   --arg ffmpegCommit "$ffmpeg_commit" \
   --argjson dependencyArchiveCount "${#dependency_archives[@]}" \
   '{
-    schemaVersion: 1,
+    schemaVersion: 2,
     engineId: $engineId,
     license: $license,
     variant: $variant,
-    packagingImage: $packagingImage,
+    sourceToolchainImage: $sourceToolchainImage,
     conveyedBinary: { url: $binaryUrl, sha256: $binarySha256 },
     buildDefinition: { repository: $buildRepository, commit: $buildCommit },
     ffmpegSource: { repository: $ffmpegRepository, commit: $ffmpegCommit },
@@ -194,7 +220,7 @@ This archive accompanies the FFmpeg and ffprobe object code conveyed in the same
 - `build-scripts/.cache/downloads/` contains every dependency source archive selected by the generated `win64-gpl` build graph.
 - Dependency archives contain the preferred source trees with checkout-specific `.git` administration data removed and deterministic metadata applied.
 - External symbolic links are removed from dependency archives and recorded in an affected archive's `.vidmetry-normalization/removed-external-symlinks.tsv`; internal links are preserved.
-- The digest-pinned packaging image used for deterministic archive creation is recorded in `SOURCE_METADATA.json`.
+- The digest-pinned source toolchain image used for dependency acquisition and deterministic archive creation is recorded in `SOURCE_METADATA.json`.
 - `build-scripts/Dockerfile.vidmetry-source-graph` records the resolved dependency graph and configuration used to select those archives.
 - `SOURCE_SHA256SUMS` authenticates every file in the archive other than the checksum list itself.
 
@@ -212,7 +238,7 @@ docker run --rm --network none --read-only --cap-drop ALL \
   --mount "type=bind,src=$resolved_scripts,dst=/opt/vidmetry-scripts,readonly" \
   --mount "type=bind,src=$resolved_stage_root,dst=/input" \
   --mount "type=bind,src=$resolved_output_parent,dst=/output" \
-  "$packaging_image" \
+  "$source_toolchain_image" \
   bash /opt/vidmetry-scripts/archive-source-tree.sh \
     /input "$source_root_name" "/output/$(basename -- "$OUTPUT")"
 (

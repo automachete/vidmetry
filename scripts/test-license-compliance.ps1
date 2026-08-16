@@ -52,8 +52,9 @@ if ($manifest.correspondingSource.archiveSha256 -cnotmatch '^[0-9a-f]{64}$' -or
 }
 
 $sourceScript = Join-Path $PSScriptRoot 'package-ffmpeg-corresponding-source.sh'
-Assert-FileContainsLiteral $sourceScript 'env -u GITHUB_REPOSITORY ./download.sh' 'Corresponding-source packager'
-Assert-FileContainsLiteral $sourceScript 'env -u GITHUB_REPOSITORY ./generate.sh win64 gpl' 'Corresponding-source packager'
+Assert-FileContainsLiteral $sourceScript 'env -u GITHUB_REPOSITORY -u REGISTRY_OVERRIDE -u DOCKER_TAG_SUFFIX' 'Corresponding-source packager'
+Assert-FileContainsLiteral $sourceScript './download.sh' 'Corresponding-source packager'
+Assert-FileContainsLiteral $sourceScript './generate.sh win64 gpl' 'Corresponding-source packager'
 Assert-FileContainsLiteral $sourceScript 'dependency_archives' 'Corresponding-source packager'
 Assert-FileContainsLiteral $sourceScript 'git -C "$ffmpeg_checkout" archive' 'Corresponding-source packager'
 Assert-FileContainsLiteral $sourceScript 'actual_archive_sha256' 'Corresponding-source packager'
@@ -64,6 +65,7 @@ Assert-FileContainsLiteral $sourceScript '--security-opt no-new-privileges' 'Cor
 $sourceArchiver = Join-Path $PSScriptRoot 'archive-source-tree.sh'
 Assert-FileContainsLiteral $sourceArchiver 'SOURCE_SHA256SUMS' 'Corresponding-source archiver'
 Assert-FileContainsLiteral $sourceArchiver '--format=gnu --sort=name' 'Corresponding-source archiver'
+Assert-FileContainsLiteral $sourceArchiver "--mode='u+rwX,go+rX,go-w'" 'Corresponding-source archiver'
 Assert-FileContainsLiteral $sourceArchiver 'sanitize-source-tree.sh' 'Corresponding-source archiver'
 
 $sourceTreeSanitizer = Join-Path $PSScriptRoot 'sanitize-source-tree.sh'
@@ -72,15 +74,19 @@ Assert-FileContainsLiteral $sourceTreeSanitizer '-type f -links +1' 'Correspondi
 Assert-FileContainsLiteral $sourceTreeSanitizer 'removed-external-symlinks.tsv' 'Corresponding-source tree sanitizer'
 
 $sidecarManifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'ffmpeg-sidecars.json') -Raw | ConvertFrom-Json
-if ($sidecarManifest.correspondingSource.packagingImage -notmatch '^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$') {
-    throw 'Corresponding-source packaging image must be pinned by OCI digest.'
+if ($sidecarManifest.schemaVersion -ne 2 -or
+    $sidecarManifest.correspondingSource.sourceToolchainImage -notmatch '^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$') {
+    throw 'Corresponding-source toolchain image must be pinned by OCI digest in schema version 2.'
 }
-Assert-FileContainsLiteral (Join-Path $PSScriptRoot 'setup-ffmpeg.ps1') 'Source packaging image: $($Manifest.correspondingSource.packagingImage)' 'FFmpeg build notice generator'
+Assert-FileContainsLiteral $sourceScript 'docker tag "$source_toolchain_image" "$source_toolchain_tag"' 'Corresponding-source packager'
+Assert-FileContainsLiteral $sourceScript '.vidmetry-source-cache-v1' 'Corresponding-source packager'
+Assert-FileContainsLiteral (Join-Path $PSScriptRoot 'setup-ffmpeg.ps1') 'Source toolchain image: $($Manifest.correspondingSource.sourceToolchainImage)' 'FFmpeg build notice generator'
 
 $sourceRepacker = Join-Path $PSScriptRoot 'repack-source-archive.sh'
 Assert-FileContainsLiteral $sourceRepacker '--format=gnu --sort=name' 'Dependency-source normalizer'
 Assert-FileContainsLiteral $sourceRepacker "-name .git" 'Dependency-source normalizer'
 Assert-FileContainsLiteral $sourceRepacker "--mtime='UTC 1970-01-01'" 'Dependency-source normalizer'
+Assert-FileContainsLiteral $sourceRepacker "--mode='u+rwX,go+rX,go-w'" 'Dependency-source normalizer'
 Assert-FileContainsLiteral $sourceRepacker 'sanitize-source-tree.sh' 'Dependency-source normalizer'
 $sourceDirectoryRepacker = Join-Path $PSScriptRoot 'repack-source-directory.sh'
 Assert-FileContainsLiteral $sourceDirectoryRepacker 'repack-source-archive.sh' 'Dependency-source directory normalizer'
@@ -94,6 +100,7 @@ Assert-FileContainsLiteral $sourceRepackerTest 'drive-relative-escape' 'Correspo
 Assert-FileContainsLiteral $sourceRepackerTest 'special-normalized.tar.xz' 'Corresponding-source boundary test'
 Assert-FileContainsLiteral $sourceRepackerTest 'hard-link-normalized.tar.xz' 'Corresponding-source boundary test'
 Assert-FileContainsLiteral $sourceRepackerTest 'outer-absolute.tar.xz' 'Corresponding-source boundary test'
+Assert-FileContainsLiteral $sourceRepackerTest 'chmod 0664' 'Corresponding-source permission normalization test'
 
 $releaseWorkflow = Join-Path $projectRoot '.github\workflows\release.yml'
 Assert-FileContainsLiteral $releaseWorkflow 'preflight:' 'Release workflow'
@@ -126,6 +133,9 @@ Assert-FileContainsLiteral $sourceAuditWorkflow 'package-ffmpeg-corresponding-so
 Assert-FileContainsLiteral $sourceAuditWorkflow 'scripts/test-source-repacker.sh' 'Corresponding-source audit workflow'
 Assert-FileContainsLiteral $sourceAuditWorkflow 'tar -tf' 'Corresponding-source audit workflow'
 Assert-FileContainsLiteral $sourceAuditWorkflow '.correspondingSource.archiveSha256' 'Corresponding-source audit workflow'
+Assert-FileContainsLiteral $sourceAuditWorkflow 'actions/cache/restore@' 'Corresponding-source audit workflow'
+Assert-FileContainsLiteral $sourceAuditWorkflow 'actions/cache/save@' 'Corresponding-source audit workflow'
+Assert-FileContainsLiteral $sourceAuditWorkflow 'steps.assemble.outcome' 'Corresponding-source audit workflow'
 Assert-FileDoesNotContainLiteral $sourceAuditWorkflow 'actions/upload-artifact@' 'Corresponding-source audit workflow'
 
 $sourceReleaseWorkflow = Join-Path $projectRoot '.github\workflows\ffmpeg-source-release.yml'
@@ -136,6 +146,9 @@ Assert-FileContainsLiteral $sourceReleaseWorkflow 'publish-source:' 'Immutable s
 Assert-FileContainsLiteral $sourceReleaseWorkflow 'needs: [inspect-source, build-source]' 'Immutable source Release workflow'
 Assert-FileContainsLiteral $sourceReleaseWorkflow 'persist-credentials: false' 'Immutable source Release workflow'
 Assert-FileContainsLiteral $sourceReleaseWorkflow 'Transfer verified source to isolated publisher' 'Immutable source Release workflow'
+Assert-FileContainsLiteral $sourceReleaseWorkflow 'actions/cache/restore@' 'Immutable source Release workflow'
+Assert-FileContainsLiteral $sourceReleaseWorkflow 'actions/cache/save@' 'Immutable source Release workflow'
+Assert-FileContainsLiteral $sourceReleaseWorkflow 'steps.assemble.outcome' 'Immutable source Release workflow'
 Assert-FileContainsLiteral $sourceReleaseWorkflow 'gh release create $env:ASSET_TAG' 'Immutable source Release workflow'
 Assert-FileContainsLiteral $sourceReleaseWorkflow '--latest=false' 'Immutable source Release workflow'
 Assert-FileContainsLiteral $sourceReleaseWorkflow 'gh release edit $env:ASSET_TAG --draft=false' 'Immutable source Release workflow'

@@ -9,12 +9,17 @@ for variant in one two; do
   source_root="$work_root/$variant/source/project"
   mkdir -p "$source_root/.git"
   printf 'stable source\n' > "$source_root/main.c"
+  printf '#!/usr/bin/env sh\nexit 0\n' > "$source_root/build.sh"
   ln -s main.c "$source_root/internal-link"
   printf 'checkout-specific %s\n' "$variant" > "$source_root/.git/index"
   if [[ "$variant" == "one" ]]; then
     archive_mtime='UTC 2024-01-01'
+    chmod 0700 "$source_root" "$source_root/build.sh"
+    chmod 0600 "$source_root/main.c"
   else
     archive_mtime='UTC 2025-01-01'
+    chmod 0775 "$source_root" "$source_root/build.sh"
+    chmod 0664 "$source_root/main.c"
   fi
   tar --format=gnu --sort=name --mtime="$archive_mtime" \
     -cJf "$work_root/$variant.tar.xz" -C "$work_root/$variant/source" .
@@ -28,6 +33,12 @@ tar -tJf "$work_root/one-normalized.tar.xz" > "$work_root/normalized-entries.txt
 grep -Fxq './project/main.c' "$work_root/normalized-entries.txt"
 tar -tvJf "$work_root/one-normalized.tar.xz" \
   | grep -Fq './project/internal-link -> main.c'
+tar -tvJf "$work_root/one-normalized.tar.xz" \
+  | grep -Eq '^-rw-r--r-- .* ./project/main\.c$'
+tar -tvJf "$work_root/one-normalized.tar.xz" \
+  | grep -Eq '^-rwxr-xr-x .* ./project/build\.sh$'
+tar -tvJf "$work_root/one-normalized.tar.xz" \
+  | grep -Eq '^drwxr-xr-x .* ./project/$'
 if grep -Eq '(^|/)\.git(/|$)' "$work_root/normalized-entries.txt"; then
   echo 'Normalized dependency source archive retained VCS administration data.' >&2
   exit 1
@@ -93,9 +104,14 @@ printf 'stable outer source\n' > "$work_root/outer/$outer_root/source/main.c"
 ln -s main.c "$work_root/outer/$outer_root/source/internal-link"
 "$SCRIPT_DIR/archive-source-tree.sh" \
   "$work_root/outer" "$outer_root" "$work_root/outer-one.tar.xz"
+chmod 0775 "$work_root/outer/$outer_root" \
+  "$work_root/outer/$outer_root/source"
+chmod 0664 "$work_root/outer/$outer_root/source/main.c"
 "$SCRIPT_DIR/archive-source-tree.sh" \
   "$work_root/outer" "$outer_root" "$work_root/outer-two.tar.xz"
 cmp "$work_root/outer-one.tar.xz" "$work_root/outer-two.tar.xz"
+tar -tvJf "$work_root/outer-one.tar.xz" \
+  | grep -Eq '^-rw-r--r-- .*source/main\.c$'
 tar -xJOf "$work_root/outer-one.tar.xz" \
   "$outer_root/SOURCE_SHA256SUMS" | grep -Fq './source/main.c'
 

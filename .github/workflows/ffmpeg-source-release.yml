@@ -10,6 +10,7 @@ on:
       - "scripts/repack-source-directory.sh"
       - "scripts/archive-source-tree.sh"
       - "scripts/sanitize-source-tree.sh"
+      - "scripts/test-source-repacker.sh"
   workflow_dispatch:
 
 permissions:
@@ -29,6 +30,7 @@ jobs:
       archive_name: ${{ steps.source.outputs.archive_name }}
       archive_sha256: ${{ steps.source.outputs.archive_sha256 }}
       asset_tag: ${{ steps.source.outputs.asset_tag }}
+      cache_key: ${{ steps.source.outputs.cache_key }}
       available: ${{ steps.existing.outputs.available }}
       is_draft: ${{ steps.existing.outputs.is_draft }}
 
@@ -46,12 +48,19 @@ jobs:
           archive_name="$(jq -er '.correspondingSource.archiveName' scripts/ffmpeg-sidecars.json)"
           archive_sha256="$(jq -er '.correspondingSource.archiveSha256' scripts/ffmpeg-sidecars.json)"
           asset_tag="$(jq -er '.correspondingSource.assetTag' scripts/ffmpeg-sidecars.json)"
+          engine_id="$(jq -er '.engine.id' scripts/ffmpeg-sidecars.json)"
+          build_commit="$(jq -er '.correspondingSource.buildCommit' scripts/ffmpeg-sidecars.json)"
+          toolchain_digest="$(jq -er '.correspondingSource.sourceToolchainImage' scripts/ffmpeg-sidecars.json | sed -E 's/^.+@sha256://')"
           [[ "$archive_name" =~ ^vidmetry-ffmpeg-[A-Za-z0-9.-]+-corresponding-source\.tar\.xz$ ]]
           [[ "$archive_sha256" =~ ^[0-9a-f]{64}$ ]]
           [[ "$asset_tag" =~ ^ffmpeg-source-[A-Za-z0-9.-]+$ ]]
+          [[ "$engine_id" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$build_commit" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$toolchain_digest" =~ ^[0-9a-f]{64}$ ]]
           echo "archive_name=$archive_name" >> "$GITHUB_OUTPUT"
           echo "archive_sha256=$archive_sha256" >> "$GITHUB_OUTPUT"
           echo "asset_tag=$asset_tag" >> "$GITHUB_OUTPUT"
+          echo "cache_key=ffmpeg-source-v1-$engine_id-$build_commit-$toolchain_digest" >> "$GITHUB_OUTPUT"
 
       - name: Reuse existing immutable source release
         id: existing
@@ -102,14 +111,16 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Cache pinned dependency sources
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore pinned dependency sources
+        id: source-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .cache/ffmpeg-source-downloads
-          key: ffmpeg-source-${{ hashFiles('scripts/ffmpeg-sidecars.json', 'scripts/package-ffmpeg-corresponding-source.sh', 'scripts/repack-source-archive.sh', 'scripts/repack-source-directory.sh', 'scripts/archive-source-tree.sh', 'scripts/sanitize-source-tree.sh') }}
-          restore-keys: ffmpeg-source-
+          key: ${{ needs.inspect-source.outputs.cache_key }}
 
       - name: Assemble complete corresponding source once
+        id: assemble
+        continue-on-error: true
         shell: bash
         env:
           ARCHIVE_NAME: ${{ needs.inspect-source.outputs.archive_name }}
@@ -118,6 +129,29 @@ jobs:
           scripts/package-ffmpeg-corresponding-source.sh \
             --cache-dir .cache/ffmpeg-source-downloads \
             --output "immutable-source/$ARCHIVE_NAME"
+
+      - name: Inspect source acquisition cache
+        id: cache-state
+        if: always()
+        shell: bash
+        run: |
+          if [[ -s .cache/ffmpeg-source-downloads/.vidmetry-source-cache-v1 ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save complete dependency-source cache
+        if: always() && steps.source-cache.outputs.cache-hit != 'true' && steps.cache-state.outputs.ready == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache/ffmpeg-source-downloads
+          key: ${{ needs.inspect-source.outputs.cache_key }}
+
+      - name: Enforce source assembly result
+        if: steps.assemble.outcome != 'success'
+        shell: bash
+        run: exit 1
 
       - name: Audit newly assembled immutable source
         shell: bash
