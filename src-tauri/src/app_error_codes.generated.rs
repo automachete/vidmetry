@@ -15,6 +15,12 @@ pub enum ErrorCode {
     VideoWidthMissing,
     #[serde(rename = "video_height_missing")]
     VideoHeightMissing,
+    #[serde(rename = "video_duration_missing")]
+    VideoDurationMissing,
+    #[serde(rename = "video_frame_count_missing")]
+    VideoFrameCountMissing,
+    #[serde(rename = "video_frame_rate_missing")]
+    VideoFrameRateMissing,
     #[serde(rename = "preview_cache_unavailable")]
     PreviewCacheUnavailable,
     #[serde(rename = "preview_authorization_failed")]
@@ -93,7 +99,6 @@ pub enum ErrorCode {
     CommitOutputFailed,
     #[serde(rename = "explorer_open_failed")]
     ExplorerOpenFailed,
-    #[cfg(not(windows))]
     #[serde(rename = "explorer_unsupported")]
     ExplorerUnsupported,
     #[serde(rename = "accent_color_unavailable")]

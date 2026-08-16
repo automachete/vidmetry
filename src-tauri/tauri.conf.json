@@ -38,6 +38,7 @@
     "resources": {
       "../LICENSE": "LICENSE",
       "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "binaries/ffmpeg-notices": "FFmpeg",
       "icons/icon.ico": "shortcut-icon-achromatic-v2.ico"
     },
     "windows": {

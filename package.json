@@ -3,6 +3,11 @@
   "private": true,
   "version": "0.4.6",
   "type": "module",
+  "packageManager": "npm@11.18.0",
+  "engines": {
+    "node": ">=24.12.0 <25",
+    "npm": ">=11.18.0 <12"
+  },
   "scripts": {
     "generate:contracts": "node scripts/generate-error-contract.mjs",
     "check:contracts": "node scripts/generate-error-contract.mjs --check",
@@ -13,10 +18,11 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:assets": "pwsh -NoProfile -File scripts/test-icon-assets.ps1",
+    "test:runtime": "pwsh -NoProfile -File scripts/test-runtime-contracts.ps1",
     "test:ui": "playwright test",
     "test:ui:update": "playwright test --update-snapshots",
     "test:integration": "pwsh -NoProfile -File scripts/test-integration.ps1",
-    "verify": "npm run check:contracts && npm run check && npm run test:assets && npm test && npm run build",
+    "verify": "npm run check:contracts && npm run check && npm run test:assets && npm run test:runtime && npm test && npm run build",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -25,7 +31,8 @@
     "@tauri-apps/plugin-log": "^2.9.0",
     "@tauri-apps/plugin-store": "^2.4.4",
     "i18next": "^26.3.6",
-    "svelte": "^5.56.9"
+    "svelte": "^5.56.9",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

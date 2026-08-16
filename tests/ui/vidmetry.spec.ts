@@ -1,7 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
 const settings = {
-  version: 1,
   languageMode: 'manual',
   language: 'en',
   loopPlayback: false,
@@ -99,14 +98,12 @@ async function installTauriMock(page: Page): Promise<void> {
           displayWidth: 1920,
           displayHeight: 1080,
           rotationDegrees: 0,
-          sampleAspectRatio: '1:1',
           frameRate: '30000/1001',
           videoCodec: 'h264',
           pixelFormat: 'yuv420p',
           bitDepth: 8,
           hasAudio: true,
           audioCodec: 'aac',
-          color: { primaries: 'bt709', transfer: 'bt709', matrix: 'bt709', range: 'tv' },
           metadataCropSupported: true,
         };
       }

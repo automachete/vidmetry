@@ -27,6 +27,9 @@
   import {
     canSaveInPlace,
     clampProgress,
+    encoderPresets,
+    exportProfiles,
+    pixelFormats,
     suggestOutput,
     type AudioMode,
     type EncoderPreset,
@@ -34,6 +37,7 @@
     type ExportErrorEvent,
     type ExportProfile,
     type ExportProgressEvent,
+    type ExportRequest,
     type FrameRateMode,
     type PixelFormat,
     type VideoCodec,
@@ -44,7 +48,7 @@
     cloneSettings,
     defaultSettings,
     loadSettings,
-    normalizeSettings,
+    parseSettings,
     persistSettings,
     resolveLanguage,
     type AppSettings,
@@ -74,27 +78,6 @@
     { value: 'south', label: 'cropHandleSouth' },
     { value: 'south-west', label: 'cropHandleSouthWest' },
     { value: 'west', label: 'cropHandleWest' },
-  ];
-
-  const presets: EncoderPreset[] = [
-    'ultrafast',
-    'superfast',
-    'veryfast',
-    'faster',
-    'fast',
-    'medium',
-    'slow',
-    'slower',
-    'veryslow',
-  ];
-  const pixelFormats: PixelFormat[] = [
-    'source',
-    'yuv420p',
-    'yuv420p10le',
-    'yuv422p',
-    'yuv422p10le',
-    'yuv444p',
-    'yuv444p10le',
   ];
 
   interface FrameGeometry {
@@ -193,7 +176,7 @@
   $: activeRatio = aspectRatio(aspect, bounds);
   $: duration = Math.max(media?.durationSeconds ?? 0, videoElement?.duration || 0);
   $: totalFrames = media
-    ? totalVideoFrames(duration, media.frameRate, media.frameCount)
+    ? totalVideoFrames(media.frameCount)
     : 1;
   $: safeTrim = sanitizeTrimRange(trim, totalFrames);
   $: trimStartSeconds = frameToSeconds(safeTrim.startFrame, totalFrames, duration);
@@ -486,7 +469,7 @@
       const descriptor = await invoke<MediaDescriptor>('probe_video', { path });
       media = descriptor;
       trim = fullTrimRange(
-        totalVideoFrames(descriptor.durationSeconds, descriptor.frameRate, descriptor.frameCount),
+        totalVideoFrames(descriptor.frameCount),
       );
       crop = fullFrame({ width: descriptor.displayWidth, height: descriptor.displayHeight });
       aspect = 'free';
@@ -562,7 +545,7 @@
     if (media && media.durationSeconds <= 0 && Number.isFinite(videoElement.duration)) {
       media = { ...media, durationSeconds: videoElement.duration };
       trim = fullTrimRange(
-        totalVideoFrames(videoElement.duration, media.frameRate, media.frameCount),
+        totalVideoFrames(media.frameCount),
       );
     }
   }
@@ -961,17 +944,16 @@
       }
       exportProgress = 0;
       exportOutTime = 0;
-      exportJobId = await invoke<string>('start_export', {
-        request: {
-          sourcePath,
-          outputPath,
-          crop,
-          trim: safeTrim,
-          settings: settings.export,
-          overwrite: true,
-          inPlace,
-        },
-      });
+      const request: ExportRequest = {
+        sourcePath,
+        outputPath,
+        crop,
+        trim: safeTrim,
+        settings: settings.export,
+        overwrite: true,
+        inPlace,
+      };
+      exportJobId = await invoke<string>('start_export', { request });
     } catch (error) {
       if (inPlace) restoreSourcePreview();
       inPlaceExportPath = null;
@@ -1046,8 +1028,8 @@
   }
 
   async function applySettings() {
-    const next = normalizeSettings(settingsDraft);
     try {
+      const next = parseSettings(settingsDraft);
       await persistSettings(next);
       settings = next;
       showSettings = false;
@@ -1411,7 +1393,7 @@
           <section class="settings-section">
             <h3>{text('saveMethod')}</h3>
             <div class="profile-settings">
-              {#each ['compatible', 'lossless', 'metadata'] as profile}
+              {#each exportProfiles as profile}
                 <button class:active={settingsDraft.export.profile === profile} type="button" onclick={() => setProfile(profile as ExportProfile)}>
                   <strong>{profileName(profile as ExportProfile)}</strong>
                   <small>{text(`${profile}Description` as TranslationKey)}</small>
@@ -1428,7 +1410,7 @@
                   <label class="settings-field"><span>{text('videoCodec')}</span><select value={settingsDraft.export.videoCodec} onchange={(event) => updateExportDraft('videoCodec', (event.currentTarget as HTMLSelectElement).value as VideoCodec)}><option value="h264">H.264</option><option value="h265">H.265 / HEVC</option></select></label>
                   <label class="settings-field"><span>{text('encoder')}</span><input value={text('softwareEncoder', { encoder: settingsDraft.export.videoCodec === 'h264' ? 'libx264' : 'libx265' })} disabled /></label>
                   <label class="settings-field"><span>{text('crf')}</span><input type="number" min="0" max="51" step="1" value={settingsDraft.export.crf} onchange={(event) => updateExportDraft('crf', Number((event.currentTarget as HTMLInputElement).value))} /><small>{text('crfHint')}</small></label>
-                  <label class="settings-field"><span>{text('preset')}</span><select value={settingsDraft.export.preset} onchange={(event) => updateExportDraft('preset', (event.currentTarget as HTMLSelectElement).value as EncoderPreset)}>{#each presets as preset}<option value={preset}>{preset}</option>{/each}</select></label>
+                  <label class="settings-field"><span>{text('preset')}</span><select value={settingsDraft.export.preset} onchange={(event) => updateExportDraft('preset', (event.currentTarget as HTMLSelectElement).value as EncoderPreset)}>{#each encoderPresets as preset}<option value={preset}>{preset}</option>{/each}</select></label>
                 {/if}
                 <label class="settings-field"><span>{text('pixelFormatSetting')}</span><select value={settingsDraft.export.pixelFormat} onchange={(event) => updateExportDraft('pixelFormat', (event.currentTarget as HTMLSelectElement).value as PixelFormat)}>{#each pixelFormats as format}<option value={format}>{format === 'source' ? text('sourcePixelFormat') : format}</option>{/each}</select></label>
               </div>

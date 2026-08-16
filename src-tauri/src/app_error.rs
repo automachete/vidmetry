@@ -44,6 +44,9 @@ impl From<MediaError> for AppError {
             MediaError::MissingVideo => Self::new(ErrorCode::VideoStreamMissing),
             MediaError::MissingVideoWidth => Self::new(ErrorCode::VideoWidthMissing),
             MediaError::MissingVideoHeight => Self::new(ErrorCode::VideoHeightMissing),
+            MediaError::MissingVideoDuration => Self::new(ErrorCode::VideoDurationMissing),
+            MediaError::MissingVideoFrameCount => Self::new(ErrorCode::VideoFrameCountMissing),
+            MediaError::MissingVideoFrameRate => Self::new(ErrorCode::VideoFrameRateMissing),
             MediaError::Cache(detail) => {
                 Self::with_detail(ErrorCode::PreviewCacheUnavailable, detail)
             }

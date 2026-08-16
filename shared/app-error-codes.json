@@ -7,6 +7,9 @@
   "video_stream_missing",
   "video_width_missing",
   "video_height_missing",
+  "video_duration_missing",
+  "video_frame_count_missing",
+  "video_frame_rate_missing",
   "preview_cache_unavailable",
   "preview_authorization_failed",
   "selected_path_unavailable",
@@ -48,8 +51,5 @@
   "explorer_open_failed",
   "explorer_unsupported",
   "accent_color_unavailable"
-  ],
-  "rustCfg": {
-    "explorer_unsupported": "not(windows)"
-  }
+  ]
 }

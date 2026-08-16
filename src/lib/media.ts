@@ -1,28 +1,19 @@
-export interface ColorDescriptor {
-  primaries: string | null;
-  transfer: string | null;
-  matrix: string | null;
-  range: string | null;
-}
-
 export interface MediaDescriptor {
   sourcePath: string;
   fileName: string;
   durationSeconds: number;
-  frameCount: number | null;
+  frameCount: number;
   codedWidth: number;
   codedHeight: number;
   displayWidth: number;
   displayHeight: number;
   rotationDegrees: number;
-  sampleAspectRatio: string;
   frameRate: string;
   videoCodec: string;
   pixelFormat: string;
   bitDepth: number | null;
   hasAudio: boolean;
   audioCodec: string | null;
-  color: ColorDescriptor;
   metadataCropSupported: boolean;
 }
 

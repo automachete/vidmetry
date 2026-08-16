@@ -1,0 +1,31 @@
+{
+  "version": "9.0.1",
+  "archive": {
+    "url": "https://github.com/GyanD/codexffmpeg/releases/download/9.0.1/ffmpeg-9.0.1-essentials_build.zip",
+    "sha256": "fec81ae03971d9dd4be3ebe02e263bd2ec1d789483f931bdba5f5715e65da2e9"
+  },
+  "targets": {
+    "x86_64-pc-windows-msvc": {
+      "ffmpeg": {
+        "archivePath": "ffmpeg-9.0.1-essentials_build/bin/ffmpeg.exe",
+        "sha256": "72a489eccd008c2ec2c0a5856c5c75bc3d8bbfa90166c4566865c246445e6aa3"
+      },
+      "ffprobe": {
+        "archivePath": "ffmpeg-9.0.1-essentials_build/bin/ffprobe.exe",
+        "sha256": "19202b23c0043f15ad1b7bce2344f406fd52bd6efd8f995ce02e7392a1cec52f"
+      }
+    }
+  },
+  "notices": {
+    "license": {
+      "archivePath": "ffmpeg-9.0.1-essentials_build/LICENSE",
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+      "fileName": "FFMPEG_LICENSE.txt"
+    },
+    "buildInfo": {
+      "archivePath": "ffmpeg-9.0.1-essentials_build/README.txt",
+      "sha256": "1c8c50e4df1623673ec236bafe774f3c4ee41a1e6b0cde05e31b7d89b31efa06",
+      "fileName": "FFMPEG_BUILD_INFO.txt"
+    }
+  }
+}

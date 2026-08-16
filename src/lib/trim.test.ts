@@ -17,8 +17,8 @@ import {
 describe('frame-accurate time trimming', () => {
   it('uses a reported frame count and otherwise derives one from a rational frame rate', () => {
     expect(parseFrameRate('30000/1001')).toBeCloseTo(29.97002997);
-    expect(totalVideoFrames(10, '30000/1001', 301)).toBe(301);
-    expect(totalVideoFrames(10, '30/1')).toBe(300);
+    expect(totalVideoFrames(301)).toBe(301);
+    expect(() => totalVideoFrames(0)).toThrow(RangeError);
   });
 
   it('keeps an exclusive end frame and at least one selected frame', () => {

@@ -33,14 +33,19 @@ struct CacheEntry {
 }
 
 pub fn reusable_entry(path: &Path) -> io::Result<bool> {
-    let valid = path.metadata().map(|item| item.len() > 0).unwrap_or(false);
-    if valid {
-        touch_or_warn(path);
-    } else if path.exists() {
-        fs::remove_file(path)?;
-        remove_access_marker(path);
+    match path.metadata() {
+        Ok(metadata) if metadata.is_file() && metadata.len() > 0 => {
+            touch_or_warn(path);
+            Ok(true)
+        }
+        Ok(_) => {
+            fs::remove_file(path)?;
+            remove_access_marker(path);
+            Ok(false)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
     }
-    Ok(valid)
 }
 
 pub fn staging_path(final_path: &Path) -> io::Result<PathBuf> {
@@ -50,7 +55,7 @@ pub fn staging_path(final_path: &Path) -> io::Result<PathBuf> {
     let stem = final_path
         .file_stem()
         .and_then(|value| value.to_str())
-        .unwrap_or("entry");
+        .ok_or_else(|| io::Error::other("cache entry has no UTF-8 stem"))?;
     let extension = final_path
         .extension()
         .and_then(|value| value.to_str())
@@ -62,7 +67,7 @@ pub fn staging_path(final_path: &Path) -> io::Result<PathBuf> {
 }
 
 pub fn commit(staged: &Path, final_path: &Path) -> io::Result<()> {
-    if staged.metadata().map(|item| item.len()).unwrap_or(0) == 0 {
+    if staged.metadata()?.len() == 0 {
         remove_file_if_present(staged);
         return Err(io::Error::other("cache staging output is empty"));
     }
@@ -77,13 +82,19 @@ pub fn commit(staged: &Path, final_path: &Path) -> io::Result<()> {
             touch_or_warn(final_path);
             Ok(())
         }
-        Err(_error) if reusable_entry(final_path).unwrap_or(false) => {
+        Err(rename_error) => {
+            let result = match reusable_entry(final_path) {
+                Ok(true) => Ok(()),
+                Ok(false) => Err(rename_error),
+                Err(inspect_error) => Err(io::Error::new(
+                    inspect_error.kind(),
+                    format!(
+                        "cache rename failed ({rename_error}); final entry inspection failed ({inspect_error})"
+                    ),
+                )),
+            };
             remove_file_if_present(staged);
-            Ok(())
-        }
-        Err(error) => {
-            remove_file_if_present(staged);
-            Err(error)
+            result
         }
     }
 }
@@ -100,17 +111,26 @@ pub fn prune(root: &Path, retained_path: &Path, limits: CacheLimits) -> io::Resu
                 continue;
             }
         };
-        let path = item.path();
-        if !path.is_file() {
+        let file_type = match item.file_type() {
+            Ok(file_type) => file_type,
+            Err(error) => {
+                log::warn!("unable to inspect a cache entry type: {error}");
+                continue;
+            }
+        };
+        if !file_type.is_file() {
             continue;
         }
-        let file_name = path
-            .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or("");
-        if is_staging_file(file_name) {
-            if older_than(&path, now, STAGING_MAX_AGE) {
-                remove_file_if_present(&path);
+        let file_name = item.file_name().to_string_lossy().into_owned();
+        let path = item.path();
+        if is_staging_file(&file_name) {
+            match older_than(&path, now, STAGING_MAX_AGE) {
+                Ok(true) => remove_file_if_present(&path),
+                Ok(false) => {}
+                Err(error) => log::warn!(
+                    "unable to inspect staging cache age for {}: {error}",
+                    path.display()
+                ),
             }
             continue;
         }
@@ -132,11 +152,20 @@ pub fn prune(root: &Path, retained_path: &Path, limits: CacheLimits) -> io::Resu
             remove_access_marker(&path);
             continue;
         }
-        let last_used = access_marker(&path)
+        let last_used = match access_marker(&path)
             .metadata()
             .and_then(|item| item.modified())
             .or_else(|_| metadata.modified())
-            .unwrap_or(SystemTime::UNIX_EPOCH);
+        {
+            Ok(last_used) => last_used,
+            Err(error) => {
+                log::warn!(
+                    "unable to determine cache age for {}: {error}",
+                    path.display()
+                );
+                continue;
+            }
+        };
         entries.push(CacheEntry {
             retained: path == retained_path,
             path,
@@ -222,8 +251,13 @@ fn remove_orphan_access_markers(root: &Path) {
         let Some(data_name) = name.strip_suffix(".access") else {
             continue;
         };
-        if !root.join(data_name).exists() {
-            remove_file_if_present(&path);
+        match root.join(data_name).try_exists() {
+            Ok(false) => remove_file_if_present(&path),
+            Ok(true) => {}
+            Err(error) => log::warn!(
+                "unable to inspect data for cache marker {}: {error}",
+                path.display()
+            ),
         }
     }
 }
@@ -232,12 +266,12 @@ fn is_staging_file(file_name: &str) -> bool {
     file_name.starts_with('.') && file_name.contains(".vidmetry-") && file_name.contains(".part.")
 }
 
-fn older_than(path: &Path, now: SystemTime, maximum_age: Duration) -> bool {
-    path.metadata()
-        .and_then(|item| item.modified())
-        .ok()
-        .and_then(|modified| now.duration_since(modified).ok())
-        .is_some_and(|age| age > maximum_age)
+fn older_than(path: &Path, now: SystemTime, maximum_age: Duration) -> io::Result<bool> {
+    let modified = path.metadata()?.modified()?;
+    Ok(now
+        .duration_since(modified)
+        .map(|age| age > maximum_age)
+        .unwrap_or(false))
 }
 
 fn remove_file_if_present(path: &Path) {

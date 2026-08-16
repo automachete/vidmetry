@@ -90,14 +90,12 @@ function mediaDescriptor(sourcePath: string) {
     displayWidth: 1280,
     displayHeight: 720,
     rotationDegrees: 0,
-    sampleAspectRatio: '1:1',
     frameRate: '30/1',
     videoCodec: 'h264',
     pixelFormat: 'yuv420p',
     bitDepth: 8,
     hasAudio: true,
     audioCodec: 'aac',
-    color: { primaries: null, transfer: null, matrix: null, range: null },
     metadataCropSupported: true,
   };
 }

@@ -1,27 +1,38 @@
 import type { AppErrorPayload } from './app-error';
+import type { CropRect } from './crop';
+import type { TrimRange } from './trim';
 
-export type ExportProfile = 'compatible' | 'lossless' | 'metadata';
-export type VideoCodec = 'h264' | 'h265';
-export type EncoderPreset =
-  | 'ultrafast'
-  | 'superfast'
-  | 'veryfast'
-  | 'faster'
-  | 'fast'
-  | 'medium'
-  | 'slow'
-  | 'slower'
-  | 'veryslow';
-export type PixelFormat =
-  | 'source'
-  | 'yuv420p'
-  | 'yuv420p10le'
-  | 'yuv422p'
-  | 'yuv422p10le'
-  | 'yuv444p'
-  | 'yuv444p10le';
-export type AudioMode = 'auto' | 'copy' | 'aac' | 'flac' | 'pcm' | 'none';
-export type FrameRateMode = 'passthrough' | 'constant';
+export const exportProfiles = ['compatible', 'lossless', 'metadata'] as const;
+export const videoCodecs = ['h264', 'h265'] as const;
+export const encoderPresets = [
+  'ultrafast',
+  'superfast',
+  'veryfast',
+  'faster',
+  'fast',
+  'medium',
+  'slow',
+  'slower',
+  'veryslow',
+] as const;
+export const pixelFormats = [
+  'source',
+  'yuv420p',
+  'yuv420p10le',
+  'yuv422p',
+  'yuv422p10le',
+  'yuv444p',
+  'yuv444p10le',
+] as const;
+export const audioModes = ['auto', 'copy', 'aac', 'flac', 'pcm', 'none'] as const;
+export const frameRateModes = ['passthrough', 'constant'] as const;
+
+export type ExportProfile = (typeof exportProfiles)[number];
+export type VideoCodec = (typeof videoCodecs)[number];
+export type EncoderPreset = (typeof encoderPresets)[number];
+export type PixelFormat = (typeof pixelFormats)[number];
+export type AudioMode = (typeof audioModes)[number];
+export type FrameRateMode = (typeof frameRateModes)[number];
 
 export interface ExportSettings {
   profile: ExportProfile;
@@ -36,6 +47,16 @@ export interface ExportSettings {
   fastStart: boolean;
   preserveMetadata: boolean;
   copySubtitles: boolean;
+}
+
+export interface ExportRequest {
+  sourcePath: string;
+  outputPath: string;
+  crop: CropRect;
+  trim: TrimRange;
+  settings: ExportSettings;
+  overwrite: boolean;
+  inPlace: boolean;
 }
 
 export interface ExportProgressEvent {
