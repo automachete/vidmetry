@@ -1,7 +1,8 @@
 {
   "name": "vidmetry",
   "private": true,
-  "version": "0.4.6",
+  "version": "0.4.7",
+  "license": "MIT",
   "type": "module",
   "packageManager": "npm@11.18.0",
   "engines": {
@@ -11,6 +12,7 @@
   "scripts": {
     "generate:contracts": "node scripts/generate-error-contract.mjs",
     "check:contracts": "node scripts/generate-error-contract.mjs --check",
+    "check:licenses": "license-checker-rseidelsohn --production --excludePrivatePackages --onlyAllow \"0BSD;Apache-2.0;BSD-2-Clause;BSD-3-Clause;CC0-1.0;ISC;MIT;Unicode-3.0;Unicode-DFS-2016;Zlib\"",
     "dev": "vite",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.app.json",
@@ -19,10 +21,11 @@
     "test:coverage": "vitest run --coverage",
     "test:assets": "pwsh -NoProfile -File scripts/test-icon-assets.ps1",
     "test:runtime": "pwsh -NoProfile -File scripts/test-runtime-contracts.ps1",
+    "test:licenses": "pwsh -NoProfile -File scripts/test-license-compliance.ps1",
     "test:ui": "playwright test",
     "test:ui:update": "playwright test --update-snapshots",
     "test:integration": "pwsh -NoProfile -File scripts/test-integration.ps1",
-    "verify": "npm run check:contracts && npm run check && npm run test:assets && npm run test:runtime && npm test && npm run build",
+    "verify": "npm run check:contracts && npm run check:licenses && npm run check && npm run test:assets && npm run test:runtime && npm run test:licenses && npm test && npm run build",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -43,6 +46,7 @@
     "@types/node": "^26.2.0",
     "@vitest/coverage-v8": "^4.1.10",
     "jsdom": "^29.1.1",
+    "license-checker-rseidelsohn": "5.0.1",
     "svelte-check": "^4.7.6",
     "typescript": "^6.0.3",
     "vite": "^8.2.1",

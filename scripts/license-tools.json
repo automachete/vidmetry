@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "cargoAbout": {
+    "version": "0.9.1",
+    "url": "https://github.com/EmbarkStudios/cargo-about/releases/download/0.9.1/cargo-about-0.9.1-x86_64-pc-windows-msvc.tar.gz",
+    "archiveSha256": "318893aff6b9efd60f70470f5827b9577ae20a805cf9732d5612862a78508581",
+    "executableSha256": "e15e1af0b7c671bac972b21916b86726d0bf183ae121c85fb645bc618e911d3f"
+  }
+}

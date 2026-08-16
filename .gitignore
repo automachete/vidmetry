@@ -3,6 +3,8 @@ node_modules/
 dist/
 .svelte-kit/
 coverage/
+release-assets/
+.cache/
 
 # Rust / Tauri
 target/
@@ -10,6 +12,8 @@ src-tauri/target/
 src-tauri/binaries/*.exe
 src-tauri/binaries/ffmpeg-*
 src-tauri/binaries/ffprobe-*
+src-tauri/binaries/license-sources/
+src-tauri/binaries/license-reports/
 !src-tauri/binaries/.gitkeep
 
 # Generated media and caches
@@ -18,6 +22,7 @@ test-results/
 playwright-report/
 *.tmp
 *.part
+*.tar.xz
 
 # Local configuration
 .env
@@ -34,4 +39,3 @@ desktop.ini
 # Logs
 *.log
 npm-debug.log*
-

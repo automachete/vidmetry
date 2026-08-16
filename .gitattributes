@@ -3,6 +3,9 @@
 *.bat text eol=crlf
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
+*.sh text eol=lf
+*.sha256 text eol=lf
+*.crate binary
 *.png binary
 *.ico binary
 *.icns binary
@@ -10,4 +13,4 @@
 *.mov binary
 *.mkv binary
 *.webm binary
-
+*.tar.xz binary

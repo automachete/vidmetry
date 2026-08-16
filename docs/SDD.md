@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document version | 1.4 |
-| Product version | 0.4.6 |
+| Product version | 0.4.7 |
 | Status | Implemented and verified |
 | Primary platform | Windows 11 x64 |
 | UI languages | Japanese and English |
@@ -42,7 +42,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 - Keep all media processing local.
 - Remain responsive while probing, proxying, and exporting.
 
-### 2.2 Non-goals for 0.4.6
+### 2.2 Non-goals for 0.4.7
 
 - Multi-clip timelines, internal cuts, transitions, filters, captions, or independent audio editing.
 - Animated crop/keyframes.
@@ -284,10 +284,11 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 - The source is opened read-only during probe, preview, and encoding. Only confirmed in-place Save can replace it after successful encoding.
 - File access is limited to user-selected paths and the app cache.
 - FFmpeg is invoked as an allowlisted sidecar with structured arguments.
-- The FFmpeg version, immutable GitHub Release URL, archive hash, executable hashes, license hash, and build-information hash are pinned in `scripts/ffmpeg-sidecars.json`. Existing files and fresh downloads are both verified.
-- FFmpeg binaries are not committed to Git. The setup step extracts the exact build's GPLv3 license and build/source information, and Tauri includes both in every installer.
-- Node.js, npm, and Rust are version-constrained. GitHub Actions are pinned to full commit SHAs; npm audit and RustSec run in CI, and Dependabot proposes dependency and Action updates.
-- A pushed `vX.Y.Z` tag must match every application version file. The release workflow reruns verification, builds on Windows, creates a GitHub Release with generated notes, and attaches MSI and NSIS installers. Hyphenated versions are marked as prereleases.
+- The FFmpeg build identifier, immutable dated GitHub Release URL, archive and executable hashes, GPL license hash, full source commits, required configuration flags, and required encoders are pinned in `scripts/ffmpeg-sidecars.json`. Existing files and fresh downloads are both verified.
+- Vidmetry does not link FFmpeg libraries or exchange internal data structures. The independent executables are invoked through ordinary command-line arguments, files, and progress text, and every installer carries the GPL text, exact build report, and release-specific corresponding-source URL.
+- FFmpeg binaries are not committed to Git. Tag builds assemble the exact FFmpeg source, the pinned public build definition and patches, and all dependency source archives selected by the resolved Windows GPL build graph.
+- Node.js, npm, and Rust are version-constrained. GitHub Actions are pinned to full commit SHAs; npm audit, JavaScript and Rust license allowlists, RustSec, and distribution-contract tests run in CI, and Dependabot proposes dependency and Action updates. Locked Rust and production JavaScript graphs generate package-level license reports for every installer. MPL-2.0 dependencies are additionally matched exactly to a source manifest, and their verified Source Form archives and license are bundled.
+- A pushed `vX.Y.Z` tag must match every application version file. The release workflow reruns verification and creates a draft Release. MSI and NSIS installers are published only after the complete corresponding-source archive and its SHA-256 are attached, all required assets are re-read from GitHub, and the repository is publicly accessible to recipients. Hyphenated versions are marked as prereleases.
 
 ## 12. Performance requirements
 
@@ -349,7 +350,7 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - Windows light/dark and several light/dark accent colors, including runtime changes
 - output cancellation and disk/permission errors
 
-## 14. Acceptance criteria for 0.4.6
+## 14. Acceptance criteria for 0.4.7
 
 - **AC-001** A user can open a video, drag every spatial-crop handle, scrub, play, and reset without leaving the main window.
 - **AC-002** Pixel readouts match the crop shown and remain in bounds after resize.
@@ -373,4 +374,4 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 
 ## 15. Verification status
 
-The 0.4.6 implementation satisfies AC-001 through AC-019 at automated or implementation-inspection level. Native picker interaction, live Windows personalization changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.
+The 0.4.7 implementation satisfies AC-001 through AC-019 at automated or implementation-inspection level. Native picker interaction, live Windows personalization changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.

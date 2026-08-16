@@ -1,14 +1,19 @@
-# Vidmetry 0.4.6 Verification Record
+# Vidmetry 0.4.7 Verification Record
 
 Verification date: 2026-08-16
 Platform: Windows x64  
-Media engine: FFmpeg/ffprobe 9.0.1 essentials build
+Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 
 ## Automated checks
 
 | Check | Result |
 |---|---|
 | `npm run check:contracts` | Pass — generated TypeScript/Rust error-code contracts match the shared source |
+| `npm run check:licenses` | Pass — production JavaScript dependencies are inside the reviewed license allowlist |
+| `cargo deny --manifest-path src-tauri\Cargo.toml check licenses` | Pass — the complete Rust graph is inside the reviewed license allowlist |
+| `scripts/setup-copyleft-sources.ps1` | Pass — 5 exact MPL-2.0 Source Form archives and license text match the locked graph and SHA-256 manifest |
+| `scripts/generate-third-party-licenses.ps1` | Pass — package-level Rust and production JavaScript license reports generated from locked dependencies |
+| `npm run test:licenses` | Pass — GPL corresponding-source, MPL source, third-party notice, installer resource, and fail-closed Release contracts |
 | `npm run check` | Pass — 0 errors, 0 warnings |
 | `npm run test:assets` | Pass — SVG, generated PNG/ICO pixels, legacy tint list, and NSIS shortcut-refresh configuration |
 | `npm run test:runtime` | Pass — pinned Node/npm/Rust, immutable FFmpeg manifest, sidecar hashes/notices, and full-SHA GitHub Actions references |
@@ -24,13 +29,13 @@ Media engine: FFmpeg/ffprobe 9.0.1 essentials build
 | `cargo audit --file src-tauri\Cargo.lock` | Pass — 0 vulnerabilities; 17 allowed informational warnings in Tauri's cross-target dependency graph |
 | `actionlint` | Pass — CI and release workflows |
 | `npm run tauri build` | Pass — MSI and NSIS bundles |
+| Installer license payload | Pass — both bundle definitions contain FFmpeg license/source notice, complete dependency reports, MPL text, and all 5 MPL source archives |
 | Component interaction | Pass — Windows mode/accent projection, launcher/logo, settings, save shortcuts/menu, focused playback-position Space control, trim-boundary frame steps, authoritative ffprobe timing, collapsible panes, F11 state, notification dismissal, structured command/event error localization, Explorer reveal, event-registration failure, rejected playback, durable-settings failure, multi-path drop validation, and playlist rollback |
 | Localization boundary | Pass — i18next resolves typed Japanese/English resources; backend errors serialize generated stable codes with optional details; Japanese product text outside the resource is rejected automatically |
 | Persistence and cache lifecycle | Pass — strict Zod rejection of incomplete, unknown, obsolete, or out-of-range settings; non-empty staged cache promotion; retained-entry-safe count/size/age pruning |
 | Playback-state regression | Pass — Playwright clicks the rendered playback-position handle, verifies focus on its full-width scrubber, presses Space, and checks `paused` changes from true to false, a play event is emitted, and the UI displays Pause |
 | Pointer alignment regression | Pass — after selecting frames `[60, 180)` of a 240-frame video, a physical timeline click and an off-center handle drag remain aligned within half-frame rendering tolerance |
 | Packaged executable smoke launch | Pass — remained running until test shutdown; extracted executable icon contains only achromatic pixels |
-| Installed application | Pass — clean NSIS installation to `%LOCALAPPDATA%\Vidmetry`, required FFmpeg license/build information present, and the installed executable remained running until smoke-test shutdown |
 
 The MSVC linker emits a localized informational message while producing the Rust `cdylib` import library. It is surfaced by Cargo as `linker_messages` but is not a compiler or Clippy diagnostic.
 
@@ -51,12 +56,12 @@ The source SHA-256 before and after all exports is identical. Temporary test med
 
 ## Local release artifacts
 
-These artifacts were generated from the verified 0.4.6 source tree. They are build outputs and are intentionally not committed.
+These artifacts were generated from the verified 0.4.7 source tree. They are build outputs and are intentionally not committed.
 
 | Artifact | Size | SHA-256 |
 |---|---:|---|
-| `Vidmetry_0.4.6_x64_en-US.msi` | 75.68 MiB | `BBF53E397295F19CFF17E4213D57C9C38F5012C7CBF4BC8F16B09661FB3D3A4B` |
-| `Vidmetry_0.4.6_x64-setup.exe` | 55.11 MiB | `414B3C34733716B3E7CDEC5741FA6A7D4F25823D7DC09BB3B313125B26D27D9E` |
+| `Vidmetry_0.4.7_x64_en-US.msi` | 110.95 MiB | `F9B5616511C3F76282C25DEE3CDB4D0EF97CACEAC13BE35BB5FA377D06E2B9CF` |
+| `Vidmetry_0.4.7_x64-setup.exe` | 81.42 MiB | `B2DD0DCC910A42C9F33B0C770D0E95A447C72CF8B1123355C5FC8F2369ED937B` |
 
 ## Remaining manual acceptance
 
