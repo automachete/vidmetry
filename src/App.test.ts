@@ -10,6 +10,12 @@ const eventState = vi.hoisted(() => ({
   handlers: new Map<string, (event: { payload: never }) => void>(),
 }));
 
+const windowState = vi.hoisted(() => ({
+  theme: vi.fn().mockResolvedValue('dark'),
+  onThemeChanged: vi.fn().mockResolvedValue(vi.fn()),
+  setFullscreen: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: (path: string) => `asset://${path}`,
   invoke: vi.fn(),
@@ -24,6 +30,10 @@ vi.mock('@tauri-apps/api/event', () => ({
 
 vi.mock('@tauri-apps/api/webview', () => ({
   getCurrentWebview: () => ({ onDragDropEvent: vi.fn().mockResolvedValue(vi.fn()) }),
+}));
+
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: () => windowState,
 }));
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({
@@ -78,6 +88,7 @@ function mockSelection(paths = videoPaths): void {
     if (command === 'probe_video') {
       return mediaDescriptor(String((args as { path: string }).path)) as never;
     }
+    if (command === 'system_accent_color') return '#FF8C00' as never;
     if (command === 'start_export') return 'job-1' as never;
     if (command === 'reveal_in_explorer') return undefined as never;
     throw new Error(`Unexpected command: ${command}`);
@@ -95,6 +106,9 @@ describe('application shell', () => {
     vi.mocked(invoke).mockReset();
     vi.mocked(dialogOpen).mockReset();
     vi.mocked(dialogSave).mockReset();
+    windowState.theme.mockReset().mockResolvedValue('dark');
+    windowState.onThemeChanged.mockReset().mockResolvedValue(vi.fn());
+    windowState.setFullscreen.mockReset().mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -201,6 +215,20 @@ describe('application shell', () => {
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalledOnce();
   });
 
+  it('keeps Space playback available while a trim handle has focus', async () => {
+    useEnglish();
+    vi.mocked(dialogOpen).mockResolvedValue(videoPaths[0]);
+    mockSelection();
+    render(App);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Open video' }));
+    const startHandle = await screen.findByRole('slider', { name: 'Adjust start frame' });
+    startHandle.focus();
+    await fireEvent.keyDown(startHandle, { key: ' ', code: 'Space' });
+
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledOnce();
+  });
+
   it('localizes backend validation messages in English mode', async () => {
     useEnglish();
     vi.mocked(dialogOpen).mockResolvedValue('C:\\blocked');
@@ -255,15 +283,75 @@ describe('application shell', () => {
 
     await fireEvent.keyDown(startHandle, { key: 'ArrowRight', code: 'ArrowRight' });
     expect(startHandle.getAttribute('aria-valuenow')).toBe('1');
+    await fireEvent.keyDown(startHandle, { key: 'ArrowRight', code: 'ArrowRight', shiftKey: true });
+    expect(startHandle.getAttribute('aria-valuenow')).toBe('11');
+    await fireEvent.keyDown(endHandle, { key: 'ArrowLeft', code: 'ArrowLeft', shiftKey: true });
+    expect(endHandle.getAttribute('aria-valuenow')).toBe('110');
     await fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Save a copy' }));
 
     expect(invoke).toHaveBeenCalledWith(
       'start_export',
       expect.objectContaining({
-        request: expect.objectContaining({ trim: { startFrame: 1, endFrame: 120 } }),
+        request: expect.objectContaining({ trim: { startFrame: 11, endFrame: 110 } }),
       }),
     );
+  });
+
+  it('uses Ctrl+S for a copy and Ctrl+Shift+S for in-place save', async () => {
+    useEnglish();
+    vi.mocked(dialogOpen).mockResolvedValue(videoPaths[0]);
+    vi.mocked(dialogSave).mockResolvedValue(null);
+    mockSelection();
+    render(App);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Open video' }));
+    await screen.findByText('a.mp4');
+    await fireEvent.keyDown(document.body, { key: 's', code: 'KeyS', ctrlKey: true });
+    expect(dialogSave).toHaveBeenCalledOnce();
+
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await fireEvent.keyDown(document.body, {
+      key: 'S',
+      code: 'KeyS',
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        'start_export',
+        expect.objectContaining({ request: expect.objectContaining({ inPlace: true }) }),
+      ),
+    );
+  });
+
+  it('closes both editor panes and toggles fullscreen preview with F11', async () => {
+    useEnglish();
+    vi.mocked(dialogOpen).mockResolvedValue(videoPaths[0]);
+    mockSelection();
+    const { container } = render(App);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Open video' }));
+    await screen.findByText('a.mp4');
+    await fireEvent.click(screen.getByRole('button', { name: 'Close crop details' }));
+    expect(screen.getByRole('button', { name: 'Open crop details' })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Close playback and trimming' }));
+    expect(screen.getByRole('button', { name: 'Open playback and trimming' })).toBeTruthy();
+
+    await fireEvent.keyDown(document.body, { key: 'F11', code: 'F11' });
+    await waitFor(() => expect(windowState.setFullscreen).toHaveBeenCalledWith(true));
+    expect(container.querySelector('.app-shell')?.classList.contains('video-fullscreen')).toBe(true);
+    await fireEvent.keyDown(document.body, { key: 'F11', code: 'F11' });
+    await waitFor(() => expect(windowState.setFullscreen).toHaveBeenLastCalledWith(false));
+  });
+
+  it('projects the Windows mode and accent to the document root', async () => {
+    useEnglish();
+    mockSelection();
+    render(App);
+
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe('dark'));
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#FF8C00');
   });
 
   it('dismisses the save notice when another control is used', async () => {

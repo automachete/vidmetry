@@ -28,6 +28,7 @@ async function installTauriMock(page: Page): Promise<void> {
     let nextCallback = 1;
     const invocations: Array<{ command: string; args: unknown }> = [];
     const sourceExtension = new URLSearchParams(location.search).get('source') === 'mov' ? 'mov' : 'mp4';
+    const requestedTheme = new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark';
     const sourcePath = `C:\\clips\\sample.${sourceExtension}`;
 
     const transformCallback = (callback?: (data: unknown) => unknown, once = false) => {
@@ -56,6 +57,12 @@ async function installTauriMock(page: Page): Promise<void> {
         );
         return null;
       }
+      if (command === 'plugin:window|theme') return requestedTheme;
+      if (command === 'plugin:window|set_fullscreen') {
+        (window as any).__vidmetryFullscreen = Boolean(args.value);
+        return null;
+      }
+      if (command === 'system_accent_color') return '#FF8C00';
       if (command === 'plugin:dialog|open') {
         return args.options?.directory ? 'C:\\clips' : sourcePath;
       }
@@ -125,6 +132,7 @@ async function installTauriMock(page: Page): Promise<void> {
         }
       },
       __vidmetryPlayCount: 0,
+      __vidmetryFullscreen: false,
     });
     HTMLMediaElement.prototype.play = async function () {
       (window as any).__vidmetryPlayCount += 1;
@@ -238,6 +246,13 @@ test('time trim handles use exact frame steps and export the selected range', as
   await expect(end).toHaveAttribute('aria-valuenow', '240');
   await start.press('ArrowRight');
   await expect(start).toHaveAttribute('aria-valuenow', '1');
+  await start.press('Shift+ArrowRight');
+  await expect(start).toHaveAttribute('aria-valuenow', '11');
+  await end.press('Shift+ArrowLeft');
+  await expect(end).toHaveAttribute('aria-valuenow', '230');
+
+  await start.press('Space');
+  await expect.poll(() => page.evaluate(() => (window as any).__vidmetryPlayCount)).toBe(1);
 
   await page.getByRole('button', { name: 'Save options' }).click();
   await page.getByRole('menuitem', { name: 'Save a copy' }).click();
@@ -247,7 +262,88 @@ test('time trim handles use exact frame steps and export the selected range', as
     );
     return invocation.args.request.trim;
   });
-  expect(trim).toEqual({ startFrame: 1, endFrame: 240 });
+  expect(trim).toEqual({ startFrame: 11, endFrame: 230 });
+});
+
+test('trim drag stays under the pointer after the range is narrowed', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open video' }).click();
+
+  const timeline = page.locator('.trim-timeline');
+  const start = page.getByRole('slider', { name: 'Adjust start frame' });
+  for (let index = 0; index < 8; index += 1) await start.press('Shift+ArrowRight');
+  await expect(start).toHaveAttribute('aria-valuenow', '80');
+
+  const handleBox = await start.boundingBox();
+  expect(handleBox).not.toBeNull();
+  const pointerX = handleBox!.x + handleBox!.width / 2 + 42;
+  const pointerY = handleBox!.y + handleBox!.height / 2;
+  await page.mouse.move(handleBox!.x + handleBox!.width / 2, pointerY);
+  await page.mouse.down();
+  await page.mouse.move(pointerX, pointerY, { steps: 12 });
+  await page.mouse.up();
+
+  const movedBox = await start.boundingBox();
+  const timelineBox = await timeline.boundingBox();
+  expect(movedBox).not.toBeNull();
+  expect(timelineBox).not.toBeNull();
+  expect(Math.abs(movedBox!.x + movedBox!.width / 2 - pointerX)).toBeLessThanOrEqual(2);
+});
+
+test('Windows light mode and accent color drive the whole editor and trim bar', async ({ page }) => {
+  await page.goto('/?theme=light');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expect
+    .poll(() => page.locator('html').evaluate((element) => getComputedStyle(element).getPropertyValue('--accent').trim()))
+    .toBe('#FF8C00');
+  await page.getByRole('button', { name: 'Open video' }).click();
+  const trimColor = await page.locator('.trim-selection').evaluate((element) => getComputedStyle(element).borderTopColor);
+  expect(trimColor).toBe('rgb(255, 140, 0)');
+  await expect(page.locator('.app-shell')).toHaveScreenshot('editor-light-theme.png', {
+    animations: 'disabled',
+  });
+});
+
+test('save shortcuts, collapsible panes, and F11 preview are wired', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open video' }).click();
+
+  await page.getByRole('button', { name: 'Close crop details' }).click();
+  await expect(page.getByRole('button', { name: 'Open crop details' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close playback and trimming' }).click();
+  await expect(page.getByRole('button', { name: 'Open playback and trimming' })).toBeVisible();
+
+  await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'F11', key: 'F11', bubbles: true })))
+  await expect(page.locator('.app-shell')).toHaveClass(/video-fullscreen/);
+  expect(await page.evaluate(() => (window as any).__vidmetryFullscreen)).toBe(true);
+  await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'F11', key: 'F11', bubbles: true })))
+  await expect(page.locator('.app-shell')).not.toHaveClass(/video-fullscreen/);
+
+  await page.keyboard.press('Control+s');
+  const copied = await page.evaluate(() =>
+    (window as any).__vidmetryInvocations.some(
+      (item: { command: string; args: { request?: { inPlace?: boolean } } }) =>
+        item.command === 'start_export' && item.args.request?.inPlace === false,
+    ),
+  );
+  expect(copied).toBe(true);
+});
+
+test('Ctrl+Shift+S confirms and starts in-place save', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open video' }).click();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.keyboard.press('Control+Shift+s');
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as any).__vidmetryInvocations.some(
+          (item: { command: string; args: { request?: { inPlace?: boolean } } }) =>
+            item.command === 'start_export' && item.args.request?.inPlace === true,
+        ),
+      ),
+    )
+    .toBe(true);
 });
 
 test('save notice closes automatically after three seconds', async ({ page }) => {

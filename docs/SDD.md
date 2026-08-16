@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| Document version | 1.3 |
-| Product version | 0.3.0 |
+| Document version | 1.4 |
+| Product version | 0.4.0 |
 | Status | Implemented and verified |
 | Primary platform | Windows 11 x64 |
 | UI languages | Japanese and English |
@@ -30,10 +30,11 @@ The application must not imply that physical video cropping can normally use str
 - Offer compatible MP4, mathematically lossless FFV1, and metadata-only lossless modes.
 - Configure export behavior once and start saving directly from the crop view.
 - Remember language and loop-playback preferences between videos and sessions.
+- Follow the Windows app mode and accent color without requiring a Vidmetry theme setting.
 - Keep all media processing local.
 - Remain responsive while probing, proxying, and exporting.
 
-### 2.2 Non-goals for 0.3.0
+### 2.2 Non-goals for 0.4.0
 
 - Multi-clip timelines, internal cuts, transitions, filters, captions, or independent audio editing.
 - Animated crop/keyframes.
@@ -67,9 +68,13 @@ The application must not imply that physical video cropping can normally use str
 - **FR-020** The UI provides play/pause, current time, duration, mute, a frame strip, a playhead scrubber, and start/end trim handles.
 - **FR-021** Start is inclusive and end is exclusive. The selected range always contains at least one integer source frame.
 - **FR-022** The crop overlay remains spatially stable during playback, seek, resize, and fullscreen layout changes.
-- **FR-023** Slow pointer movement uses sub-frame-per-pixel sensitivity while fast movement spans the timeline at its natural scale; values always snap to complete frames. Focused trim handles move by one frame with an arrow key or ten with Shift.
+- **FR-023** Trim dragging maps the pointer's absolute timeline position to the handle, with one-frame snapping at low speed and timeline-scale snapping at high speed. This prevents accumulated pointer/handle drift. Focused trim handles move by one frame with an arrow key or ten with Shift.
 - **FR-024** An icon-only control toggles loop playback. The selected state is persisted and reused for subsequent videos and sessions.
-- **FR-025** Playback and loop boundaries follow the selected time range. Space toggles playback and unfocused left/right keys seek by one frame or ten with Shift.
+- **FR-025** Playback and loop boundaries follow the selected time range. Space toggles playback even while a trim handle has focus; otherwise left/right keys seek by one frame or ten with Shift.
+- **FR-026** The UI follows the current Windows light/dark app mode and selected accent color. Theme change notifications apply the mode immediately, and the accent is refreshed at startup, on theme change, and when the app regains focus.
+- **FR-027** The trim selection border and handles use the Windows accent color with a computed readable foreground.
+- **FR-028** The spatial crop inspector and time-trim footer can each be collapsed and restored with accessible icon-only controls.
+- **FR-029** F11 enters or exits a video-only window fullscreen preview. Escape exits fullscreen.
 
 ### 3.4 Export
 
@@ -89,6 +94,7 @@ The application must not imply that physical video cropping can normally use str
 - **FR-043** Compatible and lossless exports apply the selected ordinal frame range in FFmpeg. Packet-copied audio is encoded when necessary to align it with an exact time trim.
 - **FR-044** Metadata-only stream copy cannot promise arbitrary frame boundaries and is disabled while a time trim is active.
 - **FR-045** A successful-save notice closes after three seconds or when another UI control is used.
+- **FR-046** Ctrl+S invokes Copy and save. Ctrl+Shift+S invokes confirmed in-place Save only when the current profile supports the source extension.
 
 ### 3.5 Common settings and localization
 
@@ -125,6 +131,7 @@ Tauri 2 desktop shell
        ├─ Preview proxy lifecycle
        ├─ Export profile/argument builder
        ├─ FFmpeg/ffprobe sidecar process manager
+       ├─ Windows appearance/accent adapter
        └─ File Explorer reveal adapter
 ```
 
@@ -153,6 +160,7 @@ vidmetry/
       i18n.ts
       media.ts
       settings.ts
+      appearance.ts
     App.svelte
   src-tauri/
     binaries/
@@ -160,6 +168,7 @@ vidmetry/
       export.rs
       ffmpeg.rs
       media.rs
+      appearance.rs
       selection.rs
       lib.rs
   scripts/
@@ -223,6 +232,7 @@ Crop rectangles use the displayed orientation. The backend owns the conversion t
 | `start_export(request)` | UI → Rust | Validate request, start job, return job ID |
 | `cancel_export(jobId)` | UI → Rust | Terminate matching child process |
 | `reveal_in_explorer(path)` | UI → Rust | Open File Explorer with a completed output selected |
+| `system_accent_color()` | UI → Rust | Return the current Windows DWM accent as a CSS RGB color |
 | `export-progress` | Rust → UI | `{jobId, fraction, outTimeSeconds}` |
 | `export-complete` | Rust → UI | Final output path |
 | `export-error` | Rust → UI | User-safe message and diagnostic code |
@@ -234,10 +244,10 @@ Only the Rust layer constructs FFmpeg argument arrays. Paths and crop values are
 The main window uses three regions:
 
 1. A narrow header with the Vidmetry icon/wordmark, source details in the editor, icon-only Open/Folder/Settings actions, and one context-sensitive save control.
-2. A flexible dark video stage containing optional directory navigation, the video, and crop overlay.
-3. A frame-strip footer with velocity-sensitive time handles, playback/scrub, persistent loop, and mute, plus a spatial inspector with coordinates, dimensions, aspect ratio, and Reset.
+2. A flexible, neutrally colored video stage containing optional directory navigation, the video, and crop overlay.
+3. A collapsible frame-strip footer with velocity-sensitive time handles, playback/scrub, persistent loop, and mute, plus a collapsible spatial inspector with coordinates, dimensions, aspect ratio, and Reset.
 
-The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
+The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. Windows mode/accent changes are projected through CSS variables; fixed app-icon artwork is achromatic. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
 
 ## 9. Preview strategy
 
@@ -287,9 +297,9 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 
 ### 13.2 Component and UI regression tests
 
-- Testing Library covers launcher content, settings, save actions, Space playback, localization, trim-frame keyboard steps, notice dismissal, and completed-output links.
-- Playwright exercises the same critical flows in Chromium, including trim export ranges, three-second notification expiry, icon centering, and screenshot layout.
-- Screenshot baselines cover launcher, settings, save-menu, and successful-save states.
+- Testing Library covers launcher content, settings, save shortcuts, Space playback from trim focus, localization, trim-frame key steps, pane collapse, F11 state, Windows appearance projection, notice dismissal, and completed-output links.
+- Playwright exercises the same critical flows in Chromium, including absolute trim-handle alignment, trim export ranges, theme/accent projection, collapsible panes, F11, notification expiry, and screenshot layout.
+- Screenshot baselines cover launcher, settings, save-menu, successful-save, and Windows light-theme states.
 
 ### 13.3 Rust unit tests
 
@@ -303,6 +313,7 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 - Detailed encoder/audio/frame-rate argument generation and invalid-setting rejection.
 - Exact `start_frame`/`end_frame` FFmpeg filters, audio alignment, and metadata-only rejection.
 - Windows extended-path normalization and Explorer selection arguments.
+- DWM ARGB-to-CSS accent conversion.
 
 ### 13.4 Integration tests
 
@@ -320,9 +331,10 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - mixed-format directory navigation and drag/drop
 - Japanese/English switching and settings restart persistence
 - loop persistence across video changes
+- Windows light/dark and several light/dark accent colors, including runtime changes
 - output cancellation and disk/permission errors
 
-## 14. Acceptance criteria for 0.3.0
+## 14. Acceptance criteria for 0.4.0
 
 - **AC-001** A user can open a video, drag every crop handle, scrub, play, and reset without leaving the main window.
 - **AC-002** Pixel readouts match the crop shown and remain in bounds after resize.
@@ -338,7 +350,11 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - **AC-012** Save controls, folder arrows, and success notification pass component and Chromium layout/visual regression tests; the notification reveals rather than launches the output.
 - **AC-013** Start/end handles provide velocity-sensitive mouse adjustment and keyboard frame steps, and the exported video contains the selected ordinal frames.
 - **AC-014** The save notice expires after three seconds or another interaction; its link opens Explorer with the saved file selected.
+- **AC-015** Windows light/dark app mode and accent color drive all app surfaces and the trim bar; fixed icon assets contain no brand accent color.
+- **AC-016** Ctrl+S starts Copy and save, while Ctrl+Shift+S starts confirmed in-place Save when eligible.
+- **AC-017** Start/end handles move by 1 or 10 frames from keyboard focus, Space still toggles playback, and a narrowed-range pointer drag keeps its handle aligned with the pointer.
+- **AC-018** The crop inspector and time-trim footer collapse independently, and F11/Escape toggle a video-only window fullscreen preview.
 
 ## 15. Verification status
 
-The 0.3.0 implementation satisfies AC-001 through AC-014 at automated or implementation-inspection level. Native picker interaction in the packaged WebView and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.
+The 0.4.0 implementation satisfies AC-001 through AC-018 at automated or implementation-inspection level. Native picker interaction, live Windows personalization changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.

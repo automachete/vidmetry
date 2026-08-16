@@ -3,8 +3,11 @@
   import { convertFileSrc, invoke } from '@tauri-apps/api/core';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
+  import { getCurrentWindow } from '@tauri-apps/api/window';
   import { open, save } from '@tauri-apps/plugin-dialog';
   import appIconUrl from '../assets/app-icon.svg';
+
+  import { applySystemAppearance, fallbackTheme, normalizeAccent, type AppTheme } from './lib/appearance';
 
   import {
     aspectRatio,
@@ -47,10 +50,10 @@
     type LanguageMode,
   } from './lib/settings';
   import {
-    adaptiveFramesPerPixel,
     frameToSeconds,
     fullTrimRange,
     isFullTrim,
+    pointerFrameFromTimeline,
     sanitizeTrimRange,
     secondsToFrame,
     totalVideoFrames,
@@ -110,7 +113,8 @@
 
   interface TimeTrimDragState {
     handle: TrimHandle;
-    framePosition: number;
+    timelineLeft: number;
+    grabOffsetX: number;
     lastPointerX: number;
     lastTimestamp: number;
     renderedWidth: number;
@@ -142,6 +146,7 @@
   let timeTrimDragState: TimeTrimDragState | null = null;
   let seekFrame: number | null = null;
   let unlistenDragDrop: UnlistenFn | undefined;
+  let unlistenTheme: UnlistenFn | undefined;
   let unlistenExportEvents: UnlistenFn[] = [];
   let playlist: string[] = [];
   let playlistIndex = 0;
@@ -153,6 +158,11 @@
   let isStartingExport = false;
   let inPlaceExportPath: string | null = null;
   let showSettings = false;
+  let showInspector = true;
+  let showTransport = true;
+  let isVideoFullscreen = false;
+  let systemTheme: AppTheme = 'dark';
+  let systemAccent = '#0078D4';
   let trim: TrimRange = fullTrimRange(1);
   let timelineStripSrc = '';
   let settings: AppSettings = cloneSettings(defaultSettings);
@@ -199,6 +209,7 @@
     systemLanguage = navigator.language || 'en-US';
     settings = loadSettings();
     settingsDraft = cloneSettings(settings);
+    void initializeSystemAppearance();
 
     void getCurrentWebview()
       .onDragDropEvent((event) => {
@@ -245,19 +256,56 @@
     window.addEventListener('keydown', handleKeyboard);
     window.addEventListener('pointerdown', handleGlobalPointerDown);
     window.addEventListener('wheel', handleGlobalWheel, { passive: true });
+    window.addEventListener('focus', refreshSystemAccent);
   });
 
   onDestroy(() => {
     unlistenDragDrop?.();
+    unlistenTheme?.();
     for (const unlisten of unlistenExportEvents) unlisten();
     window.removeEventListener('keydown', handleKeyboard);
     window.removeEventListener('pointerdown', handleGlobalPointerDown);
     window.removeEventListener('wheel', handleGlobalWheel);
+    window.removeEventListener('focus', refreshSystemAccent);
     endCropDrag();
     endTimeTrimDrag();
     if (seekFrame !== null) cancelAnimationFrame(seekFrame);
     if (successTimer !== null) clearTimeout(successTimer);
   });
+
+  async function initializeSystemAppearance() {
+    const appWindow = getCurrentWindow();
+    try {
+      const current = await appWindow.theme();
+      systemTheme = current ?? fallbackTheme(prefersDarkMode());
+    } catch {
+      systemTheme = fallbackTheme(prefersDarkMode());
+    }
+    applySystemAppearance(systemTheme, systemAccent);
+    await refreshSystemAccent();
+    try {
+      unlistenTheme = await appWindow.onThemeChanged((event) => {
+        systemTheme = event.payload;
+        applySystemAppearance(systemTheme, systemAccent);
+        void refreshSystemAccent();
+      });
+    } catch {
+      // Browser-only development keeps the media-query fallback.
+    }
+  }
+
+  function prefersDarkMode(): boolean {
+    return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+
+  async function refreshSystemAccent() {
+    try {
+      systemAccent = normalizeAccent(await invoke<string>('system_accent_color'));
+      applySystemAppearance(systemTheme, systemAccent);
+    } catch {
+      applySystemAppearance(systemTheme, systemAccent);
+    }
+  }
 
   function observeStage(node: HTMLElement) {
     const observer = new ResizeObserver(([entry]) => {
@@ -496,23 +544,42 @@
     if (successPath) dismissSuccess();
     const target = event.target instanceof Element ? event.target : null;
     if (event.code === 'Escape') {
+      if (isVideoFullscreen) {
+        event.preventDefault();
+        void setVideoFullscreen(false);
+        return;
+      }
       showSaveMenu = false;
       if (!exportJobId) showSettings = false;
       return;
     }
+    if (event.code === 'F11' && media && !showSettings) {
+      event.preventDefault();
+      void setVideoFullscreen(!isVideoFullscreen);
+      return;
+    }
     if (showSettings || !media) return;
+    if ((event.ctrlKey || event.metaKey) && event.code === 'KeyS') {
+      event.preventDefault();
+      if (event.shiftKey) {
+        if (canOverwrite) void saveInPlace();
+      } else {
+        void saveCopy();
+      }
+      return;
+    }
     if (event.code === 'PageUp' || event.code === 'PageDown') {
       if (target?.matches('input, select, textarea')) return;
       event.preventDefault();
       void navigatePlaylist(event.code === 'PageDown' ? 1 : -1);
       return;
     }
-    if (target?.matches('input, select, textarea, button')) return;
-    if (event.code === 'Space') {
+    if (event.code === 'Space' && (!target?.matches('input, select, textarea, button') || target.closest('.trim-handle'))) {
       event.preventDefault();
       void togglePlayback();
       return;
     }
+    if (target?.matches('input, select, textarea, button')) return;
     if (event.code === 'ArrowLeft' || event.code === 'ArrowRight') {
       event.preventDefault();
       const direction = event.code === 'ArrowRight' ? 1 : -1;
@@ -521,6 +588,16 @@
       seekToFrame(
         Math.min(safeTrim.endFrame, Math.max(safeTrim.startFrame, currentFrame + direction * amount)),
       );
+    }
+  }
+
+  async function setVideoFullscreen(fullscreen: boolean) {
+    try {
+      await getCurrentWindow().setFullscreen(fullscreen);
+      isVideoFullscreen = fullscreen;
+      showSaveMenu = false;
+    } catch (error) {
+      errorMessage = readableError(error);
     }
   }
 
@@ -576,12 +653,15 @@
     event.stopPropagation();
     videoElement?.pause();
     const framePosition = handle === 'start' ? safeTrim.startFrame : safeTrim.endFrame;
+    const timelineRect = timeline.getBoundingClientRect();
+    const handleCenterX = timelineRect.left + (framePosition / totalFrames) * timelineRect.width;
     timeTrimDragState = {
       handle,
-      framePosition,
+      timelineLeft: timelineRect.left,
+      grabOffsetX: event.clientX - handleCenterX,
       lastPointerX: event.clientX,
       lastTimestamp: event.timeStamp,
-      renderedWidth: timeline.getBoundingClientRect().width,
+      renderedWidth: timelineRect.width,
     };
     seekToFrame(handle === 'start' ? safeTrim.startFrame : Math.max(0, safeTrim.endFrame - 1));
     window.addEventListener('pointermove', continueTimeTrimDrag);
@@ -592,24 +672,26 @@
     if (!timeTrimDragState) return;
     const coalesced = event.getCoalescedEvents?.() ?? [];
     const samples = coalesced.length > 0 ? coalesced : [event];
+    let requestedFrame = timeTrimDragState.handle === 'start' ? safeTrim.startFrame : safeTrim.endFrame;
     for (const sample of samples) {
       const elapsed = Math.max(1, sample.timeStamp - timeTrimDragState.lastTimestamp);
       const deltaX = sample.clientX - timeTrimDragState.lastPointerX;
       const velocity = Math.abs(deltaX) / elapsed;
-      timeTrimDragState.framePosition +=
-        deltaX *
-        adaptiveFramesPerPixel(
-          totalFrames,
-          timeTrimDragState.renderedWidth,
-          velocity,
-        );
+      requestedFrame = pointerFrameFromTimeline(
+        sample.clientX,
+        timeTrimDragState.timelineLeft,
+        timeTrimDragState.renderedWidth,
+        totalFrames,
+        timeTrimDragState.grabOffsetX,
+        velocity,
+      );
       timeTrimDragState.lastPointerX = sample.clientX;
       timeTrimDragState.lastTimestamp = sample.timeStamp;
     }
     trim = updateTrimHandle(
       safeTrim,
       timeTrimDragState.handle,
-      timeTrimDragState.framePosition,
+      requestedFrame,
       totalFrames,
     );
     const previewFrame =
@@ -626,6 +708,7 @@
   function handleTrimKey(event: KeyboardEvent, handle: TrimHandle) {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
+    event.stopPropagation();
     const current = handle === 'start' ? safeTrim.startFrame : safeTrim.endFrame;
     const amount = event.shiftKey ? 10 : 1;
     let requested = current;
@@ -830,7 +913,12 @@
   <title>{media ? `${media.fileName} — Vidmetry` : 'Vidmetry'}</title>
 </svelte:head>
 
-<div class="app-shell" class:has-media={media !== null}>
+<div
+  class="app-shell"
+  class:has-media={media !== null}
+  class:transport-collapsed={media !== null && !showTransport}
+  class:video-fullscreen={isVideoFullscreen}
+>
   <header class="app-header" class:launcher-header={media === null}>
     <div class="brand" aria-label="Vidmetry">
       <img class="brand-icon" src={appIconUrl} alt="" aria-hidden="true" />
@@ -861,7 +949,7 @@
               type="button"
               aria-haspopup="menu"
               aria-expanded={showSaveMenu}
-              title={!profileSupported ? (timeTrimmed ? text('timeTrimMetadataUnavailable') : text('metadataUnavailable')) : text('saveOptions')}
+              title={!profileSupported ? (timeTrimmed ? text('timeTrimMetadataUnavailable') : text('metadataUnavailable')) : `${text('saveOptions')} (Ctrl+S / Ctrl+Shift+S)`}
               disabled={!profileSupported || exportJobId !== null || isStartingExport}
               onclick={() => (showSaveMenu = !showSaveMenu)}
             >
@@ -876,7 +964,7 @@
             {/if}
           </div>
         {:else}
-          <button class="button primary" type="button" disabled={!profileSupported || exportJobId !== null || isStartingExport} onclick={saveCopy} title={!profileSupported ? (timeTrimmed ? text('timeTrimMetadataUnavailable') : text('metadataUnavailable')) : text('copySave')}>
+          <button class="button primary" type="button" disabled={!profileSupported || exportJobId !== null || isStartingExport} onclick={saveCopy} title={!profileSupported ? (timeTrimmed ? text('timeTrimMetadataUnavailable') : text('metadataUnavailable')) : `${text('copySave')} (Ctrl+S)`}>
             {text('copySave')}
           </button>
         {/if}
@@ -889,7 +977,7 @@
   </header>
 
   {#if media}
-    <main class="editor-grid">
+    <main class="editor-grid" class:inspector-collapsed={!showInspector}>
       <section class="stage-panel" aria-label={text('videoPreview')}>
         {#if playlist.length > 1}
           <div class="playlist-bar" title={directoryPath ?? ''}>
@@ -907,7 +995,7 @@
           </div>
         {/if}
 
-        <div class="video-stage" use:observeStage>
+        <div class="video-stage" use:observeStage title={isVideoFullscreen ? `${text('exitFullscreen')} (F11)` : `${text('enterFullscreen')} (F11)`}>
           <div class="video-frame" style={frameStyle}>
             <video
               bind:this={videoElement}
@@ -944,10 +1032,16 @@
         {#if usingProxy}<p class="proxy-note">{text('proxyPreview')}</p>{/if}
       </section>
 
+      {#if showInspector}
       <aside class="inspector" aria-label={text('cropArea')}>
         <div class="inspector-heading">
           <div><span class="section-label">{text('frame')}</span><h2>{text('cropArea')}</h2></div>
-          <button class="text-button" type="button" onclick={resetCrop}>{text('reset')}</button>
+          <div class="inspector-actions">
+            <button class="text-button" type="button" onclick={resetCrop}>{text('reset')}</button>
+            <button class="pane-button" type="button" aria-label={text('closeCropPane')} title={text('closeCropPane')} onclick={() => (showInspector = false)}>
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
+            </button>
+          </div>
         </div>
 
         <label class="field full-width">
@@ -978,8 +1072,16 @@
           </dl>
         </div>
       </aside>
+      {:else}
+        <div class="pane-restore inspector-restore">
+          <button class="pane-button" type="button" aria-label={text('openCropPane')} title={text('openCropPane')} onclick={() => (showInspector = true)}>
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m10 3-5 5 5 5" /></svg>
+          </button>
+        </div>
+      {/if}
     </main>
 
+    {#if showTransport}
     <footer class="transport">
       <div class="transport-playback">
         <button class="icon-button" type="button" aria-label={isPlaying ? text('pause') : text('play')} title={`${isPlaying ? text('pause') : text('play')} (Space)`} onclick={togglePlayback}>{isPlaying ? 'Ⅱ' : '▶'}</button>
@@ -1044,8 +1146,18 @@
         <span class="time total">{formatTime(duration)}</span>
         <button class="icon-button transport-option" class:active={settings.loopPlayback} type="button" aria-label={settings.loopPlayback ? text('disableLoop') : text('enableLoop')} title={settings.loopPlayback ? text('disableLoop') : text('enableLoop')} onclick={toggleLoop}>↻</button>
         <button class="icon-button transport-option" type="button" aria-label={isMuted ? text('unmute') : text('mute')} title={isMuted ? text('unmute') : text('mute')} onclick={toggleMute}>{isMuted ? '×' : '♪'}</button>
+        <button class="pane-button transport-close" type="button" aria-label={text('closeTrimPane')} title={text('closeTrimPane')} onclick={() => (showTransport = false)}>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 6 5 5 5-5" /></svg>
+        </button>
       </div>
     </footer>
+    {:else}
+      <div class="pane-restore transport-restore">
+        <button class="pane-button" type="button" aria-label={text('openTrimPane')} title={text('openTrimPane')} onclick={() => (showTransport = true)}>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 10 5-5 5 5" /></svg>
+        </button>
+      </div>
+    {/if}
   {:else}
     <main class="empty-state" use:observeStage>
       <div class="empty-visual" aria-hidden="true">

@@ -96,18 +96,37 @@ export function isFullTrim(range: TrimRange, totalFrames: number): boolean {
  * a sub-frame-per-pixel precision on long clips; quick movement spans the full
  * timeline at its natural frames-per-pixel rate.
  */
-export function adaptiveFramesPerPixel(
+export function adaptiveFrameQuantum(
   totalFrames: number,
   renderedWidth: number,
   velocityPixelsPerMillisecond: number,
 ): number {
   const natural = Math.max(1, totalFrames) / Math.max(1, renderedWidth);
-  const precise = Math.min(natural, 0.5);
   const velocity = Number.isFinite(velocityPixelsPerMillisecond)
     ? Math.max(0, velocityPixelsPerMillisecond)
     : 0;
-  if (velocity <= 0.12) return precise;
-  if (velocity >= 1.2) return natural;
+  if (velocity <= 0.12) return 1;
+  if (velocity >= 1.2) return Math.max(1, Math.round(natural));
   const amount = (velocity - 0.12) / (1.2 - 0.12);
-  return precise + (natural - precise) * amount;
+  return Math.max(1, Math.round(1 + (natural - 1) * amount));
+}
+
+/**
+ * Maps the pointer's absolute timeline position to a frame. Slow motion snaps to
+ * a single frame; quick motion coarsens the snap without allowing accumulated
+ * relative-drag error to separate the handle from the pointer.
+ */
+export function pointerFrameFromTimeline(
+  clientX: number,
+  timelineLeft: number,
+  renderedWidth: number,
+  totalFrames: number,
+  grabOffsetX: number,
+  velocityPixelsPerMillisecond: number,
+): number {
+  const width = Math.max(1, renderedWidth);
+  const total = Math.max(1, Math.floor(totalFrames));
+  const rawFrame = ((clientX - grabOffsetX - timelineLeft) / width) * total;
+  const quantum = adaptiveFrameQuantum(total, width, velocityPixelsPerMillisecond);
+  return Math.min(total, Math.max(0, Math.round(rawFrame / quantum) * quantum));
 }

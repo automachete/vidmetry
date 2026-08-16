@@ -2,16 +2,25 @@
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
-  color: #f4f6f8;
-  background: #0c0e12;
+  color: var(--text);
+  background: var(--app-bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --panel: #15181e;
   --panel-soft: #1b1f27;
   --line: rgb(255 255 255 / 9%);
   --muted: #939ba8;
-  --accent: #8de0c7;
-  --accent-strong: #b1f1dd;
+  --text: #f4f6f8;
+  --text-soft: #c4cad2;
+  --app-bg: #0c0e12;
+  --header-bg: rgb(14 16 21 / 92%);
+  --input-bg: #20242b;
+  --input-hover: #2a3038;
+  --accent: #0078d4;
+  --accent-contrast: #fff;
+  --accent-strong: color-mix(in srgb, var(--accent) 82%, white);
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent) 38%, transparent);
 }
 
 * {
@@ -30,7 +39,8 @@ body,
 body {
   min-height: 100vh;
   overflow: hidden;
-  background: #0c0e12;
+  color: var(--text);
+  background: var(--app-bg);
 }
 
 button,
@@ -55,12 +65,16 @@ select:focus-visible {
   min-height: 100vh;
   grid-template-rows: 68px 1fr;
   background:
-    radial-gradient(circle at 12% 8%, rgb(72 121 108 / 10%), transparent 28rem),
-    #0c0e12;
+    radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 28rem),
+    var(--app-bg);
 }
 
 .app-shell.has-media {
   grid-template-rows: 68px minmax(0, 1fr) 126px;
+}
+
+.app-shell.has-media.transport-collapsed {
+  grid-template-rows: 68px minmax(0, 1fr) 36px;
 }
 
 .app-header {
@@ -71,7 +85,7 @@ select:focus-visible {
   gap: 24px;
   padding: 0 22px;
   border-bottom: 1px solid var(--line);
-  background: rgb(14 16 21 / 92%);
+  background: var(--header-bg);
   backdrop-filter: blur(18px);
 }
 
@@ -92,7 +106,7 @@ select:focus-visible {
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  box-shadow: 0 0 0 1px rgb(141 224 199 / 24%);
+  box-shadow: 0 0 0 1px var(--line);
 }
 
 .source-summary {
@@ -144,8 +158,8 @@ select:focus-visible {
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 9px;
-  color: #c4cad2;
-  background: #20242b;
+  color: var(--text-soft);
+  background: var(--input-bg);
   cursor: pointer;
   font-size: 15px;
 }
@@ -163,7 +177,7 @@ select:focus-visible {
 .square-button:not(:disabled):hover,
 .square-button.settings-button:not(:disabled):hover {
   color: #fff;
-  background: #2a3038;
+  background: var(--input-hover);
 }
 
 .square-button:disabled {
@@ -229,7 +243,7 @@ select:focus-visible {
 }
 
 .save-menu button:not(:disabled):hover {
-  background: rgb(141 224 199 / 9%);
+  background: var(--accent-soft);
 }
 
 .save-menu button:disabled {
@@ -264,7 +278,7 @@ select:focus-visible {
 }
 
 .button.primary {
-  color: #0e1714;
+  color: var(--accent-contrast);
   background: var(--accent);
 }
 
@@ -286,6 +300,10 @@ select:focus-visible {
   display: grid;
   min-height: 0;
   grid-template-columns: minmax(0, 1fr) 282px;
+}
+
+.editor-grid.inspector-collapsed {
+  grid-template-columns: minmax(0, 1fr) 38px;
 }
 
 .stage-panel {
@@ -338,7 +356,7 @@ select:focus-visible {
 }
 
 .playlist-bar > button:not(:disabled):hover {
-  color: #101713;
+  color: var(--accent-contrast);
   background: var(--accent);
 }
 
@@ -584,6 +602,50 @@ select:focus-visible {
   margin-bottom: 23px;
 }
 
+.inspector-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.pane-button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.pane-button:hover {
+  color: var(--text);
+  background: var(--input-hover);
+}
+
+.pane-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.pane-restore {
+  display: grid;
+  place-items: center;
+  border-color: var(--line);
+  background: var(--panel);
+}
+
+.inspector-restore {
+  border-left: 1px solid var(--line);
+}
+
 .section-label {
   color: var(--accent);
   font-size: 9px;
@@ -672,9 +734,9 @@ select:focus-visible {
   justify-content: space-between;
   margin-top: 16px;
   padding: 13px 14px;
-  border: 1px solid rgb(141 224 199 / 17%);
+  border: 1px solid var(--accent-border);
   border-radius: 9px;
-  background: rgb(141 224 199 / 5%);
+  background: var(--accent-soft);
 }
 
 .output-size span {
@@ -752,7 +814,7 @@ select:focus-visible {
   height: 34px;
   place-items: center;
   border-radius: 50%;
-  color: #111713;
+  color: var(--accent-contrast);
   background: var(--accent);
   cursor: pointer;
   font-size: 12px;
@@ -767,7 +829,15 @@ select:focus-visible {
 .icon-button.transport-option:hover,
 .icon-button.transport-option.active {
   color: var(--accent);
-  background: rgb(141 224 199 / 10%);
+  background: var(--accent-soft);
+}
+
+.transport-close {
+  margin-left: 2px;
+}
+
+.transport-restore {
+  border-top: 1px solid var(--line);
 }
 
 .time {
@@ -875,8 +945,8 @@ select:focus-visible {
   z-index: 2;
   top: 0;
   bottom: 0;
-  border-top: 3px solid #f4d34f;
-  border-bottom: 3px solid #f4d34f;
+  border-top: 3px solid var(--accent);
+  border-bottom: 3px solid var(--accent);
   pointer-events: none;
 }
 
@@ -914,8 +984,8 @@ select:focus-visible {
   padding: 0;
   place-items: center;
   border-radius: 6px;
-  color: #4b421a;
-  background: #f4d34f;
+  color: var(--accent-contrast);
+  background: var(--accent);
   box-shadow: 0 2px 10px rgb(0 0 0 / 42%);
   cursor: ew-resize;
   transform: translateX(-50%);
@@ -925,7 +995,7 @@ select:focus-visible {
 .trim-handle:hover,
 .trim-handle.active,
 .trim-handle:focus-visible {
-  background: #ffe477;
+  background: var(--accent-strong);
 }
 
 .trim-handle span {
@@ -969,7 +1039,7 @@ select:focus-visible {
   position: absolute;
   width: 32px;
   height: 32px;
-  border-color: rgb(141 224 199 / 72%);
+  border-color: color-mix(in srgb, var(--accent) 72%, transparent);
 }
 
 .corner.top-left {
@@ -1274,8 +1344,8 @@ select:focus-visible {
 
 .profile-settings button:hover,
 .profile-settings button.active {
-  border-color: rgb(141 224 199 / 55%);
-  background: rgb(141 224 199 / 7%);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--accent-soft);
 }
 
 .profile-settings strong {
@@ -1315,9 +1385,9 @@ select:focus-visible {
   align-items: center;
   gap: 10px 14px;
   padding: 13px 14px;
-  border: 1px solid rgb(141 224 199 / 28%);
+  border: 1px solid var(--accent-border);
   border-radius: 11px;
-  background: rgb(23 29 28 / 97%);
+  background: color-mix(in srgb, var(--accent) 8%, #171a20);
   box-shadow: 0 16px 50px rgb(0 0 0 / 40%);
 }
 
@@ -1372,10 +1442,10 @@ select:focus-visible {
   align-items: center;
   gap: 8px;
   padding: 13px 14px;
-  border: 1px solid rgb(141 224 199 / 34%);
+  border: 1px solid var(--accent-border);
   border-radius: 10px;
   color: #ddfff4;
-  background: rgb(24 62 51 / 96%);
+  background: color-mix(in srgb, var(--accent) 18%, #15181e);
   box-shadow: 0 16px 50px rgb(0 0 0 / 35%);
   font-size: 11px;
   line-height: 1.5;
@@ -1411,6 +1481,199 @@ select:focus-visible {
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --panel: #f7f7f7;
+  --panel-soft: #eeeeee;
+  --line: rgb(0 0 0 / 12%);
+  --muted: #666c75;
+  --text: #18191b;
+  --text-soft: #43474e;
+  --app-bg: #f3f3f3;
+  --header-bg: rgb(249 249 249 / 94%);
+  --input-bg: #ffffff;
+  --input-hover: #e7e7e7;
+  --accent-strong: color-mix(in srgb, var(--accent) 84%, black);
+}
+
+:root[data-theme="light"] .source-summary small,
+:root[data-theme="light"] .playlist-count,
+:root[data-theme="light"] .number-input em,
+:root[data-theme="light"] .media-details dt,
+:root[data-theme="light"] .time,
+:root[data-theme="light"] .trim-readout,
+:root[data-theme="light"] .settings-field small,
+:root[data-theme="light"] .unit-input em,
+:root[data-theme="light"] .metadata-warning,
+:root[data-theme="light"] .settings-note,
+:root[data-theme="light"] .inline-export span {
+  color: #656a72;
+}
+
+:root[data-theme="light"] .square-button,
+:root[data-theme="light"] .button.secondary,
+:root[data-theme="light"] .field select,
+:root[data-theme="light"] .number-input,
+:root[data-theme="light"] .settings-field select,
+:root[data-theme="light"] .settings-field > input,
+:root[data-theme="light"] .unit-input {
+  color: #222427;
+  background: var(--input-bg);
+}
+
+:root[data-theme="light"] .square-button:not(:disabled):hover,
+:root[data-theme="light"] .button.secondary:not(:disabled):hover,
+:root[data-theme="light"] .dialog-close:not(:disabled):hover {
+  color: #101113;
+  background: var(--input-hover);
+}
+
+:root[data-theme="light"] .save-menu {
+  border-color: var(--line);
+  background: #fff;
+  box-shadow: 0 18px 52px rgb(0 0 0 / 18%);
+}
+
+:root[data-theme="light"] .save-menu button,
+:root[data-theme="light"] .settings-section h3,
+:root[data-theme="light"] .profile-settings button,
+:root[data-theme="light"] .media-details dd,
+:root[data-theme="light"] .trim-readout strong,
+:root[data-theme="light"] .time.current {
+  color: #202225;
+}
+
+:root[data-theme="light"] .save-menu small,
+:root[data-theme="light"] .field,
+:root[data-theme="light"] .output-size span,
+:root[data-theme="light"] .radio-row label,
+:root[data-theme="light"] .check-list label,
+:root[data-theme="light"] .settings-field,
+:root[data-theme="light"] .profile-settings small,
+:root[data-theme="light"] .empty-description,
+:root[data-theme="light"] .dialog-heading p {
+  color: #5f646c;
+}
+
+:root[data-theme="light"] .stage-panel {
+  background:
+    linear-gradient(45deg, rgb(0 0 0 / 2%) 25%, transparent 25%) 0 0 / 18px 18px,
+    linear-gradient(-45deg, rgb(0 0 0 / 2%) 25%, transparent 25%) 0 9px / 18px 18px,
+    #e9e9e9;
+}
+
+:root[data-theme="light"] .playlist-bar {
+  background: rgb(250 250 250 / 96%);
+}
+
+:root[data-theme="light"] .playlist-bar > button {
+  color: #42464d;
+  background: #e8e8e8;
+}
+
+:root[data-theme="light"] .playlist-bar label {
+  color: #62676f;
+}
+
+:root[data-theme="light"] .playlist-bar select {
+  color: #202225;
+  background: #fff;
+}
+
+:root[data-theme="light"] .text-button,
+:root[data-theme="light"] .trim-reset,
+:root[data-theme="light"] .icon-button.transport-option,
+:root[data-theme="light"] .dialog-close {
+  color: #555b64;
+}
+
+:root[data-theme="light"] .text-button:hover,
+:root[data-theme="light"] .trim-reset:hover {
+  color: #111;
+}
+
+:root[data-theme="light"] .transport {
+  background: #fafafa;
+}
+
+:root[data-theme="light"] .trim-timeline {
+  background-color: #cfd2d6;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%);
+}
+
+:root[data-theme="light"] .timeline-fallback {
+  background:
+    linear-gradient(110deg, transparent, rgb(255 255 255 / 18%), transparent),
+    repeating-linear-gradient(90deg, #c4c8cd 0 7.9%, #e2e3e5 8% 8.3%);
+  opacity: 0.65;
+}
+
+:root[data-theme="light"] .trim-mask {
+  background: rgb(245 245 245 / 72%);
+}
+
+:root[data-theme="light"] .settings-dialog {
+  border-color: var(--line);
+  background: #fafafa;
+  box-shadow: 0 30px 100px rgb(0 0 0 / 25%);
+}
+
+:root[data-theme="light"] .profile-settings button {
+  background: #fff;
+}
+
+:root[data-theme="light"] .inline-export {
+  background: rgb(250 250 250 / 98%);
+  box-shadow: 0 16px 50px rgb(0 0 0 / 18%);
+}
+
+:root[data-theme="light"] .success-banner {
+  color: #1e2523;
+  background: color-mix(in srgb, var(--accent) 12%, #fff);
+  box-shadow: 0 16px 50px rgb(0 0 0 / 18%);
+}
+
+.app-shell.video-fullscreen,
+.app-shell.has-media.video-fullscreen,
+.app-shell.has-media.video-fullscreen.transport-collapsed {
+  display: block;
+  background: #000;
+}
+
+.video-fullscreen .app-header,
+.video-fullscreen .playlist-bar,
+.video-fullscreen .inspector,
+.video-fullscreen .pane-restore,
+.video-fullscreen .transport,
+.video-fullscreen .proxy-note,
+.video-fullscreen .crop-layer {
+  display: none;
+}
+
+.video-fullscreen .editor-grid {
+  display: block;
+  height: 100vh;
+}
+
+.video-fullscreen .stage-panel {
+  height: 100vh;
+  padding: 0;
+  background: #000;
+}
+
+.video-fullscreen .video-stage,
+.video-fullscreen .video-frame {
+  border-radius: 0;
+}
+
+.video-fullscreen .video-frame {
+  box-shadow: none;
 }
 
 @media (max-width: 900px) {

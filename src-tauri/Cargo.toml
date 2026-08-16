@@ -1,6 +1,6 @@
 [package]
 name = "vidmetry"
-version = "0.3.0"
+version = "0.4.0"
 description = "A focused desktop video cropper"
 authors = ["Vidmetry contributors"]
 edition = "2024"
@@ -25,4 +25,4 @@ tokio = { version = "1.53.1", features = ["process", "sync", "time"] }
 uuid = { version = "1.24.1", features = ["v4"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Graphics_Dwm", "Win32_Storage_FileSystem"] }

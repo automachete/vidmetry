@@ -1,3 +1,4 @@
+mod appearance;
 mod export;
 mod ffmpeg;
 mod media;
@@ -88,6 +89,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
+            appearance::system_accent_color,
             health_check,
             probe_video,
             create_preview,

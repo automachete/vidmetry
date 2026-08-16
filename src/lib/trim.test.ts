@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  adaptiveFramesPerPixel,
+  adaptiveFrameQuantum,
   frameToSeconds,
   fullTrimRange,
   isFullTrim,
   parseFrameRate,
+  pointerFrameFromTimeline,
   sanitizeTrimRange,
   secondsToFrame,
   totalVideoFrames,
@@ -42,9 +43,15 @@ describe('frame-accurate time trimming', () => {
     expect(isFullTrim(fullTrimRange(120), 120)).toBe(true);
   });
 
-  it('uses frame-level sensitivity for slow drags and timeline speed for fast drags', () => {
-    expect(adaptiveFramesPerPixel(18_000, 900, 0.05)).toBe(0.5);
-    expect(adaptiveFramesPerPixel(18_000, 900, 2)).toBe(20);
-    expect(adaptiveFramesPerPixel(300, 900, 0.05)).toBeCloseTo(1 / 3);
+  it('uses frame-level snapping for slow drags and timeline-scale snapping for fast drags', () => {
+    expect(adaptiveFrameQuantum(18_000, 900, 0.05)).toBe(1);
+    expect(adaptiveFrameQuantum(18_000, 900, 2)).toBe(20);
+    expect(adaptiveFrameQuantum(300, 900, 0.05)).toBe(1);
+  });
+
+  it('maps from the absolute pointer position without accumulating handle drift', () => {
+    expect(pointerFrameFromTimeline(475, 100, 800, 800, 5, 0.05)).toBe(370);
+    expect(pointerFrameFromTimeline(475, 100, 800, 16_000, 5, 2)).toBe(7_400);
+    expect(pointerFrameFromTimeline(-100, 100, 800, 800, 0, 0.05)).toBe(0);
   });
 });
