@@ -119,14 +119,41 @@ fi
 
 git -C "$build_checkout" archive --format=tar HEAD | tar -xf - -C "$source_root/build-scripts"
 cp -- "$build_checkout/Dockerfile" "$source_root/build-scripts/Dockerfile.vidmetry-source-graph"
+repack_jobs="${SOURCE_REPACK_JOBS:-4}"
+if [[ ! "$repack_jobs" =~ ^[1-8]$ ]]; then
+  echo "SOURCE_REPACK_JOBS must be an integer from 1 through 8." >&2
+  exit 2
+fi
+
+active_repack_jobs=0
+repack_failed=0
 for relative_archive in "${dependency_archives[@]}"; do
   source_archive="$build_checkout/$relative_archive"
   [[ -f "$source_archive" ]] || {
     echo "Missing dependency source archive selected by the build graph: $relative_archive" >&2
     exit 1
   }
-  cp -L -- "$source_archive" "$source_root/build-scripts/.cache/downloads/$(basename -- "$source_archive")"
+  (
+    "$SCRIPT_DIR/repack-source-archive.sh" \
+      "$source_archive" \
+      "$source_root/build-scripts/.cache/downloads/$(basename -- "$source_archive")"
+  ) &
+  active_repack_jobs=$((active_repack_jobs + 1))
+
+  if [[ "$active_repack_jobs" -eq "$repack_jobs" ]]; then
+    if ! wait -n; then
+      repack_failed=1
+    fi
+    active_repack_jobs=$((active_repack_jobs - 1))
+  fi
 done
+while [[ "$active_repack_jobs" -gt 0 ]]; do
+  if ! wait -n; then
+    repack_failed=1
+  fi
+  active_repack_jobs=$((active_repack_jobs - 1))
+done
+[[ "$repack_failed" -eq 0 ]] || exit 1
 
 git clone --filter=blob:none --no-checkout "$ffmpeg_repository" "$ffmpeg_checkout"
 git -C "$ffmpeg_checkout" fetch --depth=1 origin "$ffmpeg_commit"
@@ -164,6 +191,7 @@ This archive accompanies the FFmpeg and ffprobe object code conveyed in the same
 - `ffmpeg/` is the exact FFmpeg source revision used by the binary.
 - `build-scripts/` is the exact BtbN/FFmpeg-Builds revision containing the Windows GPL build controls, patches, Docker definitions, and license-selection logic.
 - `build-scripts/.cache/downloads/` contains every dependency source archive selected by the generated `win64-gpl` build graph.
+- Dependency archives contain the preferred source trees with checkout-specific `.git` administration data removed and deterministic metadata applied.
 - `build-scripts/Dockerfile.vidmetry-source-graph` records the resolved dependency graph and configuration used to select those archives.
 - `SOURCE_SHA256SUMS` authenticates every file in the archive other than the checksum list itself.
 

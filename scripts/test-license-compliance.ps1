@@ -57,6 +57,14 @@ Assert-FileContainsLiteral $sourceScript 'env -u GITHUB_REPOSITORY ./generate.sh
 Assert-FileContainsLiteral $sourceScript 'dependency_archives' 'Corresponding-source packager'
 Assert-FileContainsLiteral $sourceScript 'git -C "$ffmpeg_checkout" archive' 'Corresponding-source packager'
 Assert-FileContainsLiteral $sourceScript 'actual_archive_sha256' 'Corresponding-source packager'
+Assert-FileContainsLiteral $sourceScript 'repack-source-archive.sh' 'Corresponding-source packager'
+
+$sourceRepacker = Join-Path $PSScriptRoot 'repack-source-archive.sh'
+Assert-FileContainsLiteral $sourceRepacker '--format=gnu --sort=name' 'Dependency-source normalizer'
+Assert-FileContainsLiteral $sourceRepacker "-name .git" 'Dependency-source normalizer'
+Assert-FileContainsLiteral $sourceRepacker "--mtime='UTC 1970-01-01'" 'Dependency-source normalizer'
+$sourceRepackerTest = Join-Path $PSScriptRoot 'test-source-repacker.sh'
+Assert-FileContainsLiteral $sourceRepackerTest 'cmp "$work_root/one-normalized.tar.xz" "$work_root/two-normalized.tar.xz"' 'Dependency-source normalizer test'
 
 $releaseWorkflow = Join-Path $projectRoot '.github\workflows\release.yml'
 Assert-FileContainsLiteral $releaseWorkflow 'preflight:' 'Release workflow'
@@ -86,6 +94,7 @@ foreach ($unsafeExpansion in @('-Tag "${{ github.ref_name }}"', '$tag = "${{ git
 
 $sourceAuditWorkflow = Join-Path $projectRoot '.github\workflows\ffmpeg-source-audit.yml'
 Assert-FileContainsLiteral $sourceAuditWorkflow 'package-ffmpeg-corresponding-source.sh' 'Corresponding-source audit workflow'
+Assert-FileContainsLiteral $sourceAuditWorkflow 'scripts/test-source-repacker.sh' 'Corresponding-source audit workflow'
 Assert-FileContainsLiteral $sourceAuditWorkflow 'tar -tf' 'Corresponding-source audit workflow'
 Assert-FileContainsLiteral $sourceAuditWorkflow '.correspondingSource.archiveSha256' 'Corresponding-source audit workflow'
 Assert-FileDoesNotContainLiteral $sourceAuditWorkflow 'actions/upload-artifact@' 'Corresponding-source audit workflow'

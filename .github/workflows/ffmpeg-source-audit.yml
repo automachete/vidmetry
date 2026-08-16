@@ -5,6 +5,7 @@ on:
     paths:
       - "scripts/ffmpeg-sidecars.json"
       - "scripts/package-ffmpeg-corresponding-source.sh"
+      - "scripts/repack-source-archive.sh"
   workflow_dispatch:
 
 permissions:
@@ -28,7 +29,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .cache/ffmpeg-source-downloads
-          key: ffmpeg-source-${{ hashFiles('scripts/ffmpeg-sidecars.json', 'scripts/package-ffmpeg-corresponding-source.sh') }}
+          key: ffmpeg-source-${{ hashFiles('scripts/ffmpeg-sidecars.json', 'scripts/package-ffmpeg-corresponding-source.sh', 'scripts/repack-source-archive.sh') }}
           restore-keys: ffmpeg-source-
 
       - name: Resolve immutable source identity
@@ -48,6 +49,7 @@ jobs:
         env:
           SOURCE_ARCHIVE_NAME: ${{ steps.source.outputs.archive_name }}
         run: |
+          scripts/test-source-repacker.sh
           scripts/package-ffmpeg-corresponding-source.sh \
             --cache-dir .cache/ffmpeg-source-downloads \
             --output "release-assets/$SOURCE_ARCHIVE_NAME"
