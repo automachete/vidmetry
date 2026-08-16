@@ -20,6 +20,7 @@ jobs:
     permissions:
       contents: read
     env:
+      RELEASE_TAG: ${{ github.ref_name }}
       SOURCE_ARCHIVE_NAME: vidmetry-ffmpeg-N-126168-gb16b5f2a01-20260815-corresponding-source.tar.xz
 
     steps:
@@ -28,7 +29,7 @@ jobs:
 
       - name: Verify release version
         shell: pwsh
-        run: ./scripts/check-release-version.ps1 -Tag "${{ github.ref_name }}"
+        run: ./scripts/check-release-version.ps1 -Tag $env:RELEASE_TAG
 
       - name: Audit Rust licenses
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
@@ -72,6 +73,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     env:
+      RELEASE_REPOSITORY: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.ref_name }}
       SOURCE_ARCHIVE_NAME: vidmetry-ffmpeg-N-126168-gb16b5f2a01-20260815-corresponding-source.tar.xz
 
     steps:
@@ -86,7 +89,7 @@ jobs:
 
       - name: Verify release version
         shell: pwsh
-        run: ./scripts/check-release-version.ps1 -Tag "${{ github.ref_name }}"
+        run: ./scripts/check-release-version.ps1 -Tag $env:RELEASE_TAG
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -182,7 +185,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = "${{ github.ref_name }}"
+          $tag = $env:RELEASE_TAG
+          if ([string]::IsNullOrWhiteSpace($tag)) { throw 'Release tag is missing.' }
           $sourceArchive = Join-Path 'release-assets' $env:SOURCE_ARCHIVE_NAME
           $sourceChecksum = "$sourceArchive.sha256"
           if (-not (Test-Path -LiteralPath $sourceArchive -PathType Leaf) -or
@@ -202,6 +206,12 @@ jobs:
           if (-not ($assetNames | Where-Object { $_ -match '\.exe$' }) -or
               -not ($assetNames | Where-Object { $_ -match '\.msi$' })) {
             throw 'Draft Release must contain both NSIS and MSI installers before publication.'
+          }
+
+          $visibility = (& gh api "repos/$env:RELEASE_REPOSITORY" --jq '.visibility').Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to verify public access to the corresponding source.' }
+          if ($visibility -cne 'public') {
+            throw 'The repository is not public, so equivalent no-charge access to the corresponding source cannot be guaranteed. The draft Release will not be published.'
           }
 
           gh release edit $tag --draft=false

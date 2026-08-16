@@ -49,9 +49,18 @@ Assert-FileContainsLiteral $releaseWorkflow 'needs: corresponding-source' 'Relea
 Assert-FileContainsLiteral $releaseWorkflow 'releaseDraft: true' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'gh release upload' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'gh release edit $tag --draft=false' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow 'RELEASE_TAG: ${{ github.ref_name }}' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow 'RELEASE_REPOSITORY: ${{ github.repository }}' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow "`$visibility -cne 'public'" 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow $manifest.correspondingSource.archiveName 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'setup-copyleft-sources.ps1' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'generate-third-party-licenses.ps1' 'Release workflow'
+$releaseWorkflowText = Get-Content -LiteralPath $releaseWorkflow -Raw
+foreach ($unsafeExpansion in @('-Tag "${{ github.ref_name }}"', '$tag = "${{ github.ref_name }}"')) {
+    if ($releaseWorkflowText.Contains($unsafeExpansion, [StringComparison]::Ordinal)) {
+        throw 'Release event values must enter PowerShell through environment variables, not expression interpolation.'
+    }
+}
 
 $sourceAuditWorkflow = Join-Path $projectRoot '.github\workflows\ffmpeg-source-audit.yml'
 Assert-FileContainsLiteral $sourceAuditWorkflow 'package-ffmpeg-corresponding-source.sh' 'Corresponding-source audit workflow'
