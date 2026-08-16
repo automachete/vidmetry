@@ -1,4 +1,4 @@
-# Vidmetry 0.3.0 Verification Record
+# Vidmetry 0.4.0 Verification Record
 
 Verification date: 2026-08-16
 Platform: Windows x64  
@@ -9,14 +9,14 @@ Media engine: FFmpeg/ffprobe 9.0.1 essentials build
 | Check | Result |
 |---|---|
 | `npm run check` | Pass — 0 errors, 0 warnings |
-| `npm test` | Pass — 33 tests across 7 files |
-| `npm run test:ui` | Pass — 6 Chromium scenarios and 4 screenshot baselines |
+| `npm test` | Pass — 41 tests across 8 files |
+| `npm run test:ui` | Pass — 10 Chromium scenarios and 5 screenshot baselines |
 | `npm run build` | Pass — Vite production build |
-| `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 16 Rust unit tests |
+| `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 17 Rust unit tests |
 | `cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings` | Pass |
 | `scripts/test-integration.ps1` | Pass |
 | `npm run tauri build` | Pass — MSI and NSIS bundles |
-| Component interaction | Pass — launcher/logo, settings, save branching/menu, Space playback, frame trim, notification dismissal, localization, and Explorer reveal |
+| Component interaction | Pass — Windows mode/accent projection, launcher/logo, settings, save shortcuts/menu, focused-handle Space playback, 1/10-frame trim steps, collapsible panes, F11 state, notification dismissal, localization, and Explorer reveal |
 | Packaged executable smoke launch | Pass — remained running until test shutdown |
 
 The MSVC linker emits a localized informational message while producing the Rust `cdylib` import library. It is surfaced by Cargo as `linker_messages` but is not a compiler or Clippy diagnostic.
@@ -38,16 +38,16 @@ The source SHA-256 before and after all exports is identical. Temporary test med
 
 ## Local release artifacts
 
-These artifacts were generated from the verified 0.3.0 source tree. They are build outputs and are intentionally not committed.
+These artifacts were generated from the verified 0.4.0 source tree. They are build outputs and are intentionally not committed.
 
 | Artifact | Size | SHA-256 |
 |---|---:|---|
-| `Vidmetry_0.3.0_x64_en-US.msi` | 75.35 MiB | `804DAB29A8BA3054537263444094511BD616069531B9A5876905F8468B0866A6` |
-| `Vidmetry_0.3.0_x64-setup.exe` | 54.89 MiB | `D0C06F5244E7D7BBD9DBF35EA3DF064FD31C9A3C31D6AB5F533486E05BCCA24C` |
+| `Vidmetry_0.4.0_x64_en-US.msi` | 75.36 MiB | `45FFF4D901DD90A8F7F573E3A310DC5599BBEE51C9A6FBFD4A91EB7827C0C903` |
+| `Vidmetry_0.4.0_x64-setup.exe` | 54.89 MiB | `888E5438A86070F536D41774EF2B7497BA90C488C22B139A670B3E0C53BE99B6` |
 
 ## Remaining manual acceptance
 
 - Exercise the native file/folder/save dialogs, drag/drop, Page Up/Page Down, and all crop handles with representative personal footage.
 - Cover 4K HEVC 10-bit, rotated phone MOV, VFR, multi-audio MKV, Unicode paths, and low-disk/permission failures.
 - Confirm metadata-only rendering in each target player because support is deliberately player-dependent.
-- Confirm the Explorer selection behavior and velocity-sensitive pointer feel in the packaged WebView with real personal media.
+- Confirm Explorer selection, live Windows personalization changes, pane controls, F11/Escape, and velocity-sensitive pointer feel in the packaged WebView with real personal media.
