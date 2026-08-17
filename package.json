@@ -25,6 +25,7 @@
     "test:licenses": "pwsh -NoProfile -File scripts/test-license-compliance.ps1",
     "test:ui": "playwright test",
     "test:integration": "pwsh -NoProfile -File scripts/test-integration.ps1",
+    "msix:build": "pwsh -NoProfile -File scripts/build-msix.ps1",
     "verify": "npm run check:contracts && npm run check:licenses && npm run check && npm run test:assets && npm run test:shell && npm run test:runtime && npm run test:licenses && npm test && npm run build",
     "tauri": "tauri"
   },
