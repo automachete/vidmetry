@@ -60,6 +60,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 - **FR-003** Direct WebView playback is attempted first. On playback failure the user can generate, or the app can automatically generate, a temporary H.264 proxy from the original.
 - **FR-004** A newly opened video starts with the crop rectangle covering the complete displayed frame.
 - **FR-005** When a directory is active, the user can switch videos with an in-app list, previous/next controls, or Page Up/Page Down. File names are sorted case-insensitively.
+- **FR-006** Each Windows installer registers Vidmetry for the installing user in Open with for every supported video extension and adds an Open with Vidmetry verb for selected directories. Either entry point opens the selected path.
 
 ### 3.2 Crop interaction
 
@@ -107,9 +108,10 @@ The following terms are distinct and must not be shortened to an unqualified “
 ### 3.5 Common settings and localization
 
 - **FR-050** An icon-only common-settings button is always available in the header.
-- **FR-051** Settings persist locally and cover save profile, applicable encoder options, audio, frame rate, file metadata, and loop playback.
+- **FR-051** Settings persist locally and cover save profile, applicable encoder options, audio, frame rate, file metadata, loop playback, and File Explorer integration.
 - **FR-052** Language mode is an exclusive choice between Windows language and manual selection. Manual selection supports Japanese and English; unsupported Windows languages fall back to English.
 - **FR-053** All product-owned UI and runtime-error text comes from the Japanese/English locale resources. Rust commands and events return a stable language-neutral error code plus optional diagnostic detail; the presentation layer resolves that code in the active UI language. Language controls are the final common-settings section.
+- **FR-054** File Explorer integration is enabled on a fresh installation. Disabling it removes only Vidmetry-owned registrations, survives application updates, and does not change another application's file associations.
 
 ## 4. Quality semantics
 
@@ -141,7 +143,8 @@ Tauri 2 desktop shell
        ├─ Export profile/argument builder
        ├─ FFmpeg/ffprobe sidecar process manager
        ├─ Windows appearance/accent adapter
-       └─ File Explorer reveal adapter
+       ├─ File Explorer reveal adapter
+       └─ File Explorer file/folder integration adapter
 ```
 
 No localhost HTTP service or database is required. Tauri IPC carries small structured messages only; video bytes never pass through IPC.
@@ -241,6 +244,8 @@ Crop rectangles use the displayed orientation. The backend owns the conversion t
 | `start_export(request)` | UI → Rust | Validate request, start job, return job ID |
 | `cancel_export(jobId)` | UI → Rust | Terminate matching child process |
 | `reveal_in_explorer(path)` | UI → Rust | Open File Explorer with a completed output selected |
+| `startup_selection()` | UI → Rust | Read an existing file or directory passed by a Shell launch |
+| `set_explorer_integration(enabled)` | UI → Rust | Add or remove the current user's Vidmetry video/folder registrations |
 | `system_accent_color()` | UI → Rust | Return the current Windows DWM accent as a CSS RGB color |
 | `export-progress` | Rust → UI | `{jobId, fraction, outTimeSeconds}` |
 | `export-complete` | Rust → UI | Final output path |
@@ -257,7 +262,7 @@ The main window uses three regions:
 2. A flexible, neutrally colored video stage containing optional directory navigation, the video, and crop overlay.
 3. A collapsible frame-strip footer with a playback-position handle, start/end trim-boundary handles, persistent loop, and mute, plus a collapsible spatial inspector with coordinates, dimensions, aspect ratio, and Reset.
 
-The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. A strict Zod schema is the runtime and compile-time source for `AppSettings`; missing, unknown, obsolete, or out-of-range fields are rejected rather than migrated or repaired. Valid settings are persisted in `settings.json` under Tauri's application-data directory by the official Store plugin. Windows mode/accent changes are projected through CSS variables; fixed app-icon artwork is strictly achromatic. The NSIS installer assigns shortcuts a versioned icon path and refreshes the Windows Shell cache after upgrades. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
+The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. A strict Zod schema is the runtime and compile-time source for `AppSettings`; unknown, obsolete, partial, or out-of-range shapes are rejected, with an explicit migration for the previously complete shape that predates File Explorer integration. Valid settings are persisted in `settings.json` under Tauri's application-data directory by the official Store plugin. Windows mode/accent changes are projected through CSS variables; fixed app-icon artwork is strictly achromatic. Both Windows installers register the supported video and directory Shell entry points for the current user and preserve an explicit disabled state on update; the NSIS installer also assigns shortcuts a versioned icon path. Shell-registration changes refresh the Windows Shell cache. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
 
 ## 9. Preview strategy
 
@@ -307,7 +312,7 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 - Minimum size, clamping, modulus snapping, and aspect locks.
 - Time formatting and seek clamping.
 - Export-profile eligibility.
-- Strict settings-schema rejection, persistence, OS/manual language resolution, output-extension and in-place eligibility.
+- Strict settings-schema rejection and migration, persistence, Explorer-integration toggling, OS/manual language resolution, output-extension and in-place eligibility.
 
 ### 13.2 Component and UI regression tests
 
@@ -329,6 +334,7 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 - Exact `start_frame`/`end_frame` FFmpeg filters, audio alignment, and metadata-only rejection.
 - Windows extended-path normalization and Explorer selection arguments.
 - DWM ARGB-to-CSS accent conversion.
+- Video Open with registration, selected-directory verb registration, startup path handling, and Vidmetry-scoped removal plans.
 - Cache staging, non-empty promotion, and count/size/age pruning.
 
 ### 13.4 Integration tests
@@ -371,7 +377,8 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - **AC-017** Start/end trim-boundary handles move by 1 or 10 frames from keyboard focus. Space from the focused playback-position handle changes the media element to a real playing state and changes the UI to Pause. Playback-scrubber clicks and off-center trim-boundary drags remain aligned after the selected range is reduced to half the video.
 - **AC-018** The crop inspector and time-trim footer collapse independently, and F11/Escape toggle a video-only window fullscreen preview.
 - **AC-019** Product-owned runtime errors are transported as language-neutral codes with optional diagnostics and render from the same Japanese/English locale resources as the rest of the UI; backend and component source contain no Japanese product prose.
+- **AC-020** A fresh MSI or NSIS installation exposes every supported video and selected directories to Vidmetry from File Explorer; the common setting removes and restores those entries, and an update preserves an explicit disabled state.
 
 ## 15. Verification status
 
-The 0.4.7 implementation satisfies AC-001 through AC-019 at automated or implementation-inspection level. Native picker interaction, live Windows personalization changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.
+The 0.4.7 implementation satisfies AC-001 through AC-020 at automated or implementation-inspection level. Native picker interaction, live Windows personalization and Shell changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.

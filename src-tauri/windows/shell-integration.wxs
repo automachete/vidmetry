@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <Property Id="VIDMETRY_EXPLORER_INTEGRATION_ENABLED" Value="1">
+      <RegistrySearch
+        Id="VidmetryExplorerIntegrationState"
+        Root="HKCU"
+        Key="Software\Vidmetry"
+        Name="ExplorerIntegrationEnabled"
+        Type="raw" />
+    </Property>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="VidmetryExplorerIntegration" Directory="INSTALLDIR">
+      <Component
+        Id="VidmetryExplorerIntegrationRegistry"
+        Guid="{A04E1954-82D0-4A77-9E8F-26B8E21BD012}"
+        Transitive="yes"
+        Win64="yes">
+        <Condition>
+          VIDMETRY_EXPLORER_INTEGRATION_ENABLED &lt;&gt; "#0" AND
+          VIDMETRY_EXPLORER_INTEGRATION_ENABLED &lt;&gt; "0"
+        </Condition>
+
+        <RegistryValue Root="HKCU" Key="Software\Classes\Vidmetry.Video" Type="string" Value="Vidmetry video" KeyPath="yes" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Vidmetry.Video\DefaultIcon" Type="string" Value="[INSTALLDIR]vidmetry.exe,0" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Vidmetry.Video\shell\open\command" Type="string" Value="&quot;[INSTALLDIR]vidmetry.exe&quot; &quot;%1&quot;" />
+
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\vidmetry.exe" Name="FriendlyAppName" Type="string" Value="Vidmetry" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\vidmetry.exe\DefaultIcon" Type="string" Value="[INSTALLDIR]vidmetry.exe,0" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\vidmetry.exe\shell\open\command" Type="string" Value="&quot;[INSTALLDIR]vidmetry.exe&quot; &quot;%1&quot;" />
+
+        <RegistryValue Root="HKCU" Key="Software\Vidmetry\Capabilities" Name="ApplicationName" Type="string" Value="Vidmetry" />
+        <RegistryValue Root="HKCU" Key="Software\Vidmetry\Capabilities" Name="ApplicationDescription" Type="string" Value="Crop and trim videos with Vidmetry." />
+        <RegistryValue Root="HKCU" Key="Software\RegisteredApplications" Name="Vidmetry" Type="string" Value="Software\Vidmetry\Capabilities" />
+
+        <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\Vidmetry" Type="string" Value="Open with Vidmetry" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\Vidmetry" Name="Icon" Type="string" Value="[INSTALLDIR]vidmetry.exe,0" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\Vidmetry" Name="MultiSelectModel" Type="string" Value="Single" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\Vidmetry\command" Type="string" Value="&quot;[INSTALLDIR]vidmetry.exe&quot; &quot;%1&quot;" />
+
+        <RegistryValue Root="HKCU" Key="Software\Classes\.3gp\OpenWithProgids" Name="Vidmetry.Video" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.avi\OpenWithProgids" Name="Vidmetry.Video" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.flv\OpenWithProgids" Name="Vidmetry.Video" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.m2ts\OpenWithProgids" Name="Vidmetry.Video" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.m4v\OpenWithProgids" Name="Vidmetry.Video" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.mkv\OpenWithProgids" Name="Vidmetry.Video" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.mov\OpenWithProgids" Name="Vidmetry.Video" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.mp4\OpenWithProgids" Name="Vidmetry.Video" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.mpeg\OpenWithProgids" Name="Vidmetry.Video" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.mpg\OpenWithProgids" Name="Vidmetry.Video" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.mts\OpenWithProgids" Name="Vidmetry.Video" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.ogv\OpenWithProgids" Name="Vidmetry.Video" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.ts\OpenWithProgids" Name="Vidmetry.Video" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.vob\OpenWithProgids" Name="Vidmetry.Video" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.webm\OpenWithProgids" Name="Vidmetry.Video" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.wmv\OpenWithProgids" Name="Vidmetry.Video" Type="string" Value="" />
+
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\vidmetry.exe\SupportedTypes" Name=".3gp" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\vidmetry.exe\SupportedTypes" Name=".avi" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\vidmetry.exe\SupportedTypes" Name=".flv" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\vidmetry.exe\SupportedTypes" Name=".m2ts" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\vidmetry.exe\SupportedTypes" Name=".m4v" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\vidmetry.exe\SupportedTypes" Name=".mkv" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\vidmetry.exe\SupportedTypes" Name=".mov" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\vidmetry.exe\SupportedTypes" Name=".mp4" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\vidmetry.exe\SupportedTypes" Name=".mpeg" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\vidmetry.exe\SupportedTypes" Name=".mpg" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\vidmetry.exe\SupportedTypes" Name=".mts" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\vidmetry.exe\SupportedTypes" Name=".ogv" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\vidmetry.exe\SupportedTypes" Name=".ts" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\vidmetry.exe\SupportedTypes" Name=".vob" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\vidmetry.exe\SupportedTypes" Name=".webm" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\vidmetry.exe\SupportedTypes" Name=".wmv" Type="string" Value="" />
+
+        <RegistryValue Root="HKCU" Key="Software\Vidmetry\Capabilities\FileAssociations" Name=".3gp" Type="string" Value="Vidmetry.Video" />
+        <RegistryValue Root="HKCU" Key="Software\Vidmetry\Capabilities\FileAssociations" Name=".avi" Type="string" Value="Vidmetry.Video" />
+        <RegistryValue Root="HKCU" Key="Software\Vidmetry\Capabilities\FileAssociations" Name=".flv" Type="string" Value="Vidmetry.Video" />
+        <RegistryValue Root="HKCU" Key="Software\Vidmetry\Capabilities\FileAssociations" Name=".m2ts" Type="string" Value="Vidmetry.Video" />
+        <RegistryValue Root="HKCU" Key="Software\Vidmetry\Capabilities\FileAssociations" Name=".m4v" Type="string" Value="Vidmetry.Video" />
+        <RegistryValue Root="HKCU" Key="Software\Vidmetry\Capabilities\FileAssociations" Name=".mkv" Type="string" Value="Vidmetry.Video" />
+        <RegistryValue Root="HKCU" Key="Software\Vidmetry\Capabilities\FileAssociations" Name=".mov" Type="string" Value="Vidmetry.Video" />
+        <RegistryValue Root="HKCU" Key="Software\Vidmetry\Capabilities\FileAssociations" Name=".mp4" Type="string" Value="Vidmetry.Video" />
+        <RegistryValue Root="HKCU" Key="Software\Vidmetry\Capabilities\FileAssociations" Name=".mpeg" Type="string" Value="Vidmetry.Video" />
+        <RegistryValue Root="HKCU" Key="Software\Vidmetry\Capabilities\FileAssociations" Name=".mpg" Type="string" Value="Vidmetry.Video" />
+        <RegistryValue Root="HKCU" Key="Software\Vidmetry\Capabilities\FileAssociations" Name=".mts" Type="string" Value="Vidmetry.Video" />
+        <RegistryValue Root="HKCU" Key="Software\Vidmetry\Capabilities\FileAssociations" Name=".ogv" Type="string" Value="Vidmetry.Video" />
+        <RegistryValue Root="HKCU" Key="Software\Vidmetry\Capabilities\FileAssociations" Name=".ts" Type="string" Value="Vidmetry.Video" />
+        <RegistryValue Root="HKCU" Key="Software\Vidmetry\Capabilities\FileAssociations" Name=".vob" Type="string" Value="Vidmetry.Video" />
+        <RegistryValue Root="HKCU" Key="Software\Vidmetry\Capabilities\FileAssociations" Name=".webm" Type="string" Value="Vidmetry.Video" />
+        <RegistryValue Root="HKCU" Key="Software\Vidmetry\Capabilities\FileAssociations" Name=".wmv" Type="string" Value="Vidmetry.Video" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

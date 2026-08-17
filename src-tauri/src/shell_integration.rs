@@ -126,6 +126,7 @@ fn registration_plan(executable: &std::path::Path, enabled: bool) -> Vec<Registr
         ),
         set_string(DIRECTORY_VERB_KEY, "", "Open with Vidmetry"),
         set_string(DIRECTORY_VERB_KEY, "Icon", &icon),
+        set_string(DIRECTORY_VERB_KEY, "MultiSelectModel", "Single"),
         set_string(&format!(r"{DIRECTORY_VERB_KEY}\command"), "", &command),
     ];
 
@@ -264,6 +265,11 @@ mod tests {
             &format!(r"{DIRECTORY_VERB_KEY}\command"),
             "",
             r#""C:\Program Files\Vidmetry\vidmetry.exe" "%1""#
+        )));
+        assert!(plan.contains(&set_string(
+            DIRECTORY_VERB_KEY,
+            "MultiSelectModel",
+            "Single"
         )));
         assert_eq!(
             plan.last(),

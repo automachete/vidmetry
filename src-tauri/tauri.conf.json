@@ -44,7 +44,12 @@
       "icons/icon.ico": "shortcut-icon-achromatic-v2.ico"
     },
     "windows": {
+      "wix": {
+        "fragmentPaths": ["./windows/shell-integration.wxs"],
+        "componentGroupRefs": ["VidmetryExplorerIntegration"]
+      },
       "nsis": {
+        "installMode": "currentUser",
         "installerHooks": "./windows/hooks.nsh"
       }
     },
