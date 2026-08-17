@@ -18,9 +18,9 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 | `npm run test:assets` | Pass — SVG, generated PNG/ICO pixels, legacy tint list, and NSIS shortcut-refresh configuration |
 | `npm run test:shell` | Pass — NSIS and MSI registrations match all 16 supported video extensions and include selected-directory handling, update-state preservation, and uninstall cleanup |
 | `npm run test:runtime` | Pass — pinned Node/npm/Rust, immutable FFmpeg manifest, sidecar hashes/notices, and full-SHA GitHub Actions references |
-| `npm test` | Pass — 57 tests across 10 files |
+| `npm test` | Pass — 56 tests across 10 files |
 | `npm run test:ui` | Pass — 13 Chromium scenarios and 5 screenshot baselines |
-| `npm run test:coverage` | Pass — 94.44% statements, 81.54% branches, 97.67% functions, 95.43% lines |
+| `npm run test:coverage` | Pass — 94.25% statements, 81.09% branches, 97.67% functions, 95.31% lines |
 | `npm run build` | Pass — Vite production build |
 | `cargo fmt --check --manifest-path src-tauri\Cargo.toml` | Pass |
 | `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 28 Rust unit tests |
@@ -35,7 +35,7 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 | Installer license payload | Pass — both bundle definitions contain FFmpeg license/source notice, complete dependency reports, MPL text, and all 5 MPL source archives |
 | Component interaction | Pass — Windows mode/accent projection, launcher/logo, settings and Explorer-integration toggling, startup Shell paths, save shortcuts/menu, focused playback-position Space control, trim-boundary frame steps, authoritative ffprobe timing, collapsible panes, F11 state, notification dismissal, structured command/event error localization, Explorer reveal, event-registration failure, rejected playback, durable-settings failure, multi-path drop validation, and playlist rollback |
 | Localization boundary | Pass — i18next resolves typed Japanese/English resources; backend errors serialize generated stable codes with optional details; Japanese product text outside the resource is rejected automatically |
-| Persistence and cache lifecycle | Pass — strict Zod rejection of incomplete, unknown, obsolete, or out-of-range settings; explicit migration of the pre-Explorer complete shape; disabled Explorer state retained across installer updates; non-empty staged cache promotion; retained-entry-safe count/size/age pruning |
+| Persistence and cache lifecycle | Pass — strict Zod rejection of incomplete, unknown, obsolete, or out-of-range settings; disabled Explorer state retained across installer updates; non-empty staged cache promotion; retained-entry-safe count/size/age pruning |
 | Playback-state regression | Pass — Playwright clicks the rendered playback-position handle, verifies focus on its full-width scrubber, presses Space, and checks `paused` changes from true to false, a play event is emitted, and the UI displays Pause |
 | Pointer alignment regression | Pass — after selecting frames `[60, 180)` of a 240-frame video, a physical timeline click and an off-center handle drag remain aligned within half-frame rendering tolerance |
 | Packaged executable smoke launch | Pass — remained running until test shutdown; extracted executable icon contains only achromatic pixels |
@@ -63,8 +63,8 @@ These artifacts were generated from the verified 0.4.7 source tree. They are bui
 
 | Artifact | Size | SHA-256 |
 |---|---:|---|
-| `Vidmetry_0.4.7_x64_en-US.msi` | 110.96 MiB | `12E72B92D6BD44770B1DBF1DEF6421C658B1909C7DF10A982C1BCFF0C4F14CA4` |
-| `Vidmetry_0.4.7_x64-setup.exe` | 81.43 MiB | `6DDB8D497B02C4E013E118B189B5D556A2274FC3038C840B4C4C49A004EF2F30` |
+| `Vidmetry_0.4.7_x64_en-US.msi` | 110.96 MiB | `D40E369F015F53E1B44F70DCBE5F2442AB8A3BBDF992C345A2CD358F9317A526` |
+| `Vidmetry_0.4.7_x64-setup.exe` | 81.43 MiB | `8FB4ADC6AACB5D3CF0AB44F8F58E07CE4BE3598C262A0AB4D1E785495291224D` |
 
 ## Remaining manual acceptance
 

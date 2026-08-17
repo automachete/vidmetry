@@ -63,26 +63,16 @@ describe('persistent settings', () => {
     await expect(loadSettings(store)).rejects.toThrow();
   });
 
-  it('migrates settings saved before Explorer integration was introduced', async () => {
-    const store = new MemoryStore();
-    const { explorerIntegration: _, ...legacy } = {
-      ...defaultSettings,
-      languageMode: 'manual' as const,
-      language: 'en' as const,
-      loopPlayback: true,
-    };
-    store.values.set('settings', legacy);
-
-    await expect(loadSettings(store)).resolves.toMatchObject({
-      languageMode: 'manual',
-      language: 'en',
-      loopPlayback: true,
-      explorerIntegration: true,
-    });
-  });
-
   it('rejects obsolete and partial settings shapes', () => {
     expect(() => parseSettings({ ...defaultSettings, version: 1 })).toThrow();
+    expect(() =>
+      parseSettings({
+        ...defaultSettings,
+        export: { ...defaultSettings.export, fastStart: true },
+      }),
+    ).toThrow();
+    const { explorerIntegration: _, ...withoutExplorerIntegration } = defaultSettings;
+    expect(() => parseSettings(withoutExplorerIntegration)).toThrow();
     expect(() => parseSettings({ languageMode: 'system' })).toThrow();
   });
 

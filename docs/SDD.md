@@ -88,7 +88,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 ### 3.4 Export
 
 - **FR-030** When output and source extensions differ, the header shows a direct Copy and save action with no menu. When they match, one combined Save options control opens Copy and save or confirmed in-place Save; there is no separate export-configuration screen.
-- **FR-031** Compatible mode outputs H.264 or H.265 MP4 and allows CRF, encoder preset, pixel format, audio handling/bitrate, frame-rate handling, metadata retention, and fast-start configuration.
+- **FR-031** Compatible mode outputs H.264 or H.265 MP4, always enables fast start, and allows CRF, encoder preset, pixel format, audio handling/bitrate, frame-rate handling, and metadata retention.
 - **FR-032** Lossless mode outputs FFV1 in Matroska. The video is decoded, cropped, and encoded losslessly while compatible audio/subtitle streams are copied.
 - **FR-033** Metadata-only mode is available only for H.264 or HEVC. It copies encoded media while setting codec crop metadata. The UI warns that coded pixels and file size remain, and that some players ignore the crop.
 - **FR-034** A physical crop filter is never combined with video stream copy.
@@ -121,7 +121,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 | Lossless FFV1/MKV | Yes | Yes | Lossless after source decode, provided pixel format and color metadata are preserved | Moderate/low |
 | Metadata-only | Display-only | No | Original coded stream retained | Codec/player dependent |
 
-The Compatible profile defaults to `libx264`, CRF 17, `medium`, `yuv420p`, source cadence, automatic audio, metadata retention, and fast start. This is a product default, not a guarantee of visual transparency for every source.
+The Compatible profile defaults to `libx264`, CRF 17, `medium`, `yuv420p`, source cadence, automatic audio, and metadata retention. Compatible MP4 output is always finalized with fast start. These defaults are not a guarantee of visual transparency for every source.
 
 The Lossless profile must avoid an unconditional conversion to 8-bit `yuv420p`. The backend retains a compatible source pixel format and carries color primaries, transfer characteristics, matrix, and range where FFmpeg exposes them.
 
@@ -223,11 +223,12 @@ ExportSettings
   videoCodec/crf/preset/pixelFormat
   audioMode/audioBitrateKbps
   frameRateMode/constantFrameRate
-  fastStart/preserveMetadata/copySubtitles
+  preserveMetadata/copySubtitles
 
 AppSettings
   languageMode/language
   loopPlayback
+  explorerIntegration
   export: ExportSettings
 ```
 
@@ -262,7 +263,7 @@ The main window uses three regions:
 2. A flexible, neutrally colored video stage containing optional directory navigation, the video, and crop overlay.
 3. A collapsible frame-strip footer with a playback-position handle, start/end trim-boundary handles, persistent loop, and mute, plus a collapsible spatial inspector with coordinates, dimensions, aspect ratio, and Reset.
 
-The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. A strict Zod schema is the runtime and compile-time source for `AppSettings`; unknown, obsolete, partial, or out-of-range shapes are rejected, with an explicit migration for the previously complete shape that predates File Explorer integration. Valid settings are persisted in `settings.json` under Tauri's application-data directory by the official Store plugin. Windows mode/accent changes are projected through CSS variables; fixed app-icon artwork is strictly achromatic. Both Windows installers register the supported video and directory Shell entry points for the current user and preserve an explicit disabled state on update; the NSIS installer also assigns shortcuts a versioned icon path. Shell-registration changes refresh the Windows Shell cache. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
+The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. A strict Zod schema is the runtime and compile-time source for `AppSettings`; unknown, obsolete, partial, or out-of-range shapes are rejected. Valid settings are persisted in `settings.json` under Tauri's application-data directory by the official Store plugin. Windows mode/accent changes are projected through CSS variables; fixed app-icon artwork is strictly achromatic. Both Windows installers register the supported video and directory Shell entry points for the current user and preserve an explicit disabled state on update; the NSIS installer also assigns shortcuts a versioned icon path. Shell-registration changes refresh the Windows Shell cache. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
 
 ## 9. Preview strategy
 
@@ -312,7 +313,7 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 - Minimum size, clamping, modulus snapping, and aspect locks.
 - Time formatting and seek clamping.
 - Export-profile eligibility.
-- Strict settings-schema rejection and migration, persistence, Explorer-integration toggling, OS/manual language resolution, output-extension and in-place eligibility.
+- Strict settings-schema rejection, persistence, Explorer-integration toggling, OS/manual language resolution, output-extension and in-place eligibility.
 
 ### 13.2 Component and UI regression tests
 

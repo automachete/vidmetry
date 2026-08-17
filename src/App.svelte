@@ -1449,7 +1449,6 @@
             <section class="settings-section">
               <h3>{text('fileSettings')}</h3>
               <div class="check-list">
-                {#if settingsDraft.export.profile === 'compatible'}<label><input type="checkbox" checked={settingsDraft.export.fastStart} onchange={(event) => updateExportDraft('fastStart', (event.currentTarget as HTMLInputElement).checked)} />{text('fastStart')}</label>{/if}
                 <label><input type="checkbox" checked={settingsDraft.export.preserveMetadata} onchange={(event) => updateExportDraft('preserveMetadata', (event.currentTarget as HTMLInputElement).checked)} />{text('preserveMetadata')}</label>
                 {#if settingsDraft.export.profile === 'lossless'}<label><input type="checkbox" checked={settingsDraft.export.copySubtitles} onchange={(event) => updateExportDraft('copySubtitles', (event.currentTarget as HTMLInputElement).checked)} />{text('copySubtitles')}</label>{/if}
               </div>

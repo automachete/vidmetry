@@ -44,7 +44,6 @@ export interface ExportSettings {
   audioBitrateKbps: number;
   frameRateMode: FrameRateMode;
   constantFrameRate: number;
-  fastStart: boolean;
   preserveMetadata: boolean;
   copySubtitles: boolean;
 }

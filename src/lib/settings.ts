@@ -21,20 +21,16 @@ const exportSettingsSchema: z.ZodType<ExportSettings> = z.strictObject({
   audioBitrateKbps: z.number().int().min(32).max(1024),
   frameRateMode: z.enum(frameRateModes),
   constantFrameRate: z.number().finite().min(1).max(240),
-  fastStart: z.boolean(),
   preserveMetadata: z.boolean(),
   copySubtitles: z.boolean(),
 });
 
-const legacyAppSettingsSchema = z.strictObject({
+export const appSettingsSchema = z.strictObject({
   languageMode: z.enum(['system', 'manual']),
   language: z.enum(['ja', 'en']),
   loopPlayback: z.boolean(),
-  export: exportSettingsSchema,
-});
-
-export const appSettingsSchema = legacyAppSettingsSchema.extend({
   explorerIntegration: z.boolean(),
+  export: exportSettingsSchema,
 });
 
 export type AppSettings = z.infer<typeof appSettingsSchema>;
@@ -66,7 +62,6 @@ export const defaultSettings: AppSettings = appSettingsSchema.parse({
     audioBitrateKbps: 192,
     frameRateMode: 'passthrough',
     constantFrameRate: 30,
-    fastStart: true,
     preserveMetadata: true,
     copySubtitles: true,
   },
@@ -88,13 +83,7 @@ export async function persistSettings(
 }
 
 export function parseSettings(value: unknown): AppSettings {
-  const current = appSettingsSchema.safeParse(value);
-  if (current.success) return current.data;
-
-  const legacy = legacyAppSettingsSchema.safeParse(value);
-  if (legacy.success) return appSettingsSchema.parse({ ...legacy.data, explorerIntegration: true });
-
-  throw current.error;
+  return appSettingsSchema.parse(value);
 }
 
 export function cloneSettings(settings: AppSettings): AppSettings {

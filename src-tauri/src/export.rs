@@ -114,7 +114,6 @@ pub struct ExportSettings {
     pub audio_bitrate_kbps: u16,
     pub frame_rate_mode: FrameRateMode,
     pub constant_frame_rate: f64,
-    pub fast_start: bool,
     pub preserve_metadata: bool,
     pub copy_subtitles: bool,
 }
@@ -406,10 +405,12 @@ fn build_export_args(
             );
             add_audio(&mut args, settings, media, true, time_trimmed);
             add_metadata_mapping(&mut args, settings.preserve_metadata);
-            args.extend(["-metadata:s:v:0".into(), "rotate=0".into()]);
-            if settings.fast_start {
-                args.extend(["-movflags".into(), "+faststart".into()]);
-            }
+            args.extend([
+                "-metadata:s:v:0".into(),
+                "rotate=0".into(),
+                "-movflags".into(),
+                "+faststart".into(),
+            ]);
         }
         ExportProfile::Lossless => {
             args.extend(["-map".into(), "0:v:0".into(), "-map".into(), "0:a?".into()]);
@@ -972,7 +973,6 @@ mod tests {
             audio_bitrate_kbps: 192,
             frame_rate_mode: FrameRateMode::Passthrough,
             constant_frame_rate: 30.0,
-            fast_start: true,
             preserve_metadata: true,
             copy_subtitles: true,
         }
@@ -994,7 +994,6 @@ mod tests {
                 "audioBitrateKbps": 192,
                 "frameRateMode": "passthrough",
                 "constantFrameRate": 30,
-                "fastStart": true,
                 "preserveMetadata": true,
                 "copySubtitles": true
             },
@@ -1012,6 +1011,10 @@ mod tests {
         let mut obsolete_extra = request_json();
         obsolete_extra["legacyMode"] = serde_json::json!(true);
         assert!(serde_json::from_value::<ExportRequest>(obsolete_extra).is_err());
+
+        let mut obsolete_fast_start = request_json();
+        obsolete_fast_start["settings"]["fastStart"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<ExportRequest>(obsolete_fast_start).is_err());
 
         assert!(serde_json::from_value::<ExportRequest>(request_json()).is_ok());
     }
@@ -1208,7 +1211,6 @@ mod tests {
             audio_bitrate_kbps: 256,
             frame_rate_mode: FrameRateMode::Constant,
             constant_frame_rate: 29.97,
-            fast_start: false,
             preserve_metadata: false,
             ..default_settings()
         };
@@ -1235,7 +1237,10 @@ mod tests {
         assert!(args.windows(2).any(|pair| pair == ["-b:a", "256k"]));
         assert!(args.windows(2).any(|pair| pair == ["-r", "29.97"]));
         assert!(args.windows(2).any(|pair| pair == ["-map_metadata", "-1"]));
-        assert!(!args.contains(&"+faststart".to_owned()));
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["-movflags", "+faststart"])
+        );
     }
 
     #[test]

@@ -15,7 +15,6 @@ const settings = {
     audioBitrateKbps: 192,
     frameRateMode: 'passthrough',
     constantFrameRate: 30,
-    fastStart: true,
     preserveMetadata: true,
     copySubtitles: true,
   },

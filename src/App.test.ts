@@ -187,6 +187,7 @@ describe('application shell', () => {
     expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy();
     expect(screen.getByText('Video export method')).toBeTruthy();
     expect(screen.queryByText('Export video')).toBeNull();
+    expect(screen.queryByText('Optimize for web playback (faststart)')).toBeNull();
     const sections = container.querySelectorAll('.settings-scroll > .settings-section');
     expect(sections.item(sections.length - 1).querySelector('h3')?.textContent).toBe(
       'Display language',
