@@ -1091,9 +1091,9 @@
     settingsDraft = { ...settingsDraft, export: { ...settingsDraft.export, [key]: value } };
   }
 
-  function encoderAvailable(encoder: VideoEncoder): boolean {
+  function encoderAvailable(codec: VideoCodec, encoder: VideoEncoder): boolean {
     if (encoder === 'automatic' || encoder === 'software') return true;
-    return encoderAvailability[settingsDraft.export.videoCodec][encoder];
+    return encoderAvailability[codec][encoder];
   }
 
   function setProfile(profile: ExportProfile) {
@@ -1454,7 +1454,7 @@
               <div class="settings-grid">
                 {#if settingsDraft.export.profile === 'compatible'}
                   <label class="settings-field"><span>{text('videoCodec')}</span><select value={settingsDraft.export.videoCodec} onchange={(event) => updateExportDraft('videoCodec', (event.currentTarget as HTMLSelectElement).value as VideoCodec)}><option value="h264">H.264</option><option value="h265">H.265 / HEVC</option></select></label>
-                  <label class="settings-field"><span>{text('encoder')}</span><select value={settingsDraft.export.encoder} onchange={(event) => updateExportDraft('encoder', (event.currentTarget as HTMLSelectElement).value as VideoEncoder)}><option value="automatic">{text('automaticEncoder')}</option><option value="nvidia" disabled={!encoderAvailable('nvidia')}>NVIDIA NVENC</option><option value="intel" disabled={!encoderAvailable('intel')}>Intel Quick Sync</option><option value="amd" disabled={!encoderAvailable('amd')}>AMD AMF</option><option value="software">{text('softwareEncoder')}</option></select></label>
+                  <label class="settings-field"><span>{text('encoder')}</span><select value={settingsDraft.export.encoder} onchange={(event) => updateExportDraft('encoder', (event.currentTarget as HTMLSelectElement).value as VideoEncoder)}><option value="automatic">{text('automaticEncoder')}</option><option value="nvidia" disabled={!encoderAvailable(settingsDraft.export.videoCodec, 'nvidia')}>nvenc</option><option value="intel" disabled={!encoderAvailable(settingsDraft.export.videoCodec, 'intel')}>qsv</option><option value="amd" disabled={!encoderAvailable(settingsDraft.export.videoCodec, 'amd')}>amf</option><option value="software">{settingsDraft.export.videoCodec === 'h264' ? 'libx264' : 'libx265'}</option></select></label>
                   <label class="settings-field"><span>{text('crf')}</span><input type="number" min="0" max="51" step="1" value={settingsDraft.export.crf} onchange={(event) => updateExportDraft('crf', Number((event.currentTarget as HTMLInputElement).value))} /><small>{text('crfHint')}</small></label>
                   <label class="settings-field"><span>{text('preset')}</span><select value={settingsDraft.export.preset} onchange={(event) => updateExportDraft('preset', (event.currentTarget as HTMLSelectElement).value as EncoderPreset)}>{#each encoderPresets as preset}<option value={preset}>{preset}</option>{/each}</select></label>
                 {/if}

@@ -121,7 +121,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 | Lossless FFV1/MKV | Yes | Yes | Lossless after source decode, provided pixel format and color metadata are preserved | Moderate/low |
 | Metadata-only | Display-only | No | Original coded stream retained | Codec/player dependent |
 
-The Compatible profile defaults to H.264, automatic encoder selection, quality level 17, `medium`, `yuv420p`, source cadence, automatic audio, and metadata retention. Automatic encoder selection prefers NVENC, Quick Sync Video, and AMF before the software codec fallback. Compatible MP4 output is always finalized with fast start. These defaults are not a guarantee of visual transparency for every source or encoder.
+The Compatible profile defaults to H.264, automatic encoder selection, quality level 17, `medium`, `yuv420p`, source cadence, automatic audio, and metadata retention. Automatic encoder selection prefers `nvenc`, `qsv`, and `amf` before the `libx264` or `libx265` fallback. Compatible MP4 output is always finalized with fast start. These defaults are not a guarantee of visual transparency for every source or encoder.
 
 The Lossless profile must avoid an unconditional conversion to 8-bit `yuv420p`. The backend retains a compatible source pixel format and carries color primaries, transfer characteristics, matrix, and range where FFmpeg exposes them.
 

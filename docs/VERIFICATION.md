@@ -25,7 +25,7 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 | `cargo fmt --check --manifest-path src-tauri\Cargo.toml` | Pass |
 | `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 31 Rust unit tests |
 | `cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings` | Pass |
-| `scripts/test-integration.ps1` | Pass — H.264 and H.265 selected NVENC on the RTX 5070 Ti |
+| `scripts/test-integration.ps1` | Pass — H.264 and H.265 selected `nvenc` on the RTX 5070 Ti |
 | `npm audit --audit-level=high` | Pass — 0 vulnerabilities |
 | `cargo audit --file src-tauri\Cargo.lock` | Pass — 0 vulnerabilities; 17 allowed informational warnings in Tauri's cross-target dependency graph |
 | `actionlint` | Pass — CI and release workflows |
@@ -48,8 +48,8 @@ The test script generates an H.264/AAC 1280×720, 30 fps source and crops `{x:10
 
 | Profile | Probed result | Additional assertion |
 |---|---|---|
-| Compatible | H.264 via NVENC, 640×360, yuv420p | Physical crop, compatible codec, and color metadata preserved |
-| Configured compatible | HEVC via NVENC, 640×360, yuv420p10le | H.265, quality/preset, 10-bit format, AAC, CFR, and color metadata applied |
+| Compatible | H.264 via `nvenc`, 640×360, yuv420p | Physical crop, compatible codec, and color metadata preserved |
+| Configured compatible | HEVC via `nvenc`, 640×360, yuv420p10le | H.265, quality/preset, 10-bit format, AAC, CFR, and color metadata applied |
 | Lossless | FFV1, 640×360, yuv420p | Every decoded-frame MD5 matches the source crop; color metadata preserved |
 | Metadata-only | H.264 stream copy, displayed 640×360 | No video encoder used |
 | Time trim | H.264/AAC, 640×360, 60 frames, 2.000 s | Source frame range `[30, 90)` applied exactly |
@@ -59,9 +59,9 @@ The source SHA-256 before and after all exports is identical. Temporary test med
 
 ## Hardware encoding benchmark
 
-An 8-second 3840×2160 source was cropped to 3200×1800 and encoded with the bundled FFmpeg on an RTX 5070 Ti using NVIDIA driver 610.88. H.264 completed in 1.62 seconds with NVENC versus 2.25 seconds with `libx264` (28% shorter). H.265 completed in 1.67 seconds with NVENC versus 3.23 seconds with `libx265` (48% shorter).
+An 8-second 3840×2160 source was cropped to 3200×1800 and encoded with the bundled FFmpeg on an RTX 5070 Ti using NVIDIA driver 610.88. H.264 completed in 1.62 seconds with `nvenc` versus 2.25 seconds with `libx264` (28% shorter). H.265 completed in 1.67 seconds with `nvenc` versus 3.23 seconds with `libx265` (48% shorter).
 
-The one-frame startup probes reported NVENC and AMF available for both H.264 and H.265, and QSV unavailable on this machine. Running all six probes serially took 739 ms; the application runs the three vendor probes concurrently and tests the two codecs sequentially per vendor.
+The one-frame startup probes reported `nvenc` and `amf` available for both H.264 and H.265, and `qsv` unavailable on this machine. Running all six probes serially took 739 ms; the application runs the three encoder probes concurrently and tests the two codecs sequentially per encoder.
 
 ## Local release artifacts
 

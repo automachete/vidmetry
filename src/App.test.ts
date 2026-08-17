@@ -210,16 +210,15 @@ describe('application shell', () => {
       'Automatic',
     );
     expect(
-      (within(encoder).getByRole('option', { name: 'NVIDIA NVENC' }) as HTMLOptionElement)
-        .disabled,
+      (within(encoder).getByRole('option', { name: 'nvenc' }) as HTMLOptionElement).disabled,
     ).toBe(false);
     expect(
-      (within(encoder).getByRole('option', { name: 'Intel Quick Sync' }) as HTMLOptionElement)
-        .disabled,
+      (within(encoder).getByRole('option', { name: 'qsv' }) as HTMLOptionElement).disabled,
     ).toBe(true);
     expect(
-      (within(encoder).getByRole('option', { name: 'AMD AMF' }) as HTMLOptionElement).disabled,
+      (within(encoder).getByRole('option', { name: 'amf' }) as HTMLOptionElement).disabled,
     ).toBe(false);
+    expect(within(encoder).getByRole('option', { name: 'libx264' })).toBeTruthy();
     const sections = container.querySelectorAll('.settings-scroll > .settings-section');
     expect(sections.item(sections.length - 1).querySelector('h3')?.textContent).toBe(
       'Display language',

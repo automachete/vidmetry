@@ -219,12 +219,21 @@ test('settings place display language at the bottom', async ({ page }) => {
   expect(headings.at(-1)).toBe('Display language');
   const encoder = page.getByRole('combobox', { name: 'Encoder' });
   await expect(encoder.locator('option[value="automatic"]')).toHaveText('Automatic');
+  await expect(encoder.locator('option[value="nvidia"]')).toHaveText('nvenc');
   await expect(encoder.locator('option[value="nvidia"]')).not.toHaveAttribute('disabled', '');
+  await expect(encoder.locator('option[value="intel"]')).toHaveText('qsv');
   await expect(encoder.locator('option[value="intel"]')).toHaveAttribute('disabled', '');
+  await expect(encoder.locator('option[value="amd"]')).toHaveText('amf');
   await expect(encoder.locator('option[value="amd"]')).not.toHaveAttribute('disabled', '');
+  await expect(encoder.locator('option[value="software"]')).toHaveText('libx264');
   await encoder.selectOption('amd');
   await expect(encoder).toHaveValue('amd');
   await encoder.selectOption('automatic');
+  const codec = page.getByRole('combobox', { name: 'Video codec' });
+  await codec.selectOption('h265');
+  await expect(encoder.locator('option[value="software"]')).toHaveText('libx265');
+  await expect(encoder.locator('option[value="amd"]')).toHaveAttribute('disabled', '');
+  await codec.selectOption('h264');
   await expect(page.getByRole('dialog', { name: 'Settings' })).toHaveScreenshot('settings.png', {
     animations: 'disabled',
   });
