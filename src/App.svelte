@@ -126,6 +126,7 @@
   let stageHeight = 0;
   let currentTime = 0;
   let isPlaying = false;
+  let resumePlaybackAfterLoad = false;
   let isMuted = false;
   let isLoading = false;
   let isPreparingProxy = false;
@@ -489,7 +490,11 @@
     }
   }
 
-  async function loadVideo(path: string, keepPlaylist = false): Promise<boolean> {
+  async function loadVideo(
+    path: string,
+    keepPlaylist = false,
+    resumePlayback = false,
+  ): Promise<boolean> {
     if (isLoading || isPreparingProxy || exportJobId) return false;
     isLoading = true;
     errorMessage = exportEventsError;
@@ -498,6 +503,7 @@
     timelineStripSrc = '';
     currentTime = 0;
     isPlaying = false;
+    resumePlaybackAfterLoad = resumePlayback;
     selectedTrimHandle = null;
     showSaveMenu = false;
     videoElement?.pause();
@@ -526,6 +532,7 @@
       void loadTimelineStrip(descriptor);
       return true;
     } catch (error) {
+      resumePlaybackAfterLoad = false;
       errorMessage = backendOrClientError('selectionFailed', error);
       return false;
     } finally {
@@ -552,13 +559,23 @@
     if (playlist.length < 2 || isLoading || exportJobId) return;
     const next = Math.min(playlist.length - 1, Math.max(0, playlistIndex + offset));
     if (next === playlistIndex) return;
-    await loadVideo(playlist[next], true);
+    const resumePlayback =
+      directoryPath !== null && (isPlaying || (videoElement && !videoElement.paused));
+    await loadVideo(playlist[next], true, Boolean(resumePlayback));
   }
 
   async function selectPlaylistVideo(event: Event) {
     const next = Number((event.currentTarget as HTMLSelectElement).value);
     if (!Number.isInteger(next) || !playlist[next] || next === playlistIndex) return;
-    await loadVideo(playlist[next], true);
+    const resumePlayback =
+      directoryPath !== null && (isPlaying || (videoElement && !videoElement.paused));
+    await loadVideo(playlist[next], true, Boolean(resumePlayback));
+  }
+
+  function handleVideoCanPlay() {
+    if (!resumePlaybackAfterLoad) return;
+    resumePlaybackAfterLoad = false;
+    void playVideo();
   }
 
   async function handleVideoError() {
@@ -1242,6 +1259,7 @@
               playsinline
               preload="metadata"
               onerror={handleVideoError}
+              oncanplay={handleVideoCanPlay}
               ontimeupdate={handleTimeUpdate}
               onplay={() => (isPlaying = true)}
               onpause={() => (isPlaying = false)}

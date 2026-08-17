@@ -210,6 +210,24 @@ test('ffprobe timing remains authoritative over the preview element duration', a
   await expect(page.locator('.time.total')).toHaveText('0:08.000');
 });
 
+test('directory navigation continues playback in regular and fullscreen preview', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open folder' }).click();
+  const video = page.locator('video');
+
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__vidmetryPlayCount)).toBe(1);
+  await page.getByRole('button', { name: 'Next video' }).click();
+  await video.dispatchEvent('canplay');
+  await expect.poll(() => page.evaluate(() => (window as any).__vidmetryPlayCount)).toBe(2);
+
+  await page.keyboard.press('F11');
+  await expect(page.locator('.app-shell')).toHaveClass(/video-fullscreen/);
+  await page.keyboard.press('PageUp');
+  await video.dispatchEvent('canplay');
+  await expect.poll(() => page.evaluate(() => (window as any).__vidmetryPlayCount)).toBe(3);
+});
+
 test('settings expose encoder availability and place display language last', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings' }).click();

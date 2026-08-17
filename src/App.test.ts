@@ -337,6 +337,24 @@ describe('application shell', () => {
     );
   });
 
+  it('continues playback after moving between videos in a selected directory', async () => {
+    useEnglish();
+    const paths = ['C:\\clips\\a.mp4', 'C:\\clips\\b.mp4'];
+    vi.mocked(dialogOpen).mockResolvedValue('C:\\clips');
+    mockSelection(paths);
+    render(App);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Open folder' }));
+    await screen.findByText('a.mp4');
+    const video = document.querySelector('video') as HTMLVideoElement;
+    await fireEvent.play(video);
+    await fireEvent.click(screen.getByRole('button', { name: 'Next video' }));
+    await screen.findByText('b.mp4');
+    await fireEvent.canPlay(video);
+
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledOnce();
+  });
+
   it('validates every path in a multi-file drop through the backend selection boundary', async () => {
     useEnglish();
     const paths = ['C:\\clips\\a.mp4', 'C:\\clips\\b.mp4'];
