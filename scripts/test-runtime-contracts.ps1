@@ -29,6 +29,9 @@ foreach ($requiredEntry in @('/.github/workflows/** @automachete', '/.github/COD
 }
 
 $releaseWorkflow = Get-Content -LiteralPath (Join-Path $workflowDirectory 'release.yml') -Raw
+if ($releaseWorkflow -notmatch '(?m)^env:\r?\n  GH_REPO: \$\{\{ github\.repository \}\}\s*$') {
+    throw 'The Release workflow must set GH_REPO for checkout-free gh commands.'
+}
 if ($releaseWorkflow -notmatch '(?m)^\s{4}environment:\s+microsoft-store-release\s*$') {
     throw 'The Microsoft Store MSIX job must use the microsoft-store-release environment.'
 }
