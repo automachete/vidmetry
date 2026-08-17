@@ -2,6 +2,12 @@
 
 Vidmetryは、動画の**画面領域と開始・終了時間**を素早く切り取るWindows向けデスクトップアプリです。動画またはフォルダーを開き、プレビュー上の枠とフレーム列の両端を動かし、再生／スクラブで確認して保存できます。メディア処理はPC内で完結します。
 
+## インストール
+
+対応環境はWindows 11 x64です。[GitHub Releases](https://github.com/automachete/vidmetry/releases)のVidmetryアプリケーションリリースから、セットアップEXEまたはMSIをダウンロードしてインストールしてください。
+
+インストールすると、対応動画の「プログラムから開く」とフォルダーの右クリックメニューにVidmetryが追加されます。この連携はアプリの共通設定からオン／オフできます。
+
 ## 主な機能
 
 - 8個の空間クロップ用リサイズハンドルと移動可能なクロップ枠
@@ -43,56 +49,8 @@ Vidmetryは、動画の**画面領域と開始・終了時間**を素早く切�
 | Ctrl + Shift + S | 元動画へ保存（対応する保存方式のみ、確認あり） |
 | F11 / Esc | 全画面動画プレビューの開始／終了 |
 
-## 開発環境
+## ライセンス
 
-- Windows 11 x64
-- `.node-version`に固定したNode.js 24.12.0とnpm 11.18.0
-- `rust-toolchain.toml`に固定したRust 1.97.1（MSVC）
-- Visual Studio Build ToolsのDesktop development with C++
-- Microsoft Edge WebView2 Runtime
+Vidmetry本体は[MIT License](LICENSE)です。同梱するFFmpeg／ffprobeなど第三者ソフトウェアのライセンスと対応ソースについては[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)を確認してください。
 
-セットアップと起動:
-
-```powershell
-npm ci
-npx playwright install chromium
-.\scripts\setup-ffmpeg.ps1
-.\scripts\setup-copyleft-sources.ps1
-.\scripts\generate-third-party-licenses.ps1
-npm run tauri dev
-```
-
-FFmpegスクリプトは、公開されたビルド定義を持つBtbNの日時固定GPL Release資産について、アーカイブと各実行ファイルを追跡済みSHA-256で検証し、必要なエンコーダーも実行時に検査してからTauri用の`ffmpeg`／`ffprobe`サイドカーを配置します。バイナリと生成した通知ファイルはGit管理されません。
-
-## テストとビルド
-
-```powershell
-npm run verify
-npm run test:ui
-npm run check:licenses
-cargo deny --manifest-path src-tauri\Cargo.toml check licenses
-cargo audit --file src-tauri\Cargo.lock
-cargo test --manifest-path src-tauri\Cargo.toml
-cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings
-npm run test:integration
-npm run tauri build
-```
-
-`test:ui`はPlaywrightのChromium実描画で、Windows配色、再生位置ハンドルと開始／終了トリム境界ハンドル、ペイン開閉、F11、保存ショートカット、通知、保存メニューを操作・画像比較します。`test:integration`は生成動画から各方式を実際に書き出し、60フレームの時間トリム、カスタムHEVC設定、コーデックと寸法、可逆出力のフレームハッシュ、上書き置換、元テスト動画のSHA-256不変を検証します。Windowsインストーラーは`src-tauri\target\release\bundle`以下に生成されます。
-
-## リリース
-
-`package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`のバージョンを揃えてから、同じバージョンの`vX.Y.Z`タグをプッシュします。
-
-```powershell
-git tag -a v0.4.7 -m "Vidmetry v0.4.7"
-git push origin v0.4.7
-```
-
-FFmpegエンジンの構成が変わったときだけ、GitHub Actionsが完全対応ソースを組み立てて監査し、エンジン固有タグの変更不能なRelease資産として保存します。通常の`vX.Y.Z`リリースではその資産をSHA-256で再検証して再利用し、ソース取得とWindowsビルドを並行実行します。Windows用MSI／セットアップEXEは、依存関係とライセンスの監査、全テスト、MPL依存ソースの内包を確認したうえで、FFmpeg対応ソースの圧縮ファイルとSHA-256が同じ下書きReleaseに揃い、リポジトリが一般受領者からアクセスできる公開状態であることを再確認した後にだけ公開されます。途中で失敗したReleaseや非公開リポジトリ上のReleaseは公開されません。タグとアプリのバージョンが一致しない場合も公開されず、ハイフンを含むタグ（例: `v0.4.7-beta.1`）はプレリリースとして扱います。CIが参照する外部ActionはコミットSHAへ固定し、Dependabotが更新候補を提出します。
-
-詳細な要件と設計は[docs/SDD.md](docs/SDD.md)、今回の検証結果は[docs/VERIFICATION.md](docs/VERIFICATION.md)を参照してください。
-
-## License
-
-Vidmetry本体は[MIT License](LICENSE)です。FFmpeg／ffprobeはライブラリとしてリンクせず、通常のコマンドライン引数・ファイル・進捗テキストで連携する別プログラムです。同梱物にはGPL-3.0-or-laterが適用され、公式Releaseはその完全な対応ソースを同じ配布場所で提供します。詳細は[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)を確認してください。
+開発への参加方法は[CONTRIBUTING.md](CONTRIBUTING.md)にまとめています。
