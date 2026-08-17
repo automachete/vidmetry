@@ -117,6 +117,10 @@
     videoPaths: string[];
   }
 
+  interface DirectoryChangedEvent {
+    rootPath: string;
+  }
+
   let media: MediaDescriptor | null = null;
   let crop: CropRect = { x: 0, y: 0, width: 16, height: 16 };
   let aspect: AspectPreset = 'free';
@@ -142,6 +146,7 @@
   let seekFrame: number | null = null;
   let unlistenDragDrop: UnlistenFn | undefined;
   let unlistenTheme: UnlistenFn | undefined;
+  let unlistenDirectoryChanges: UnlistenFn | undefined;
   let unlistenExportEvents: UnlistenFn[] = [];
   let exportEventsReady = false;
   let exportEventsError = '';
@@ -149,6 +154,9 @@
   let playlist: string[] = [];
   let playlistIndex = 0;
   let directoryPath: string | null = null;
+  let directoryRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  let directoryRefreshPending = false;
+  let isRefreshingDirectory = false;
   let showSaveMenu = false;
   let exportJobId: string | null = null;
   let exportProgress = 0;
@@ -214,6 +222,7 @@
     void initializeSettings();
     void initializeEncoderAvailability();
     void initializeSystemAppearance();
+    void initializeDirectoryEvents();
     void initializeStartupSelection();
 
     void initializeDragDrop();
@@ -271,6 +280,7 @@
     destroyed = true;
     unlistenDragDrop?.();
     unlistenTheme?.();
+    unlistenDirectoryChanges?.();
     for (const unlisten of unlistenExportEvents) unlisten();
     window.removeEventListener('keydown', handleKeyboard);
     window.removeEventListener('pointerdown', handleGlobalPointerDown);
@@ -281,7 +291,21 @@
     endTimelineScrub();
     if (seekFrame !== null) cancelAnimationFrame(seekFrame);
     if (successTimer !== null) clearTimeout(successTimer);
+    if (directoryRefreshTimer !== null) clearTimeout(directoryRefreshTimer);
   });
+
+  async function initializeDirectoryEvents() {
+    try {
+      const unlisten = await listen<DirectoryChangedEvent>('directory-changed', (event) => {
+        if (!directoryPath || !sameWindowsPath(event.payload.rootPath, directoryPath)) return;
+        scheduleDirectoryRefresh();
+      });
+      if (destroyed) unlisten();
+      else unlistenDirectoryChanges = unlisten;
+    } catch (error) {
+      if (!destroyed) errorMessage = clientError('directoryWatchUnavailable', error);
+    }
+  }
 
   async function initializeDragDrop() {
     try {
@@ -326,6 +350,7 @@
           if (!event.payload.cancelled) {
             errorMessage = `${text('exportFailed')}${readableError(event.payload.error)}`;
           }
+          if (directoryRefreshPending) scheduleDirectoryRefresh();
         }),
       );
       if (destroyed) {
@@ -489,7 +514,89 @@
       playlist = previous.playlist;
       playlistIndex = previous.playlistIndex;
       directoryPath = previous.directoryPath;
+      return;
     }
+    await updateDirectoryWatch(selectedDirectory);
+  }
+
+  async function updateDirectoryWatch(path: string | null) {
+    try {
+      await invoke('watch_directory', { path });
+    } catch (error) {
+      errorMessage = backendOrClientError('directoryWatchUnavailable', error);
+    }
+  }
+
+  function scheduleDirectoryRefresh() {
+    if (!directoryPath || destroyed) return;
+    if (directoryRefreshTimer !== null) clearTimeout(directoryRefreshTimer);
+    directoryRefreshTimer = setTimeout(() => {
+      directoryRefreshTimer = null;
+      void refreshDirectory();
+    }, 150);
+  }
+
+  async function refreshDirectory() {
+    const expectedDirectory = directoryPath;
+    if (!expectedDirectory || destroyed) return;
+    if (
+      isLoading ||
+      isPreparingProxy ||
+      isStartingExport ||
+      exportJobId !== null ||
+      isRefreshingDirectory
+    ) {
+      directoryRefreshPending = true;
+      return;
+    }
+
+    isRefreshingDirectory = true;
+    directoryRefreshPending = false;
+    try {
+      const selection = await invoke<SelectionDescriptor>('inspect_selection', {
+        path: expectedDirectory,
+      });
+      if (
+        destroyed ||
+        !directoryPath ||
+        !sameWindowsPath(expectedDirectory, directoryPath) ||
+        selection.kind !== 'directory'
+      ) {
+        return;
+      }
+
+      const currentPath = media?.sourcePath;
+      const currentIndex = currentPath
+        ? selection.videoPaths.findIndex((path) => sameWindowsPath(path, currentPath))
+        : -1;
+      if (currentIndex >= 0) {
+        playlist = [...selection.videoPaths];
+        playlistIndex = currentIndex;
+        return;
+      }
+
+      const previous = { playlist, playlistIndex };
+      playlist = [...selection.videoPaths];
+      playlistIndex = Math.min(previous.playlistIndex, playlist.length - 1);
+      const resumePlayback = isPlaying || Boolean(videoElement && !videoElement.paused);
+      if (!(await loadVideo(playlist[playlistIndex], true, resumePlayback))) {
+        playlist = previous.playlist;
+        playlistIndex = previous.playlistIndex;
+      }
+    } catch (error) {
+      if (directoryPath && sameWindowsPath(expectedDirectory, directoryPath)) {
+        errorMessage = backendOrClientError('selectionFailed', error);
+      }
+    } finally {
+      isRefreshingDirectory = false;
+      if (directoryRefreshPending && !isStartingExport && exportJobId === null) {
+        scheduleDirectoryRefresh();
+      }
+    }
+  }
+
+  function sameWindowsPath(left: string, right: string): boolean {
+    return left.toLocaleLowerCase('en-US') === right.toLocaleLowerCase('en-US');
   }
 
   async function loadVideo(
@@ -1017,6 +1124,7 @@
       errorMessage = `${text('exportStartError')}${readableError(error)}`;
     } finally {
       isStartingExport = false;
+      if (!exportJobId && directoryRefreshPending) scheduleDirectoryRefresh();
     }
   }
 
@@ -1026,6 +1134,7 @@
     const replacedSource = inPlaceExportPath !== null;
     inPlaceExportPath = null;
     if (replacedSource) await loadVideo(event.outputPath, true);
+    if (directoryPath) await refreshDirectory();
     showSuccess(event.outputPath);
   }
 

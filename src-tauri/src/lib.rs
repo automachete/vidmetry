@@ -1,6 +1,7 @@
 pub mod app_error;
 mod appearance;
 mod cache;
+mod directory_watch;
 mod export;
 mod ffmpeg;
 mod media;
@@ -100,6 +101,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(export::ExportState::default())
         .manage(ffmpeg::ProbeCache::default())
+        .manage(directory_watch::DirectoryWatchState::default())
         .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
@@ -113,6 +115,7 @@ pub fn run() {
             start_export,
             cancel_export,
             inspect_selection,
+            directory_watch::watch_directory,
             reveal_in_explorer,
             shell_integration::startup_selection,
             shell_integration::set_explorer_integration

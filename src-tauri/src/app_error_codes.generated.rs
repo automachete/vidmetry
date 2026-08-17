@@ -33,6 +33,8 @@ pub enum ErrorCode {
     FolderReadFailed,
     #[serde(rename = "folder_contains_no_supported_videos")]
     FolderContainsNoSupportedVideos,
+    #[serde(rename = "directory_watch_failed")]
+    DirectoryWatchFailed,
     #[serde(rename = "export_process_prepare_failed")]
     ExportProcessPrepareFailed,
     #[serde(rename = "export_process_start_failed")]

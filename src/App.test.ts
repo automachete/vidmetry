@@ -133,6 +133,7 @@ function mockSelection(
     }
     if (command === 'system_accent_color') return '#FF8C00' as never;
     if (command === 'startup_selection') return startupPath as never;
+    if (command === 'watch_directory') return undefined as never;
     if (command === 'start_export') return 'job-1' as never;
     if (command === 'reveal_in_explorer') return undefined as never;
     throw new Error(`Unexpected command: ${command}`);
@@ -529,6 +530,38 @@ describe('application shell', () => {
     expect(invoke).toHaveBeenCalledWith('reveal_in_explorer', {
       path: 'C:\\clips\\a_cropped.mp4',
     });
+  });
+
+  it('refreshes an open folder after Explorer additions and completed copy saves', async () => {
+    useEnglish();
+    const paths = ['C:\\clips\\a.mp4', 'C:\\clips\\b.mp4'];
+    vi.mocked(dialogOpen).mockResolvedValue('C:\\clips');
+    vi.mocked(dialogSave).mockResolvedValue('C:\\clips\\d-copy.mp4');
+    mockSelection(paths);
+    render(App);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Open folder' }));
+    await screen.findByRole('option', { name: '2. b.mp4' });
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('watch_directory', { path: 'C:\\clips' }),
+    );
+
+    paths.push('C:\\clips\\c-external.mp4');
+    await waitFor(() => expect(eventState.handlers.has('directory-changed')).toBe(true));
+    eventState.handlers.get('directory-changed')?.({
+      payload: { rootPath: 'c:\\CLIPS' } as never,
+    });
+    expect(await screen.findByRole('option', { name: '3. c-external.mp4' })).toBeTruthy();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Save a copy' }));
+    await screen.findByRole('button', { name: 'Cancel' });
+    paths.push('C:\\clips\\d-copy.mp4');
+    eventState.handlers.get('export-complete')?.({
+      payload: { jobId: 'job-1', outputPath: 'C:\\clips\\d-copy.mp4' } as never,
+    });
+
+    expect(await screen.findByRole('option', { name: '4. d-copy.mp4' })).toBeTruthy();
   });
 
   it('reloads an overwritten source with fresh media geometry and timing', async () => {

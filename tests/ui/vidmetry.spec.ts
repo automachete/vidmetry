@@ -33,6 +33,7 @@ async function installTauriMock(page: Page): Promise<void> {
     const requestedTheme = query.get('theme') === 'light' ? 'light' : 'dark';
     const simulatedMediaDuration = Number(query.get('mediaDuration'));
     const sourcePath = `C:\\clips\\sample.${sourceExtension}`;
+    let directoryVideos = ['C:\\clips\\first.mp4', 'C:\\clips\\second.mp4'];
 
     const transformCallback = (callback?: (data: unknown) => unknown, once = false) => {
       const id = nextCallback++;
@@ -85,6 +86,7 @@ async function installTauriMock(page: Page): Promise<void> {
         return args.options?.directory ? 'C:\\clips' : sourcePath;
       }
       if (command === 'plugin:dialog|save') return 'C:\\clips\\sample_cropped.mp4';
+      if (command === 'watch_directory') return null;
       if (command === 'inspect_selection') {
         if (new URLSearchParams(location.search).get('selectionError') === 'folder') {
           throw { code: 'folder_read_failed', detail: 'access denied' };
@@ -93,7 +95,7 @@ async function installTauriMock(page: Page): Promise<void> {
         return {
           kind: folder ? 'directory' : 'file',
           rootPath: folder ? 'C:\\clips' : sourcePath,
-          videoPaths: folder ? ['C:\\clips\\first.mp4', 'C:\\clips\\second.mp4'] : [sourcePath],
+          videoPaths: folder ? [...directoryVideos] : [sourcePath],
         };
       }
       if (command === 'probe_video') {
@@ -152,6 +154,9 @@ async function installTauriMock(page: Page): Promise<void> {
       },
       __vidmetryPlayCount: 0,
       __vidmetryFullscreen: false,
+      __setDirectoryVideos: (paths: string[]) => {
+        directoryVideos = [...paths];
+      },
     });
     const pausedState = new WeakMap<HTMLMediaElement, boolean>();
     Object.defineProperty(HTMLMediaElement.prototype, 'paused', {
@@ -310,6 +315,39 @@ test('folder navigation, save options, success alignment, and Explorer selection
     ),
   );
   expect(revealed).toBe(true);
+});
+
+test('an open folder refreshes after Explorer additions and completed copy saves', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open folder' }).click();
+  await expect(page.getByRole('option', { name: '2. second.mp4' })).toBeAttached();
+
+  await page.evaluate(() => {
+    (window as any).__setDirectoryVideos([
+      'C:\\clips\\first.mp4',
+      'C:\\clips\\second.mp4',
+      'C:\\clips\\third.mp4',
+    ]);
+    (window as any).__emitTauri('directory-changed', { rootPath: 'c:\\CLIPS' });
+  });
+  await expect(page.getByRole('option', { name: '3. third.mp4' })).toBeAttached();
+
+  await page.getByRole('button', { name: 'Save options' }).click();
+  await page.getByRole('menuitem', { name: 'Save a copy' }).click();
+  await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible();
+  await page.evaluate(() => {
+    (window as any).__setDirectoryVideos([
+      'C:\\clips\\first.mp4',
+      'C:\\clips\\sample_cropped.mp4',
+      'C:\\clips\\second.mp4',
+      'C:\\clips\\third.mp4',
+    ]);
+    (window as any).__emitTauri('export-complete', {
+      jobId: 'job-1',
+      outputPath: 'C:\\clips\\sample_cropped.mp4',
+    });
+  });
+  await expect(page.getByRole('option', { name: '2. sample_cropped.mp4' })).toBeAttached();
 });
 
 test('different extensions use direct Save a copy and Space starts playback', async ({ page }) => {

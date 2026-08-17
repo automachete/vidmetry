@@ -16,6 +16,7 @@
   "selected_path_unsupported",
   "folder_read_failed",
   "folder_contains_no_supported_videos",
+  "directory_watch_failed",
   "export_process_prepare_failed",
   "export_process_start_failed",
   "export_state_update_failed",
