@@ -23,6 +23,13 @@ $inPlaceSource = Join-Path $resultRoot 'in-place-source.mp4'
 $inPlaceTemporary = Join-Path $resultRoot 'in-place-source.vidmetry-test.tmp.mp4'
 $sourceFrames = Join-Path $resultRoot 'source-crop.framemd5'
 $losslessFrames = Join-Path $resultRoot 'lossless.framemd5'
+$longSource = Join-Path $resultRoot 'long-source.mp4'
+$lateTrimmed = Join-Path $resultRoot 'late-trimmed.mkv'
+$lateExpectedFrames = Join-Path $resultRoot 'late-expected.framemd5'
+$lateActualFrames = Join-Path $resultRoot 'late-actual.framemd5'
+$lateExpectedAudio = Join-Path $resultRoot 'late-expected-audio.flac'
+$lateExpectedAudioHash = Join-Path $resultRoot 'late-expected-audio.md5'
+$lateActualAudioHash = Join-Path $resultRoot 'late-actual-audio.md5'
 
 & $ffmpeg -hide_banner -loglevel error -y `
     -f lavfi -i 'testsrc2=size=1280x720:rate=30' `
@@ -32,6 +39,13 @@ $losslessFrames = Join-Path $resultRoot 'lossless.framemd5'
     -c:a aac -movflags +faststart $source
 if ($LASTEXITCODE -ne 0) { throw 'Unable to generate the integration fixture.' }
 $sourceHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash
+
+& $ffmpeg -hide_banner -loglevel error -nostdin -y `
+    -f lavfi -i 'testsrc2=size=320x180:rate=30:duration=40' `
+    -f lavfi -i 'sine=frequency=440:sample_rate=48000:duration=40' `
+    -c:v libx264 -preset ultrafast -g 300 -pix_fmt yuv420p -c:a aac $longSource
+if ($LASTEXITCODE -ne 0) { throw 'Unable to generate the long integration fixture.' }
+$longSourceHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $longSource).Hash
 
 function Invoke-EncoderFallback(
     [string]$Output,
@@ -84,10 +98,12 @@ $customEncoder = Invoke-EncoderFallback `
         '-c:a', 'aac', '-b:a', '160k', '-map_metadata', '-1'
     )
 
+$ffv1Threads = [Math]::Min([Math]::Max(1, [Environment]::ProcessorCount), 64)
+$ffv1Slices = [Math]::Min([Math]::Max(4, $ffv1Threads * 4), 64)
 & $ffmpeg -hide_banner -loglevel error -nostdin -y -i $source `
     -map '0:v:0' -map '0:a?' -map '0:s?' `
     -vf 'crop=w=640:h=360:x=100:y=100,setsar=1,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=limited' `
-    -c:v ffv1 -level 3 -coder 1 -context 1 -slicecrc 1 -c:a copy -c:s copy `
+    -c:v ffv1 -level 3 -coder 1 -context 1 -slicecrc 1 -threads $ffv1Threads -slices $ffv1Slices -c:a copy -c:s copy `
     -fps_mode passthrough `
     -metadata:s:v:0 'rotate=0' $lossless
 if ($LASTEXITCODE -ne 0) { throw 'Lossless export failed.' }
@@ -104,11 +120,24 @@ if ($LASTEXITCODE -ne 0) { throw 'Metadata-only export failed.' }
     -c:a aac -b:a 192k -t 2 $trimmed
 if ($LASTEXITCODE -ne 0) { throw 'Frame-accurate time trim export failed.' }
 
+& $ffmpeg -hide_banner -loglevel error -nostdin -y -ss 30 -i $longSource `
+    -map '0:v:0' -map '0:a:0?' `
+    -vf 'trim=start_frame=150:end_frame=210,setpts=PTS-STARTPTS' `
+    -af 'atrim=start=5:end=7,asetpts=PTS-STARTPTS' `
+    -c:v ffv1 -level 3 -coder 1 -context 1 -slicecrc 1 -threads $ffv1Threads -slices 32 `
+    -pix_fmt yuv420p -fps_mode passthrough -c:a flac -t 2 $lateTrimmed
+if ($LASTEXITCODE -ne 0) { throw 'Late input-seek trim export failed.' }
+
 function Get-VideoDescriptor([string]$Path) {
-    $json = & $ffprobe -v error -select_streams 'v:0' `
-        -show_entries 'stream=codec_name,width,height,pix_fmt,nb_frames,duration,color_primaries,color_transfer,color_space,color_range' -of json $Path
+    $json = & $ffprobe -v error -count_frames -select_streams 'v:0' `
+        -show_entries 'stream=codec_name,width,height,pix_fmt,nb_frames,nb_read_frames,duration,color_primaries,color_transfer,color_space,color_range:format=duration' -of json $Path
     if ($LASTEXITCODE -ne 0) { throw "ffprobe failed for $Path" }
-    return ($json | ConvertFrom-Json).streams[0]
+    $document = $json | ConvertFrom-Json
+    $stream = $document.streams[0]
+    if (-not $stream.duration) {
+        $stream | Add-Member -NotePropertyName duration -NotePropertyValue $document.format.duration
+    }
+    return $stream
 }
 
 $compatibleInfo = Get-VideoDescriptor $compatible
@@ -116,6 +145,7 @@ $customInfo = Get-VideoDescriptor $custom
 $losslessInfo = Get-VideoDescriptor $lossless
 $metadataInfo = Get-VideoDescriptor $metadata
 $trimmedInfo = Get-VideoDescriptor $trimmed
+$lateTrimmedInfo = Get-VideoDescriptor $lateTrimmed
 
 if ($compatibleInfo.codec_name -ne 'h264' -or $compatibleInfo.width -ne 640 -or $compatibleInfo.height -ne 360) {
     throw 'Compatible output descriptor does not match the selected crop.'
@@ -137,6 +167,32 @@ if ($metadataInfo.codec_name -ne 'h264' -or $metadataInfo.width -ne 640 -or $met
 }
 if ([int]$trimmedInfo.nb_frames -ne 60 -or [Math]::Abs([double]$trimmedInfo.duration - 2.0) -gt 0.05) {
     throw 'Time-trimmed output is not the selected 60-frame, two-second range.'
+}
+$lateFrameCount = if ($lateTrimmedInfo.nb_frames) { [int]$lateTrimmedInfo.nb_frames } else { [int]$lateTrimmedInfo.nb_read_frames }
+if ($lateFrameCount -ne 60 -or [Math]::Abs([double]$lateTrimmedInfo.duration - 2.0) -gt 0.05) {
+    throw 'Late input-seek output is not the selected 60-frame, two-second range.'
+}
+
+& $ffmpeg -hide_banner -loglevel error -nostdin -y -i $longSource -an `
+    -vf 'trim=start_frame=1050:end_frame=1110,setpts=PTS-STARTPTS' -f framemd5 $lateExpectedFrames
+if ($LASTEXITCODE -ne 0) { throw 'Unable to fingerprint the expected late source frames.' }
+& $ffmpeg -hide_banner -loglevel error -nostdin -y -i $lateTrimmed -an -f framemd5 $lateActualFrames
+if ($LASTEXITCODE -ne 0) { throw 'Unable to fingerprint the late input-seek output.' }
+if ((Get-FileHash -Algorithm SHA256 -LiteralPath $lateExpectedFrames).Hash -ne `
+    (Get-FileHash -Algorithm SHA256 -LiteralPath $lateActualFrames).Hash) {
+    throw 'Late input seeking changed the selected decoded frames.'
+}
+& $ffmpeg -hide_banner -loglevel error -nostdin -y -i $longSource -map '0:a:0' `
+    -af 'atrim=start=35:end=37,asetpts=PTS-STARTPTS' -c:a flac -t 2 $lateExpectedAudio
+if ($LASTEXITCODE -ne 0) { throw 'Unable to generate the expected late source audio.' }
+& $ffmpeg -hide_banner -loglevel error -nostdin -y -i $lateExpectedAudio `
+    -map '0:a:0' -c:a pcm_s32le -f md5 $lateExpectedAudioHash
+if ($LASTEXITCODE -ne 0) { throw 'Unable to fingerprint the expected late source audio.' }
+& $ffmpeg -hide_banner -loglevel error -nostdin -y -i $lateTrimmed `
+    -map '0:a:0' -c:a pcm_s32le -f md5 $lateActualAudioHash
+if ($LASTEXITCODE -ne 0) { throw 'Unable to fingerprint the late input-seek audio.' }
+if ((Get-Content -LiteralPath $lateExpectedAudioHash) -ne (Get-Content -LiteralPath $lateActualAudioHash)) {
+    throw 'Late input seeking changed the selected decoded audio samples.'
 }
 
 & $ffmpeg -hide_banner -loglevel error -y -i $source -an `
@@ -166,13 +222,17 @@ $sourceHashAfter = (Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash
 if ($sourceHashBefore -ne $sourceHashAfter) {
     throw 'The source fixture changed during export tests.'
 }
+if ($longSourceHashBefore -ne (Get-FileHash -Algorithm SHA256 -LiteralPath $longSource).Hash) {
+    throw 'The long source fixture changed during export tests.'
+}
 
 [pscustomobject]@{
     Compatible = "h264 via $compatibleEncoder $($compatibleInfo.width)x$($compatibleInfo.height)"
     Custom = "hevc via $customEncoder/$($customInfo.pix_fmt) $($customInfo.width)x$($customInfo.height)"
-    Lossless = "ffv1 $($losslessInfo.width)x$($losslessInfo.height)"
+    Lossless = "ffv1 $ffv1Slices slices $($losslessInfo.width)x$($losslessInfo.height)"
     MetadataOnly = "h264 copy $($metadataInfo.width)x$($metadataInfo.height)"
     TimeTrim = "$($trimmedInfo.nb_frames) frames / $($trimmedInfo.duration)s"
+    LateTrim = "$lateFrameCount exact frames after input seek"
     InPlaceReplacement = $true
     SourceUnchanged = $true
     LosslessPixelsMatch = $true

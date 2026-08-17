@@ -3,7 +3,8 @@ use std::{
     fs,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
-    time::UNIX_EPOCH,
+    sync::Mutex,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use crate::{
@@ -26,6 +27,52 @@ pub enum MediaError {
     MissingVideoFrameCount,
     MissingVideoFrameRate,
     Cache(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SourceFingerprint {
+    length: u64,
+    modified: SystemTime,
+}
+
+#[derive(Debug, Clone)]
+struct CachedProbe {
+    source: PathBuf,
+    fingerprint: SourceFingerprint,
+    descriptor: MediaDescriptor,
+}
+
+#[derive(Default)]
+pub struct ProbeCache {
+    latest: Mutex<Option<CachedProbe>>,
+}
+
+impl ProbeCache {
+    fn get(&self, source: &Path, fingerprint: &SourceFingerprint) -> Option<MediaDescriptor> {
+        match self.latest.lock() {
+            Ok(cache) => cache
+                .as_ref()
+                .filter(|cached| cached.source == source && cached.fingerprint == *fingerprint)
+                .map(|cached| cached.descriptor.clone()),
+            Err(_) => {
+                log::warn!("unable to read the media probe cache");
+                None
+            }
+        }
+    }
+
+    fn store(&self, source: &Path, fingerprint: SourceFingerprint, descriptor: &MediaDescriptor) {
+        match self.latest.lock() {
+            Ok(mut cache) => {
+                *cache = Some(CachedProbe {
+                    source: source.to_owned(),
+                    fingerprint,
+                    descriptor: descriptor.clone(),
+                });
+            }
+            Err(_) => log::warn!("unable to update the media probe cache"),
+        }
+    }
 }
 
 pub fn canonical_source(path: &str) -> Result<PathBuf, MediaError> {
@@ -54,7 +101,25 @@ pub fn display_path(path: &Path) -> String {
     raw.into_owned()
 }
 
-pub async fn probe(app: &AppHandle, source: &Path) -> Result<MediaDescriptor, MediaError> {
+pub async fn probe(
+    app: &AppHandle,
+    cache: &ProbeCache,
+    source: &Path,
+) -> Result<MediaDescriptor, MediaError> {
+    let fingerprint = source_fingerprint(source)?;
+    if let Some(fingerprint) = fingerprint.as_ref()
+        && let Some(descriptor) = cache.get(source, fingerprint)
+    {
+        return Ok(descriptor);
+    }
+    let descriptor = probe_uncached(app, source).await?;
+    if let Some(fingerprint) = fingerprint {
+        cache.store(source, fingerprint, &descriptor);
+    }
+    Ok(descriptor)
+}
+
+async fn probe_uncached(app: &AppHandle, source: &Path) -> Result<MediaDescriptor, MediaError> {
     let initial = run_probe(app, source, false).await?;
     match descriptor_from_probe(source, initial) {
         Err(MediaError::MissingVideoFrameCount) => {
@@ -62,6 +127,23 @@ pub async fn probe(app: &AppHandle, source: &Path) -> Result<MediaDescriptor, Me
         }
         result => result,
     }
+}
+
+fn source_fingerprint(source: &Path) -> Result<Option<SourceFingerprint>, MediaError> {
+    let metadata = source
+        .metadata()
+        .map_err(|error| MediaError::InvalidSource(format!("{}: {error}", source.display())))?;
+    let Ok(modified) = metadata.modified() else {
+        log::warn!(
+            "media probe cache disabled because the modification time is unavailable: {}",
+            source.display()
+        );
+        return Ok(None);
+    };
+    Ok(Some(SourceFingerprint {
+        length: metadata.len(),
+        modified,
+    }))
 }
 
 async fn run_probe(
@@ -336,6 +418,7 @@ fn descriptor_from_probe(
         .filter(|value| *value > 0)
         .ok_or(MediaError::MissingVideoFrameCount)?;
     let frame_rate = preferred_frame_rate(video).ok_or(MediaError::MissingVideoFrameRate)?;
+    let frame_seek_supported = supports_frame_seek(video, duration_seconds, frame_count);
     let video_codec = video.codec_name.clone().unwrap_or_else(|| "unknown".into());
     let pixel_format = video.pix_fmt.clone().unwrap_or_else(|| "unknown".into());
     let file_name = source
@@ -354,6 +437,7 @@ fn descriptor_from_probe(
         display_height,
         rotation_degrees: rotation,
         frame_rate,
+        frame_seek_supported,
         video_codec: video_codec.clone(),
         pixel_format: pixel_format.clone(),
         bit_depth: parse_bit_depth(video, &pixel_format),
@@ -367,6 +451,21 @@ fn descriptor_from_probe(
         },
         metadata_crop_supported: video_codec == "h264" || video_codec == "hevc",
     })
+}
+
+fn supports_frame_seek(stream: &ProbeStream, duration_seconds: f64, frame_count: u64) -> bool {
+    let Some(average_rate) = stream.avg_frame_rate.as_deref().and_then(parse_frame_rate) else {
+        return false;
+    };
+    let Some(real_rate) = stream.r_frame_rate.as_deref().and_then(parse_frame_rate) else {
+        return false;
+    };
+    if (average_rate - real_rate).abs() > average_rate.max(real_rate) * 1e-6 {
+        return false;
+    }
+    let counted_duration = frame_count as f64 / average_rate;
+    let tolerance = (2.0 / average_rate).max(0.05);
+    (counted_duration - duration_seconds).abs() <= tolerance
 }
 
 fn normalized_rotation(stream: &ProbeStream) -> i32 {
@@ -518,6 +617,69 @@ mod tests {
         assert_eq!(descriptor.duration_seconds, 7.25);
         assert_eq!(descriptor.frame_count, 315);
         assert!(descriptor.metadata_crop_supported);
+    }
+
+    #[test]
+    fn reuses_only_an_unchanged_current_source_probe() {
+        let source = Path::new("clip.mp4");
+        let descriptor = descriptor_from_probe(
+            source,
+            ProbeDocument {
+                streams: vec![video_stream()],
+                format: None,
+            },
+        )
+        .unwrap();
+        let fingerprint = SourceFingerprint {
+            length: 1024,
+            modified: UNIX_EPOCH,
+        };
+        let cache = ProbeCache::default();
+        cache.store(source, fingerprint.clone(), &descriptor);
+
+        assert_eq!(
+            cache
+                .get(source, &fingerprint)
+                .map(|cached| cached.frame_count),
+            Some(descriptor.frame_count)
+        );
+        assert!(
+            cache
+                .get(
+                    source,
+                    &SourceFingerprint {
+                        length: 2048,
+                        modified: UNIX_EPOCH,
+                    },
+                )
+                .is_none()
+        );
+        assert!(cache.get(Path::new("other.mp4"), &fingerprint).is_none());
+    }
+
+    #[test]
+    fn enables_frame_seeking_only_for_consistent_constant_frame_rate_timing() {
+        let constant = descriptor_from_probe(
+            Path::new("constant.mp4"),
+            ProbeDocument {
+                streams: vec![video_stream()],
+                format: None,
+            },
+        )
+        .unwrap();
+        assert!(constant.frame_seek_supported);
+
+        let mut variable_stream = video_stream();
+        variable_stream.r_frame_rate = Some("60/1".into());
+        let variable = descriptor_from_probe(
+            Path::new("variable.mp4"),
+            ProbeDocument {
+                streams: vec![variable_stream],
+                format: None,
+            },
+        )
+        .unwrap();
+        assert!(!variable.frame_seek_supported);
     }
 
     #[test]

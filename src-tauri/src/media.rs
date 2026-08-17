@@ -13,6 +13,8 @@ pub struct MediaDescriptor {
     pub display_height: u32,
     pub rotation_degrees: i32,
     pub frame_rate: String,
+    #[serde(skip_serializing)]
+    pub frame_seek_supported: bool,
     pub video_codec: String,
     pub pixel_format: String,
     pub bit_depth: Option<u8>,

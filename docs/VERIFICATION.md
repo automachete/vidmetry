@@ -23,9 +23,9 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 | `npm run test:coverage` | Pass — 94.25% statements, 81.09% branches, 97.67% functions, 95.31% lines |
 | `npm run build` | Pass — Vite production build |
 | `cargo fmt --check --manifest-path src-tauri\Cargo.toml` | Pass |
-| `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 31 Rust unit tests |
+| `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 35 Rust unit tests |
 | `cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings` | Pass |
-| `scripts/test-integration.ps1` | Pass — H.264 and H.265 selected `nvenc` on the RTX 5070 Ti |
+| `scripts/test-integration.ps1` | Pass — H.264/H.265 selected `nvenc`; FFV1 used 64 slices; late input seek preserved all 60 frame hashes and decoded audio samples |
 | `npm audit --audit-level=high` | Pass — 0 vulnerabilities |
 | `cargo audit --file src-tauri\Cargo.lock` | Pass — 0 vulnerabilities; 17 allowed informational warnings in Tauri's cross-target dependency graph |
 | `actionlint` | Pass — CI and release workflows |
@@ -35,7 +35,7 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 | Installer license payload | Pass — both bundle definitions contain FFmpeg license/source notice, complete dependency reports, MPL text, and all 5 MPL source archives |
 | Component interaction | Pass — Windows mode/accent projection, launcher/logo, settings and Explorer-integration toggling, startup Shell paths, save shortcuts/menu, focused playback-position Space control, trim-boundary frame steps, authoritative ffprobe timing, collapsible panes, F11 state, notification dismissal, structured command/event error localization, Explorer reveal, event-registration failure, rejected playback, durable-settings failure, multi-path drop validation, and playlist rollback |
 | Localization boundary | Pass — i18next resolves typed Japanese/English resources; backend errors serialize generated stable codes with optional details; Japanese product text outside the resource is rejected automatically |
-| Persistence and cache lifecycle | Pass — strict Zod rejection of incomplete, unknown, obsolete, or out-of-range settings; disabled Explorer state retained across installer updates; non-empty staged cache promotion; retained-entry-safe count/size/age pruning |
+| Persistence and cache lifecycle | Pass — strict Zod rejection of incomplete, unknown, obsolete, or out-of-range settings; disabled Explorer state retained across installer updates; unchanged media-probe reuse and fingerprint invalidation; non-empty staged cache promotion; retained-entry-safe count/size/age pruning |
 | Playback-state regression | Pass — Playwright clicks the rendered playback-position handle, verifies focus on its full-width scrubber, presses Space, and checks `paused` changes from true to false, a play event is emitted, and the UI displays Pause |
 | Pointer alignment regression | Pass — after selecting frames `[60, 180)` of a 240-frame video, a physical timeline click and an off-center handle drag remain aligned within half-frame rendering tolerance |
 | Packaged executable smoke launch | Pass — remained running until test shutdown; extracted executable icon contains only achromatic pixels |
@@ -50,9 +50,10 @@ The test script generates an H.264/AAC 1280×720, 30 fps source and crops `{x:10
 |---|---|---|
 | Compatible | H.264 via `nvenc`, 640×360, yuv420p | Physical crop, compatible codec, and color metadata preserved |
 | Configured compatible | HEVC via `nvenc`, 640×360, yuv420p10le | H.265, quality/preset, 10-bit format, AAC, CFR, and color metadata applied |
-| Lossless | FFV1, 640×360, yuv420p | Every decoded-frame MD5 matches the source crop; color metadata preserved |
+| Lossless | FFV1 with 64 slices, 640×360, yuv420p | Every decoded-frame MD5 matches the source crop; color metadata preserved |
 | Metadata-only | H.264 stream copy, displayed 640×360 | No video encoder used |
 | Time trim | H.264/AAC, 640×360, 60 frames, 2.000 s | Source frame range `[30, 90)` applied exactly |
+| Late time trim | FFV1/FLAC, 320×180, 60 frames, 2.000 s | Input seek starts near frame range `[3000, 3060)`; frame and decoded-audio hashes match full decoding |
 | In-place staging | H.264, 640×360 | Temporary output replaces a copied source only after completion |
 
 The source SHA-256 before and after all exports is identical. Temporary test media is written only under the ignored `test-results` directory.
@@ -63,14 +64,18 @@ An 8-second 3840×2160 source was cropped to 3200×1800 and encoded with the bun
 
 The one-frame startup probes reported `nvenc` and `amf` available for both H.264 and H.265, and `qsv` unavailable on this machine. Running all six probes serially took 739 ms; the application runs the three encoder probes concurrently and tests the two codecs sequentially per encoder.
 
+## Export pipeline benchmark
+
+A 60-frame trim near the end of a 5-minute 640×360 CFR H.264 source averaged 0.065 seconds with the five-second pre-roll input seek versus 0.344 seconds when decoding from the beginning (81% shorter). The two frame-MD5 outputs were identical. Encoding a 5-second 1920×1080 FFV1 test source averaged 0.239 seconds with 32 threads and 128 slices versus 0.395 seconds with FFmpeg defaults (39% shorter), across three runs per case.
+
 ## Local release artifacts
 
 These artifacts were generated from the verified 0.4.7 source tree. They are build outputs and are intentionally not committed.
 
 | Artifact | Size | SHA-256 |
 |---|---:|---|
-| `Vidmetry_0.4.7_x64_en-US.msi` | 110.96 MiB | `D40E369F015F53E1B44F70DCBE5F2442AB8A3BBDF992C345A2CD358F9317A526` |
-| `Vidmetry_0.4.7_x64-setup.exe` | 81.43 MiB | `8FB4ADC6AACB5D3CF0AB44F8F58E07CE4BE3598C262A0AB4D1E785495291224D` |
+| `Vidmetry_0.4.7_x64_en-US.msi` | 111.00 MiB | `EB0A500C1BFBCCB37889DBD28B4ABA31F0609B0F9E7F2806E10339E49D5567A0` |
+| `Vidmetry_0.4.7_x64-setup.exe` | 81.45 MiB | `BF62C82A99BB86A25D8C64325C78D1B3DCC88ABEA4D32BBB4A74C1BC38E61EBB` |
 
 ## Remaining manual acceptance
 

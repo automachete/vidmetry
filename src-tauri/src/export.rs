@@ -22,6 +22,8 @@ use crate::{
 const PROGRESS_EVENT: &str = "export-progress";
 const COMPLETED_EVENT: &str = "export-complete";
 const FAILED_EVENT: &str = "export-error";
+const INPUT_SEEK_THRESHOLD_SECONDS: f64 = 30.0;
+const INPUT_SEEK_PREROLL_SECONDS: f64 = 5.0;
 
 #[derive(Default)]
 pub struct ExportState {
@@ -258,6 +260,7 @@ pub async fn available_video_encoders(app: AppHandle) -> VideoEncoderAvailabilit
 pub async fn start(
     app: AppHandle,
     state: State<'_, ExportState>,
+    probe_cache: State<'_, ffmpeg::ProbeCache>,
     request: ExportRequest,
 ) -> Result<String, AppError> {
     let source = ffmpeg::canonical_source(&request.source_path).map_err(AppError::from)?;
@@ -268,7 +271,9 @@ pub async fn start(
         request.overwrite,
         request.in_place,
     )?;
-    let media = ffmpeg::probe(&app, &source).await.map_err(AppError::from)?;
+    let media = ffmpeg::probe(&app, &probe_cache, &source)
+        .await
+        .map_err(AppError::from)?;
     validate_crop(request.crop, &media)?;
     let trim = request.trim;
     validate_trim(trim, &media, request.settings.profile)?;
@@ -631,6 +636,20 @@ fn build_export_args(
     media: &MediaDescriptor,
     encoder: CompatibleEncoder,
 ) -> Vec<String> {
+    let time_trimmed = !is_full_trim(trim, media);
+    let (trim_start, trim_end) = trim_times(trim, media);
+    let input_seek = time_trimmed.then(|| input_seek(trim, media)).flatten();
+    let filter_trim = time_trimmed.then(|| {
+        input_seek
+            .map(|seek| TrimRange {
+                start_frame: trim.start_frame - seek.start_frame,
+                end_frame: trim.end_frame - seek.start_frame,
+            })
+            .unwrap_or(trim)
+    });
+    let seek_seconds = input_seek.map(|seek| seek.seconds).unwrap_or(0.0);
+    let filter_start = (trim_start - seek_seconds).max(0.0);
+    let filter_end = (trim_end - seek_seconds).max(filter_start);
     let mut args = vec![
         "-hide_banner".into(),
         "-nostdin".into(),
@@ -642,9 +661,10 @@ fn build_export_args(
     if settings.profile == ExportProfile::Metadata {
         args.push("-noautorotate".into());
     }
+    if let Some(seek) = input_seek {
+        args.extend(["-ss".into(), format_timestamp(seek.seconds)]);
+    }
     args.extend(["-i".into(), source.to_string_lossy().into_owned()]);
-    let time_trimmed = !is_full_trim(trim, media);
-    let (trim_start, trim_end) = trim_times(trim, media);
 
     match settings.profile {
         ExportProfile::Compatible => {
@@ -654,7 +674,7 @@ fn build_export_args(
                 "-map".into(),
                 "0:a:0?".into(),
                 "-vf".into(),
-                crop_filter(crop, time_trimmed.then_some(trim), media),
+                crop_filter(crop, filter_trim, media),
             ]);
             add_video_encoder(&mut args, settings, encoder);
             add_pixel_format(&mut args, settings.pixel_format);
@@ -664,8 +684,8 @@ fn build_export_args(
                 settings,
                 media,
                 time_trimmed,
-                trim_start,
-                trim_end,
+                filter_start,
+                filter_end,
             );
             add_audio(&mut args, settings, media, true, time_trimmed);
             add_metadata_mapping(&mut args, settings.preserve_metadata);
@@ -683,7 +703,7 @@ fn build_export_args(
             }
             args.extend([
                 "-vf".into(),
-                crop_filter(crop, time_trimmed.then_some(trim), media),
+                crop_filter(crop, filter_trim, media),
                 "-c:v".into(),
                 "ffv1".into(),
                 "-level".into(),
@@ -695,6 +715,13 @@ fn build_export_args(
                 "-slicecrc".into(),
                 "1".into(),
             ]);
+            let parallelism = ffv1_parallelism(crop);
+            args.extend([
+                "-threads".into(),
+                parallelism.threads.to_string(),
+                "-slices".into(),
+                parallelism.slices.to_string(),
+            ]);
             add_pixel_format(&mut args, settings.pixel_format);
             add_frame_rate(&mut args, settings);
             add_audio_trim_filter(
@@ -702,8 +729,8 @@ fn build_export_args(
                 settings,
                 media,
                 time_trimmed,
-                trim_start,
-                trim_end,
+                filter_start,
+                filter_end,
             );
             add_audio(&mut args, settings, media, false, time_trimmed);
             if settings.copy_subtitles && !time_trimmed {
@@ -973,6 +1000,11 @@ fn format_float(value: f64) -> String {
     text.trim_end_matches('0').trim_end_matches('.').to_owned()
 }
 
+fn format_timestamp(value: f64) -> String {
+    let text = format!("{value:.6}");
+    text.trim_end_matches('0').trim_end_matches('.').to_owned()
+}
+
 fn crop_filter(crop: CropRect, trim: Option<TrimRange>, media: &MediaDescriptor) -> String {
     let mut filter = format!(
         "crop=w={}:h={}:x={}:y={},setsar=1",
@@ -1109,6 +1141,73 @@ fn trim_times(trim: TrimRange, media: &MediaDescriptor) -> (f64, f64) {
 fn trim_duration_seconds(trim: TrimRange, media: &MediaDescriptor) -> f64 {
     let (start, end) = trim_times(trim, media);
     (end - start).max(0.0)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct InputSeek {
+    start_frame: u64,
+    seconds: f64,
+}
+
+fn input_seek(trim: TrimRange, media: &MediaDescriptor) -> Option<InputSeek> {
+    if !media.frame_seek_supported || is_full_trim(trim, media) {
+        return None;
+    }
+    let total = total_frames(media);
+    let duration = media.duration_seconds;
+    if total == 0 || duration <= 0.0 {
+        return None;
+    }
+    let trim_start_seconds = trim.start_frame as f64 / total as f64 * duration;
+    if trim_start_seconds < INPUT_SEEK_THRESHOLD_SECONDS {
+        return None;
+    }
+    let frames_per_second = total as f64 / duration;
+    let preroll_frames = (frames_per_second * INPUT_SEEK_PREROLL_SECONDS).ceil() as u64;
+    let start_frame = trim.start_frame.saturating_sub(preroll_frames);
+    if start_frame == 0 {
+        return None;
+    }
+    Some(InputSeek {
+        start_frame,
+        seconds: start_frame as f64 / total as f64 * duration,
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Ffv1Parallelism {
+    threads: usize,
+    slices: usize,
+}
+
+fn ffv1_parallelism(crop: CropRect) -> Ffv1Parallelism {
+    let workers = std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(1);
+    ffv1_parallelism_for_workers(crop, workers)
+}
+
+fn ffv1_parallelism_for_workers(crop: CropRect, workers: usize) -> Ffv1Parallelism {
+    let pixels = u64::from(crop.width) * u64::from(crop.height);
+    let slice_limit = if pixels >= 3840_u64 * 2160 {
+        192
+    } else if pixels >= 1920_u64 * 1080 {
+        128
+    } else if pixels >= 1280_u64 * 720 {
+        96
+    } else if pixels >= 640_u64 * 360 {
+        64
+    } else {
+        32
+    };
+    let threads = workers.clamp(1, 64);
+    let slices_per_thread = if pixels >= 3840_u64 * 2160 { 6 } else { 4 };
+    Ffv1Parallelism {
+        threads,
+        slices: threads
+            .saturating_mul(slices_per_thread)
+            .clamp(4, slice_limit),
+    }
 }
 
 fn validate_trim(
@@ -1429,6 +1528,7 @@ mod tests {
             display_height,
             rotation_degrees,
             frame_rate: "30/1".into(),
+            frame_seek_supported: true,
             video_codec: "h264".into(),
             pixel_format: "yuv420p".into(),
             bit_depth: Some(8),
@@ -1705,7 +1805,47 @@ mod tests {
             CompatibleEncoder::Software,
         );
         assert!(args.windows(2).any(|pair| pair == ["-c:v", "ffv1"]));
+        assert!(args.windows(2).any(|pair| {
+            pair[0] == "-threads" && pair[1].parse::<usize>().is_ok_and(|value| value > 0)
+        }));
+        assert!(args.windows(2).any(|pair| {
+            pair[0] == "-slices" && pair[1].parse::<usize>().is_ok_and(|value| value > 1)
+        }));
         assert!(!args.contains(&"-pix_fmt".to_owned()));
+    }
+
+    #[test]
+    fn scales_ffv1_slice_parallelism_with_workers_and_output_size() {
+        assert_eq!(
+            ffv1_parallelism_for_workers(
+                CropRect {
+                    x: 0,
+                    y: 0,
+                    width: 3840,
+                    height: 2160,
+                },
+                32,
+            ),
+            Ffv1Parallelism {
+                threads: 32,
+                slices: 192,
+            }
+        );
+        assert_eq!(
+            ffv1_parallelism_for_workers(
+                CropRect {
+                    x: 0,
+                    y: 0,
+                    width: 640,
+                    height: 360,
+                },
+                32,
+            ),
+            Ffv1Parallelism {
+                threads: 32,
+                slices: 64,
+            }
+        );
     }
 
     #[test]
@@ -1824,6 +1964,62 @@ mod tests {
         );
         assert!(args.windows(2).any(|pair| pair == ["-c:a", "aac"]));
         assert!(args.windows(2).any(|pair| pair == ["-t", "2"]));
+    }
+
+    #[test]
+    fn seeks_near_late_cfr_trims_but_keeps_vfr_on_the_exact_full_decode_path() {
+        let mut descriptor = media(0);
+        descriptor.duration_seconds = 120.0;
+        descriptor.frame_count = 3600;
+        let trim = TrimRange {
+            start_frame: 3000,
+            end_frame: 3060,
+        };
+        let args = build_export_args(
+            Path::new("input.mp4"),
+            Path::new("output.mp4"),
+            CropRect {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080,
+            },
+            trim,
+            &default_settings(),
+            &descriptor,
+            CompatibleEncoder::Software,
+        );
+        let seek_index = args.iter().position(|value| value == "-ss").unwrap();
+        let input_index = args.iter().position(|value| value == "-i").unwrap();
+        assert!(seek_index < input_index);
+        assert_eq!(args[seek_index + 1], "95");
+        assert!(args.iter().any(|value| {
+            value.contains("trim=start_frame=150:end_frame=210,setpts=PTS-STARTPTS")
+        }));
+        assert!(
+            args.iter()
+                .any(|value| value == "atrim=start=5:end=7,asetpts=PTS-STARTPTS")
+        );
+
+        descriptor.frame_seek_supported = false;
+        let vfr_args = build_export_args(
+            Path::new("input.mp4"),
+            Path::new("output.mp4"),
+            CropRect {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080,
+            },
+            trim,
+            &default_settings(),
+            &descriptor,
+            CompatibleEncoder::Software,
+        );
+        assert!(!vfr_args.contains(&"-ss".to_owned()));
+        assert!(vfr_args.iter().any(|value| {
+            value.contains("trim=start_frame=3000:end_frame=3060,setpts=PTS-STARTPTS")
+        }));
     }
 
     #[test]

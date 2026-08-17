@@ -15,10 +15,13 @@ use app_error::{AppError, ErrorCode};
 #[tauri::command]
 async fn probe_video(
     app: tauri::AppHandle,
+    cache: tauri::State<'_, ffmpeg::ProbeCache>,
     path: String,
 ) -> Result<media::MediaDescriptor, AppError> {
     let source = ffmpeg::canonical_source(&path).map_err(AppError::from)?;
-    let descriptor = ffmpeg::probe(&app, &source).await.map_err(AppError::from)?;
+    let descriptor = ffmpeg::probe(&app, &cache, &source)
+        .await
+        .map_err(AppError::from)?;
     app.asset_protocol_scope()
         .allow_file(&source)
         .map_err(|error| {
@@ -63,9 +66,10 @@ async fn create_timeline_strip(
 async fn start_export(
     app: tauri::AppHandle,
     state: tauri::State<'_, export::ExportState>,
+    probe_cache: tauri::State<'_, ffmpeg::ProbeCache>,
     request: export::ExportRequest,
 ) -> Result<String, AppError> {
-    export::start(app, state, request).await
+    export::start(app, state, probe_cache, request).await
 }
 
 #[tauri::command]
@@ -95,6 +99,7 @@ fn reveal_in_explorer(path: String) -> Result<(), AppError> {
 pub fn run() {
     tauri::Builder::default()
         .manage(export::ExportState::default())
+        .manage(ffmpeg::ProbeCache::default())
         .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())

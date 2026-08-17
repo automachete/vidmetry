@@ -89,7 +89,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 
 - **FR-030** When output and source extensions differ, the header shows a direct Copy and save action with no menu. When they match, one combined Save options control opens Copy and save or confirmed in-place Save; there is no separate export-configuration screen.
 - **FR-031** Compatible mode outputs H.264 or H.265 MP4, always enables fast start, and allows automatic or explicit encoder selection, quality level, encoder preset, pixel format, audio handling/bitrate, frame-rate handling, and metadata retention. A one-frame startup probe disables unavailable hardware choices for the selected codec. Automatic mode tries the bundled FFmpeg hardware encoders in preference order; an explicitly selected hardware encoder is tried directly. Both modes fall back to `libx264` or `libx265` when the hardware encoder cannot produce its first frame.
-- **FR-032** Lossless mode outputs FFV1 in Matroska. The video is decoded, cropped, and encoded losslessly while compatible audio/subtitle streams are copied.
+- **FR-032** Lossless mode outputs FFV1 in Matroska. The video is decoded, cropped, and encoded losslessly with CPU- and resolution-scaled slice parallelism while compatible audio/subtitle streams are copied.
 - **FR-033** Metadata-only mode is available only for H.264 or HEVC. It copies encoded media while setting codec crop metadata. The UI warns that coded pixels and file size remain, and that some players ignore the crop.
 - **FR-034** A physical crop filter is never combined with video stream copy.
 - **FR-035** Rotation is handled explicitly so the exported rectangle matches the displayed orientation. Output rotation metadata is normalized.
@@ -100,10 +100,11 @@ The following terms are distinct and must not be shortened to an unqualified “
 - **FR-040** Save is enabled only when the configured output extension equals the source extension. After explicit confirmation, the completed temporary output replaces the source.
 - **FR-041** Copy and save never modifies the source and asks for a destination with an extension appropriate to the configured profile.
 - **FR-042** A successful export shows a normalized display path as a link. Activating it opens File Explorer with the output file selected without launching the video.
-- **FR-043** Compatible and lossless exports apply the selected ordinal frame range in FFmpeg. Packet-copied audio is encoded when necessary to align it with an exact time trim.
+- **FR-043** Compatible and lossless exports apply the selected ordinal frame range in FFmpeg. Late constant-frame-rate trims seek near the range before decoding and adjust the video/audio filters to preserve exact boundaries; uncertain or variable timing retains full decoding. Packet-copied audio is encoded when necessary to align it with an exact time trim.
 - **FR-044** Metadata-only stream copy cannot promise arbitrary frame boundaries and is disabled while a time trim is active.
 - **FR-045** A successful-save notice closes after three seconds or when another UI control is used.
 - **FR-046** Ctrl+S invokes Copy and save. Ctrl+Shift+S invokes confirmed in-place Save only when the current profile supports the source extension.
+- **FR-047** A probed media descriptor is reused for export while its canonical source path, file length, and modification time remain unchanged. A changed source is probed again.
 
 ### 3.5 Common settings and localization
 
@@ -304,7 +305,10 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 - Crop movement uses CSS geometry; it does not run FFmpeg per pointer event.
 - Scrub seeks are throttled to at most 30 requests per second.
 - Probe and process work never block the UI thread.
-- Export can use all FFmpeg-managed worker threads but remains cancellable.
+- Export reuses the current unchanged source probe instead of starting another ffprobe process.
+- Eligible late trims start decoding five seconds before the selected range; uncertain timing retains the exact full-decode path.
+- FFV1 worker and slice counts scale automatically with available CPU parallelism and output resolution.
+- Export remains cancellable.
 
 ## 13. Test strategy
 
@@ -334,7 +338,8 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 - Temporary output naming and destination validation.
 - Directory filtering, non-recursive discovery, and stable sorting.
 - Hardware availability probes, automatic/manual encoder ordering, backend-specific quality arguments, audio/frame-rate argument generation, and invalid-setting rejection.
-- Exact `start_frame`/`end_frame` FFmpeg filters, audio alignment, and metadata-only rejection.
+- Exact `start_frame`/`end_frame` FFmpeg filters, CFR late-seek adjustment, VFR full-decode fallback, audio alignment, and metadata-only rejection.
+- Media-probe cache invalidation and FFV1 thread/slice scaling.
 - Windows extended-path normalization and Explorer selection arguments.
 - DWM ARGB-to-CSS accent conversion.
 - Video Open with registration, selected-directory verb registration, startup path handling, and Vidmetry-scoped removal plans.
@@ -342,7 +347,7 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 
 ### 13.4 Integration tests
 
-Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit output, FFV1, metadata-only crop, a 60-frame time trim, and staged in-place replacement. Tests ffprobe dimensions/codecs/pixel formats/frame count and color characteristics, compare lossless frame hashes, and verify the original fixture hash remains unchanged.
+Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit output, slice-parallel FFV1, metadata-only crop, an early 60-frame trim, a late 60-frame input-seek trim, and staged in-place replacement. Tests ffprobe dimensions/codecs/pixel formats/frame count and color characteristics, compare lossless pixels plus late-trim frame/audio hashes, and verify the original fixture hashes remain unchanged.
 
 ### 13.5 Manual acceptance matrix
 
