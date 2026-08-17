@@ -26,7 +26,7 @@ class MemoryStore implements SettingsStore {
 }
 
 describe('persistent settings', () => {
-  it('round-trips export, loop, and language preferences through the durable store', async () => {
+  it('round-trips export, loop, Explorer, and language preferences through the durable store', async () => {
     const store = new MemoryStore();
     await persistSettings(
       {
@@ -34,6 +34,7 @@ describe('persistent settings', () => {
         languageMode: 'manual',
         language: 'en',
         loopPlayback: true,
+        explorerIntegration: false,
         export: { ...defaultSettings.export, videoCodec: 'h265', crf: 21 },
       },
       store,
@@ -42,6 +43,7 @@ describe('persistent settings', () => {
       languageMode: 'manual',
       language: 'en',
       loopPlayback: true,
+      explorerIntegration: false,
       export: { videoCodec: 'h265', crf: 21 },
     });
     expect(store.saveCount).toBe(1);
@@ -59,6 +61,24 @@ describe('persistent settings', () => {
       export: { crf: 200, profile: 'unknown', audioBitrateKbps: -1 },
     });
     await expect(loadSettings(store)).rejects.toThrow();
+  });
+
+  it('migrates settings saved before Explorer integration was introduced', async () => {
+    const store = new MemoryStore();
+    const { explorerIntegration: _, ...legacy } = {
+      ...defaultSettings,
+      languageMode: 'manual' as const,
+      language: 'en' as const,
+      loopPlayback: true,
+    };
+    store.values.set('settings', legacy);
+
+    await expect(loadSettings(store)).resolves.toMatchObject({
+      languageMode: 'manual',
+      language: 'en',
+      loopPlayback: true,
+      explorerIntegration: true,
+    });
   });
 
   it('rejects obsolete and partial settings shapes', () => {

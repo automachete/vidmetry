@@ -4,6 +4,7 @@ const settings = {
   languageMode: 'manual',
   language: 'en',
   loopPlayback: false,
+  explorerIntegration: true,
   export: {
     profile: 'compatible',
     videoCodec: 'h264',

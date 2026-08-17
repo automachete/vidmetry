@@ -26,11 +26,15 @@ const exportSettingsSchema: z.ZodType<ExportSettings> = z.strictObject({
   copySubtitles: z.boolean(),
 });
 
-export const appSettingsSchema = z.strictObject({
+const legacyAppSettingsSchema = z.strictObject({
   languageMode: z.enum(['system', 'manual']),
   language: z.enum(['ja', 'en']),
   loopPlayback: z.boolean(),
   export: exportSettingsSchema,
+});
+
+export const appSettingsSchema = legacyAppSettingsSchema.extend({
+  explorerIntegration: z.boolean(),
 });
 
 export type AppSettings = z.infer<typeof appSettingsSchema>;
@@ -51,6 +55,7 @@ export const defaultSettings: AppSettings = appSettingsSchema.parse({
   languageMode: 'system',
   language: 'ja',
   loopPlayback: false,
+  explorerIntegration: true,
   export: {
     profile: 'compatible',
     videoCodec: 'h264',
@@ -83,7 +88,13 @@ export async function persistSettings(
 }
 
 export function parseSettings(value: unknown): AppSettings {
-  return appSettingsSchema.parse(value);
+  const current = appSettingsSchema.safeParse(value);
+  if (current.success) return current.data;
+
+  const legacy = legacyAppSettingsSchema.safeParse(value);
+  if (legacy.success) return appSettingsSchema.parse({ ...legacy.data, explorerIntegration: true });
+
+  throw current.error;
 }
 
 export function cloneSettings(settings: AppSettings): AppSettings {

@@ -193,6 +193,51 @@ describe('application shell', () => {
     );
   });
 
+  it('toggles File Explorer integration and persists it with common settings', async () => {
+    useEnglish();
+    render(App);
+
+    const settingsButton = screen.getByRole('button', { name: 'Settings' });
+    await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(settingsButton);
+    await fireEvent.click(
+      screen.getByRole('checkbox', { name: 'Allow Vidmetry to be opened from context menus' }),
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('set_explorer_integration', { enabled: false }),
+    );
+    expect(storeState.value).toMatchObject({ explorerIntegration: false });
+  });
+
+  it('keeps settings open when File Explorer integration cannot be changed', async () => {
+    useEnglish();
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === 'startup_selection') return null as never;
+      if (command === 'system_accent_color') return '#FF8C00' as never;
+      if (command === 'set_explorer_integration') {
+        throw { code: 'explorer_integration_update_failed', detail: 'access denied' };
+      }
+      return undefined as never;
+    });
+    render(App);
+
+    const settingsButton = screen.getByRole('button', { name: 'Settings' });
+    await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(settingsButton);
+    await fireEvent.click(
+      screen.getByRole('checkbox', { name: 'Allow Vidmetry to be opened from context menus' }),
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'File Explorer integration could not be changed. (access denied)',
+    );
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeTruthy();
+    expect(storeState.save).not.toHaveBeenCalled();
+  });
+
   it('applies Japanese UI and persists loop playback', async () => {
     storeState.value = { ...defaultSettings, languageMode: 'manual', language: 'ja' };
     render(App);

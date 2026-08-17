@@ -1029,13 +1029,27 @@
   }
 
   async function applySettings() {
+    let explorerIntegrationChanged = false;
+    let explorerIntegrationApplied = false;
     try {
       const next = parseSettings(settingsDraft);
+      explorerIntegrationChanged = next.explorerIntegration !== settings.explorerIntegration;
+      if (explorerIntegrationChanged) {
+        await invoke('set_explorer_integration', { enabled: next.explorerIntegration });
+        explorerIntegrationApplied = true;
+      }
       await persistSettings(next);
       settings = next;
       showSettings = false;
     } catch (error) {
-      errorMessage = clientError('settingsSaveFailed', error);
+      if (explorerIntegrationApplied) {
+        try {
+          await invoke('set_explorer_integration', { enabled: settings.explorerIntegration });
+        } catch (rollbackError) {
+          recordWarning('Explorer integration rollback failed', rollbackError);
+        }
+      }
+      errorMessage = backendOrClientError('settingsSaveFailed', error);
     }
   }
 
@@ -1448,6 +1462,12 @@
             <h3>{text('play')}</h3>
             <div class="check-list"><label><input type="checkbox" checked={settingsDraft.loopPlayback} onchange={(event) => updateDraft('loopPlayback', (event.currentTarget as HTMLInputElement).checked)} />{text('enableLoop')}</label></div>
             <p class="settings-note">{text('loopRemember')}</p>
+          </section>
+
+          <section class="settings-section">
+            <h3>{text('explorerIntegration')}</h3>
+            <div class="check-list"><label><input type="checkbox" checked={settingsDraft.explorerIntegration} onchange={(event) => updateDraft('explorerIntegration', (event.currentTarget as HTMLInputElement).checked)} />{text('enableExplorerIntegration')}</label></div>
+            <p class="settings-note">{text('explorerIntegrationNote')}</p>
           </section>
 
           <section class="settings-section">
