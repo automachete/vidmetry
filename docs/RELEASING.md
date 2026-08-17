@@ -25,6 +25,17 @@ git push origin v0.4.7
 
 公開されたReleaseと同一のMSIXをPartner Centerへ提出します。このMSIXは提出時点では未署名で、認定後にMicrosoft Storeが本番署名します。パッケージのバージョン、アーキテクチャ、Identity、Publisherを提出画面でも再確認し、Store掲載後はStore版を実機へインストールして動画の「プログラムから開く」、フォルダーの「Open with Vidmetry」、設定によるフォルダーコマンド表示切替、更新、アンインストールを確認します。
 
+## Store公開後の自動更新
+
+[MicrosoftのGitHub Actions手順](https://learn.microsoft.com/en-us/windows/apps/publish/msstore-dev-cli/github-actions?tabs=msix)に合わせ、Store Product IDをRepository variableの`STORE_PRODUCT_ID`へ登録します。Microsoft Entra IDとPartner Centerの認証情報はRepository variablesへ置かず、次の名前でRepository secretsへ登録します。
+
+- `AZURE_AD_APPLICATION_CLIENT_ID`
+- `AZURE_AD_APPLICATION_SECRET`
+- `AZURE_AD_TENANT_ID`
+- `SELLER_ID`
+
+`MSIX_IDENTITY_NAME`、`MSIX_PUBLISHER`、`MSIX_PUBLISHER_DISPLAY_NAME`はMSIXマニフェスト生成用のRepository variablesであり、上記の認証用Secretsとは置き換えません。自動更新ワークフローでは`microsoft/microsoft-store-apppublisher`でMicrosoft Store Developer CLIを用意し、これら4 Secretsで`msstore reconfigure`を実行した後、`STORE_PRODUCT_ID`を指定して検証済みMSIXを公開します。Microsoftの自動更新APIはStoreで公開済みの無料製品を前提とするため、初回公開には使用しません。
+
 ## FFmpegエンジンの更新
 
 FFmpegエンジンまたは対応ソースを決める入力が変わった場合だけ、専用のFFmpeg source Releaseワークフローを実行します。このワークフローは固定された公開ビルド定義とソースから完全対応ソースを組み立てて監査し、エンジン固有タグの変更不能なRelease資産として保存します。
