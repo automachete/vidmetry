@@ -58,6 +58,16 @@ pub enum VideoCodec {
     H265,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum VideoEncoder {
+    Automatic,
+    Nvidia,
+    Intel,
+    Amd,
+    Software,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CompatibleEncoder {
     Nvidia,
@@ -130,6 +140,7 @@ pub enum FrameRateMode {
 pub struct ExportSettings {
     pub profile: ExportProfile,
     pub video_codec: VideoCodec,
+    pub encoder: VideoEncoder,
     pub crf: u8,
     pub preset: EncoderPreset,
     pub pixel_format: PixelFormat,
@@ -190,6 +201,58 @@ struct ExportFailed {
     job_id: String,
     error: AppError,
     cancelled: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct HardwareEncoderAvailability {
+    nvidia: bool,
+    intel: bool,
+    amd: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct VideoEncoderAvailability {
+    h264: HardwareEncoderAvailability,
+    h265: HardwareEncoderAvailability,
+}
+
+pub async fn available_video_encoders(app: AppHandle) -> VideoEncoderAvailability {
+    let nvidia_app = app.clone();
+    let nvidia = tauri::async_runtime::spawn(async move {
+        (
+            probe_video_encoder(&nvidia_app, VideoCodec::H264, CompatibleEncoder::Nvidia).await,
+            probe_video_encoder(&nvidia_app, VideoCodec::H265, CompatibleEncoder::Nvidia).await,
+        )
+    });
+    let intel_app = app.clone();
+    let intel = tauri::async_runtime::spawn(async move {
+        (
+            probe_video_encoder(&intel_app, VideoCodec::H264, CompatibleEncoder::Intel).await,
+            probe_video_encoder(&intel_app, VideoCodec::H265, CompatibleEncoder::Intel).await,
+        )
+    });
+    let amd = tauri::async_runtime::spawn(async move {
+        (
+            probe_video_encoder(&app, VideoCodec::H264, CompatibleEncoder::Amd).await,
+            probe_video_encoder(&app, VideoCodec::H265, CompatibleEncoder::Amd).await,
+        )
+    });
+
+    let (nvidia_h264, nvidia_h265) = nvidia.await.unwrap_or((false, false));
+    let (intel_h264, intel_h265) = intel.await.unwrap_or((false, false));
+    let (amd_h264, amd_h265) = amd.await.unwrap_or((false, false));
+    VideoEncoderAvailability {
+        h264: HardwareEncoderAvailability {
+            nvidia: nvidia_h264,
+            intel: intel_h264,
+            amd: amd_h264,
+        },
+        h265: HardwareEncoderAvailability {
+            nvidia: nvidia_h265,
+            intel: intel_h265,
+            amd: amd_h265,
+        },
+    }
 }
 
 pub async fn start(
@@ -461,6 +524,71 @@ fn spawn_export_process(
         })
 }
 
+async fn probe_video_encoder(
+    app: &AppHandle,
+    codec: VideoCodec,
+    encoder: CompatibleEncoder,
+) -> bool {
+    let command = match app.shell().sidecar("ffmpeg") {
+        Ok(command) => command,
+        Err(error) => {
+            log::debug!(
+                "{} {:?} probe could not start: {error}",
+                encoder.name(),
+                codec
+            );
+            return false;
+        }
+    };
+    match command
+        .args(encoder_probe_args(codec, encoder))
+        .output()
+        .await
+    {
+        Ok(output) if output.status.success() => true,
+        Ok(output) => {
+            log::debug!(
+                "{} {:?} probe failed: {}",
+                encoder.name(),
+                codec,
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+            false
+        }
+        Err(error) => {
+            log::debug!(
+                "{} {:?} probe could not start: {error}",
+                encoder.name(),
+                codec
+            );
+            false
+        }
+    }
+}
+
+fn encoder_probe_args(codec: VideoCodec, encoder: CompatibleEncoder) -> Vec<String> {
+    vec![
+        "-hide_banner".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-nostdin".into(),
+        "-f".into(),
+        "lavfi".into(),
+        "-i".into(),
+        "color=c=black:s=256x256:r=1".into(),
+        "-frames:v".into(),
+        "1".into(),
+        "-an".into(),
+        "-c:v".into(),
+        video_encoder(codec, encoder).into(),
+        "-pix_fmt".into(),
+        "yuv420p".into(),
+        "-f".into(),
+        "null".into(),
+        "-".into(),
+    ]
+}
+
 fn insert_job(app: &AppHandle, job_id: &str, child: CommandChild) -> Result<(), AppError> {
     match app.state::<ExportState>().jobs.lock() {
         Ok(mut jobs) => {
@@ -617,12 +745,22 @@ fn compatible_encoder_attempts(settings: &ExportSettings) -> VecDeque<Compatible
     if settings.profile != ExportProfile::Compatible || settings.crf == 0 {
         return VecDeque::from([CompatibleEncoder::Software]);
     }
-    VecDeque::from([
-        CompatibleEncoder::Nvidia,
-        CompatibleEncoder::Intel,
-        CompatibleEncoder::Amd,
-        CompatibleEncoder::Software,
-    ])
+    match settings.encoder {
+        VideoEncoder::Automatic => VecDeque::from([
+            CompatibleEncoder::Nvidia,
+            CompatibleEncoder::Intel,
+            CompatibleEncoder::Amd,
+            CompatibleEncoder::Software,
+        ]),
+        VideoEncoder::Nvidia => {
+            VecDeque::from([CompatibleEncoder::Nvidia, CompatibleEncoder::Software])
+        }
+        VideoEncoder::Intel => {
+            VecDeque::from([CompatibleEncoder::Intel, CompatibleEncoder::Software])
+        }
+        VideoEncoder::Amd => VecDeque::from([CompatibleEncoder::Amd, CompatibleEncoder::Software]),
+        VideoEncoder::Software => VecDeque::from([CompatibleEncoder::Software]),
+    }
 }
 
 fn video_encoder(codec: VideoCodec, encoder: CompatibleEncoder) -> &'static str {
@@ -1208,6 +1346,7 @@ mod tests {
         ExportSettings {
             profile: ExportProfile::Compatible,
             video_codec: VideoCodec::H264,
+            encoder: VideoEncoder::Automatic,
             crf: 17,
             preset: EncoderPreset::Medium,
             pixel_format: PixelFormat::Yuv420p,
@@ -1229,6 +1368,7 @@ mod tests {
             "settings": {
                 "profile": "compatible",
                 "videoCodec": "h264",
+                "encoder": "automatic",
                 "crf": 17,
                 "preset": "medium",
                 "pixelFormat": "yuv420p",
@@ -1257,6 +1397,17 @@ mod tests {
         let mut obsolete_fast_start = request_json();
         obsolete_fast_start["settings"]["fastStart"] = serde_json::json!(true);
         assert!(serde_json::from_value::<ExportRequest>(obsolete_fast_start).is_err());
+
+        let mut missing_encoder = request_json();
+        missing_encoder["settings"]
+            .as_object_mut()
+            .unwrap()
+            .remove("encoder");
+        assert!(serde_json::from_value::<ExportRequest>(missing_encoder).is_err());
+
+        let mut invalid_encoder = request_json();
+        invalid_encoder["settings"]["encoder"] = serde_json::json!("unknown");
+        assert!(serde_json::from_value::<ExportRequest>(invalid_encoder).is_err());
 
         assert!(serde_json::from_value::<ExportRequest>(request_json()).is_ok());
     }
@@ -1386,6 +1537,28 @@ mod tests {
             vec![CompatibleEncoder::Software]
         );
 
+        let selected_amd = ExportSettings {
+            encoder: VideoEncoder::Amd,
+            ..default_settings()
+        };
+        assert_eq!(
+            compatible_encoder_attempts(&selected_amd)
+                .into_iter()
+                .collect::<Vec<_>>(),
+            vec![CompatibleEncoder::Amd, CompatibleEncoder::Software]
+        );
+
+        let selected_software = ExportSettings {
+            encoder: VideoEncoder::Software,
+            ..default_settings()
+        };
+        assert_eq!(
+            compatible_encoder_attempts(&selected_software)
+                .into_iter()
+                .collect::<Vec<_>>(),
+            vec![CompatibleEncoder::Software]
+        );
+
         assert!(should_retry_with_next_encoder(
             CompatibleEncoder::Nvidia,
             Some(1),
@@ -1461,6 +1634,19 @@ mod tests {
             amf.windows(2)
                 .any(|pair| pair == ["-qvbr_quality_level", "23"])
         );
+    }
+
+    #[test]
+    fn builds_a_single_frame_hardware_encoder_probe() {
+        let arguments = encoder_probe_args(VideoCodec::H265, CompatibleEncoder::Nvidia);
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["-c:v", "hevc_nvenc"])
+        );
+        assert!(arguments.windows(2).any(|pair| pair == ["-frames:v", "1"]));
+        assert!(arguments.windows(2).any(|pair| pair == ["-f", "null"]));
+        assert_eq!(arguments.last().map(String::as_str), Some("-"));
     }
 
     #[test]

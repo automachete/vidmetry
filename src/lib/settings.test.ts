@@ -35,7 +35,7 @@ describe('persistent settings', () => {
         language: 'en',
         loopPlayback: true,
         explorerIntegration: false,
-        export: { ...defaultSettings.export, videoCodec: 'h265', crf: 21 },
+        export: { ...defaultSettings.export, videoCodec: 'h265', encoder: 'nvidia', crf: 21 },
       },
       store,
     );
@@ -44,7 +44,7 @@ describe('persistent settings', () => {
       language: 'en',
       loopPlayback: true,
       explorerIntegration: false,
-      export: { videoCodec: 'h265', crf: 21 },
+      export: { videoCodec: 'h265', encoder: 'nvidia', crf: 21 },
     });
     expect(store.saveCount).toBe(1);
   });

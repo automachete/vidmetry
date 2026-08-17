@@ -8,12 +8,14 @@ import {
   frameRateModes,
   pixelFormats,
   videoCodecs,
+  videoEncoders,
   type ExportSettings,
 } from './export';
 
 const exportSettingsSchema: z.ZodType<ExportSettings> = z.strictObject({
   profile: z.enum(exportProfiles),
   videoCodec: z.enum(videoCodecs),
+  encoder: z.enum(videoEncoders),
   crf: z.number().int().min(0).max(51),
   preset: z.enum(encoderPresets),
   pixelFormat: z.enum(pixelFormats),
@@ -55,6 +57,7 @@ export const defaultSettings: AppSettings = appSettingsSchema.parse({
   export: {
     profile: 'compatible',
     videoCodec: 'h264',
+    encoder: 'automatic',
     crf: 17,
     preset: 'medium',
     pixelFormat: 'yuv420p',

@@ -8,6 +8,7 @@ const settings = {
   export: {
     profile: 'compatible',
     videoCodec: 'h264',
+    encoder: 'automatic',
     crf: 17,
     preset: 'medium',
     pixelFormat: 'yuv420p',
@@ -65,6 +66,12 @@ async function installTauriMock(page: Page): Promise<void> {
         return null;
       }
       if (command === 'system_accent_color') return '#FF8C00';
+      if (command === 'available_video_encoders') {
+        return {
+          h264: { nvidia: true, intel: false, amd: true },
+          h265: { nvidia: true, intel: false, amd: false },
+        };
+      }
       if (command === 'startup_selection') return null;
       if (command === 'plugin:store|load') return 1;
       if (command === 'plugin:store|get') return [storedSettings, storedSettings !== undefined];
@@ -210,6 +217,14 @@ test('settings place display language at the bottom', async ({ page }) => {
 
   const headings = await page.locator('.settings-scroll > .settings-section > h3').allTextContents();
   expect(headings.at(-1)).toBe('Display language');
+  const encoder = page.getByRole('combobox', { name: 'Encoder' });
+  await expect(encoder.locator('option[value="automatic"]')).toHaveText('Automatic');
+  await expect(encoder.locator('option[value="nvidia"]')).not.toHaveAttribute('disabled', '');
+  await expect(encoder.locator('option[value="intel"]')).toHaveAttribute('disabled', '');
+  await expect(encoder.locator('option[value="amd"]')).not.toHaveAttribute('disabled', '');
+  await encoder.selectOption('amd');
+  await expect(encoder).toHaveValue('amd');
+  await encoder.selectOption('automatic');
   await expect(page.getByRole('dialog', { name: 'Settings' })).toHaveScreenshot('settings.png', {
     animations: 'disabled',
   });

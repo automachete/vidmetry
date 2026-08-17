@@ -4,6 +4,7 @@ import type { TrimRange } from './trim';
 
 export const exportProfiles = ['compatible', 'lossless', 'metadata'] as const;
 export const videoCodecs = ['h264', 'h265'] as const;
+export const videoEncoders = ['automatic', 'nvidia', 'intel', 'amd', 'software'] as const;
 export const encoderPresets = [
   'ultrafast',
   'superfast',
@@ -29,6 +30,7 @@ export const frameRateModes = ['passthrough', 'constant'] as const;
 
 export type ExportProfile = (typeof exportProfiles)[number];
 export type VideoCodec = (typeof videoCodecs)[number];
+export type VideoEncoder = (typeof videoEncoders)[number];
 export type EncoderPreset = (typeof encoderPresets)[number];
 export type PixelFormat = (typeof pixelFormats)[number];
 export type AudioMode = (typeof audioModes)[number];
@@ -37,6 +39,7 @@ export type FrameRateMode = (typeof frameRateModes)[number];
 export interface ExportSettings {
   profile: ExportProfile;
   videoCodec: VideoCodec;
+  encoder: VideoEncoder;
   crf: number;
   preset: EncoderPreset;
   pixelFormat: PixelFormat;
@@ -46,6 +49,17 @@ export interface ExportSettings {
   constantFrameRate: number;
   preserveMetadata: boolean;
   copySubtitles: boolean;
+}
+
+export interface HardwareEncoderAvailability {
+  nvidia: boolean;
+  intel: boolean;
+  amd: boolean;
+}
+
+export interface VideoEncoderAvailability {
+  h264: HardwareEncoderAvailability;
+  h265: HardwareEncoderAvailability;
 }
 
 export interface ExportRequest {

@@ -23,7 +23,7 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 | `npm run test:coverage` | Pass — 94.25% statements, 81.09% branches, 97.67% functions, 95.31% lines |
 | `npm run build` | Pass — Vite production build |
 | `cargo fmt --check --manifest-path src-tauri\Cargo.toml` | Pass |
-| `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 30 Rust unit tests |
+| `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 31 Rust unit tests |
 | `cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings` | Pass |
 | `scripts/test-integration.ps1` | Pass — H.264 and H.265 selected NVENC on the RTX 5070 Ti |
 | `npm audit --audit-level=high` | Pass — 0 vulnerabilities |
@@ -60,6 +60,8 @@ The source SHA-256 before and after all exports is identical. Temporary test med
 ## Hardware encoding benchmark
 
 An 8-second 3840×2160 source was cropped to 3200×1800 and encoded with the bundled FFmpeg on an RTX 5070 Ti using NVIDIA driver 610.88. H.264 completed in 1.62 seconds with NVENC versus 2.25 seconds with `libx264` (28% shorter). H.265 completed in 1.67 seconds with NVENC versus 3.23 seconds with `libx265` (48% shorter).
+
+The one-frame startup probes reported NVENC and AMF available for both H.264 and H.265, and QSV unavailable on this machine. Running all six probes serially took 739 ms; the application runs the three vendor probes concurrently and tests the two codecs sequentially per vendor.
 
 ## Local release artifacts
 

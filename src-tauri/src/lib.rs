@@ -69,6 +69,11 @@ async fn start_export(
 }
 
 #[tauri::command]
+async fn available_video_encoders(app: tauri::AppHandle) -> export::VideoEncoderAvailability {
+    export::available_video_encoders(app).await
+}
+
+#[tauri::command]
 fn cancel_export(
     state: tauri::State<'_, export::ExportState>,
     job_id: String,
@@ -99,6 +104,7 @@ pub fn run() {
             probe_video,
             create_preview,
             create_timeline_strip,
+            available_video_encoders,
             start_export,
             cancel_export,
             inspect_selection,

@@ -104,8 +104,18 @@ function useEnglish(): void {
   storeState.value = { ...defaultSettings, languageMode: 'manual', language: 'en' };
 }
 
-function mockSelection(paths = videoPaths, failingProbePath?: string): void {
+function mockSelection(
+  paths = videoPaths,
+  failingProbePath?: string,
+  startupPath: string | null = null,
+): void {
   vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === 'available_video_encoders') {
+      return {
+        h264: { nvidia: true, intel: false, amd: true },
+        h265: { nvidia: true, intel: false, amd: false },
+      } as never;
+    }
     if (command === 'inspect_selection') {
       return {
         kind: paths.length > 1 ? 'directory' : 'file',
@@ -119,7 +129,7 @@ function mockSelection(paths = videoPaths, failingProbePath?: string): void {
       return mediaDescriptor(path) as never;
     }
     if (command === 'system_accent_color') return '#FF8C00' as never;
-    if (command === 'startup_selection') return null as never;
+    if (command === 'startup_selection') return startupPath as never;
     if (command === 'start_export') return 'job-1' as never;
     if (command === 'reveal_in_explorer') return undefined as never;
     throw new Error(`Unexpected command: ${command}`);
@@ -167,11 +177,7 @@ describe('application shell', () => {
 
   it('opens a file or folder passed by File Explorer at startup', async () => {
     useEnglish();
-    mockSelection(['C:\\clips\\a.mp4', 'C:\\clips\\b.mp4']);
-    vi.mocked(invoke).mockImplementationOnce(async (command) => {
-      if (command === 'startup_selection') return 'C:\\clips' as never;
-      return '#FF8C00' as never;
-    });
+    mockSelection(['C:\\clips\\a.mp4', 'C:\\clips\\b.mp4'], undefined, 'C:\\clips');
     render(App);
 
     expect(await screen.findByRole('option', { name: '2. b.mp4' })).toBeTruthy();
@@ -179,6 +185,17 @@ describe('application shell', () => {
 
   it('opens common settings with the language section last', async () => {
     useEnglish();
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === 'available_video_encoders') {
+        return {
+          h264: { nvidia: true, intel: false, amd: true },
+          h265: { nvidia: true, intel: false, amd: false },
+        } as never;
+      }
+      if (command === 'system_accent_color') return '#FF8C00' as never;
+      if (command === 'startup_selection') return null as never;
+      return undefined as never;
+    });
     const { container } = render(App);
     const settingsButton = screen.getByRole('button', { name: 'Settings' });
     await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
@@ -188,10 +205,28 @@ describe('application shell', () => {
     expect(screen.getByText('Video export method')).toBeTruthy();
     expect(screen.queryByText('Export video')).toBeNull();
     expect(screen.queryByText('Optimize for web playback (faststart)')).toBeNull();
+    const encoder = screen.getByRole('combobox', { name: 'Encoder' });
+    expect(within(encoder).getByRole('option', { name: 'Automatic' }).textContent).toBe(
+      'Automatic',
+    );
+    expect(
+      (within(encoder).getByRole('option', { name: 'NVIDIA NVENC' }) as HTMLOptionElement)
+        .disabled,
+    ).toBe(false);
+    expect(
+      (within(encoder).getByRole('option', { name: 'Intel Quick Sync' }) as HTMLOptionElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (within(encoder).getByRole('option', { name: 'AMD AMF' }) as HTMLOptionElement).disabled,
+    ).toBe(false);
     const sections = container.querySelectorAll('.settings-scroll > .settings-section');
     expect(sections.item(sections.length - 1).querySelector('h3')?.textContent).toBe(
       'Display language',
     );
+    await fireEvent.change(encoder, { target: { value: 'amd' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(storeState.value).toMatchObject({ export: { encoder: 'amd' } }));
   });
 
   it('toggles File Explorer integration and persists it with common settings', async () => {

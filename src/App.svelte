@@ -41,6 +41,8 @@
     type FrameRateMode,
     type PixelFormat,
     type VideoCodec,
+    type VideoEncoder,
+    type VideoEncoderAvailability,
   } from './lib/export';
   import { localizeAppError, translate, type TranslationKey } from './lib/i18n';
   import { formatFrameRate, formatTime, type MediaDescriptor } from './lib/media';
@@ -162,6 +164,10 @@
   let settingsReady = false;
   let settings: AppSettings = cloneSettings(defaultSettings);
   let settingsDraft: AppSettings = cloneSettings(defaultSettings);
+  let encoderAvailability: VideoEncoderAvailability = {
+    h264: { nvidia: false, intel: false, amd: false },
+    h265: { nvidia: false, intel: false, amd: false },
+  };
   let systemLanguage = 'en-US';
   let language: Language = 'en';
   let text = (key: TranslationKey, values: Record<string, string | number> = {}) =>
@@ -203,6 +209,7 @@
   onMount(() => {
     systemLanguage = navigator.language || 'en-US';
     void initializeSettings();
+    void initializeEncoderAvailability();
     void initializeSystemAppearance();
     void initializeStartupSelection();
 
@@ -226,6 +233,26 @@
     } finally {
       if (!destroyed) settingsReady = true;
     }
+  }
+
+  async function initializeEncoderAvailability() {
+    try {
+      const availability = await invoke<VideoEncoderAvailability>('available_video_encoders');
+      if (!destroyed && isEncoderAvailability(availability)) encoderAvailability = availability;
+    } catch (error) {
+      recordWarning('Video encoder availability probe failed', error);
+    }
+  }
+
+  function isEncoderAvailability(value: unknown): value is VideoEncoderAvailability {
+    if (typeof value !== 'object' || value === null) return false;
+    const availability = value as Partial<VideoEncoderAvailability>;
+    return [availability.h264, availability.h265].every(
+      (codecs) =>
+        typeof codecs?.nvidia === 'boolean' &&
+        typeof codecs.intel === 'boolean' &&
+        typeof codecs.amd === 'boolean',
+    );
   }
 
   async function initializeStartupSelection() {
@@ -1064,6 +1091,11 @@
     settingsDraft = { ...settingsDraft, export: { ...settingsDraft.export, [key]: value } };
   }
 
+  function encoderAvailable(encoder: VideoEncoder): boolean {
+    if (encoder === 'automatic' || encoder === 'software') return true;
+    return encoderAvailability[settingsDraft.export.videoCodec][encoder];
+  }
+
   function setProfile(profile: ExportProfile) {
     const next = { ...settingsDraft.export, profile };
     if (profile === 'compatible') {
@@ -1422,7 +1454,7 @@
               <div class="settings-grid">
                 {#if settingsDraft.export.profile === 'compatible'}
                   <label class="settings-field"><span>{text('videoCodec')}</span><select value={settingsDraft.export.videoCodec} onchange={(event) => updateExportDraft('videoCodec', (event.currentTarget as HTMLSelectElement).value as VideoCodec)}><option value="h264">H.264</option><option value="h265">H.265 / HEVC</option></select></label>
-                  <label class="settings-field"><span>{text('encoder')}</span><input value={text('automaticEncoder', { encoder: settingsDraft.export.videoCodec === 'h264' ? 'libx264' : 'libx265' })} disabled /></label>
+                  <label class="settings-field"><span>{text('encoder')}</span><select value={settingsDraft.export.encoder} onchange={(event) => updateExportDraft('encoder', (event.currentTarget as HTMLSelectElement).value as VideoEncoder)}><option value="automatic">{text('automaticEncoder')}</option><option value="nvidia" disabled={!encoderAvailable('nvidia')}>NVIDIA NVENC</option><option value="intel" disabled={!encoderAvailable('intel')}>Intel Quick Sync</option><option value="amd" disabled={!encoderAvailable('amd')}>AMD AMF</option><option value="software">{text('softwareEncoder')}</option></select></label>
                   <label class="settings-field"><span>{text('crf')}</span><input type="number" min="0" max="51" step="1" value={settingsDraft.export.crf} onchange={(event) => updateExportDraft('crf', Number((event.currentTarget as HTMLInputElement).value))} /><small>{text('crfHint')}</small></label>
                   <label class="settings-field"><span>{text('preset')}</span><select value={settingsDraft.export.preset} onchange={(event) => updateExportDraft('preset', (event.currentTarget as HTMLSelectElement).value as EncoderPreset)}>{#each encoderPresets as preset}<option value={preset}>{preset}</option>{/each}</select></label>
                 {/if}
