@@ -19,7 +19,7 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 | `npm run test:shell` | Pass — NSIS and MSI registrations match all 16 supported video extensions and include selected-directory handling, update-state preservation, and uninstall cleanup |
 | `npm run test:runtime` | Pass — pinned Node/npm/Rust, immutable FFmpeg manifest, sidecar hashes/notices, and full-SHA GitHub Actions references |
 | `npm test` | Pass — 56 tests across 10 files |
-| `npm run test:ui` | Pass — 13 Chromium scenarios and 5 screenshot baselines |
+| `npm run test:ui` | Pass — 13 Chromium scenarios covering semantic controls, state transitions, computed styles, and requirement-specific geometry |
 | `npm run test:coverage` | Pass — 94.25% statements, 81.09% branches, 97.67% functions, 95.31% lines |
 | `npm run build` | Pass — Vite production build |
 | `cargo fmt --check --manifest-path src-tauri\Cargo.toml` | Pass |

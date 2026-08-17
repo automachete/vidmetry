@@ -157,7 +157,7 @@ No localhost HTTP service or database is required. Tauri IPC carries small struc
 - **Rust**: validation, process safety, progress parsing, filesystem operations.
 - **FFmpeg/ffprobe**: broad media decoding and deterministic export.
 - **Vitest + Testing Library**: frontend domain and component-interaction tests.
-- **Playwright**: Chromium interaction, layout geometry, and screenshot-regression tests.
+- **Playwright**: Chromium interaction, accessible control semantics, state transitions, and requirement-specific layout geometry.
 - **Cargo test**: backend domain and argument-builder tests.
 
 ### 5.2 Repository layout
@@ -324,9 +324,9 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 ### 13.2 Component and UI regression tests
 
 - Testing Library covers launcher content, settings, save shortcuts, Space playback from the focused playback scrubber, structured synchronous/asynchronous error localization, trim-boundary frame steps, pane collapse, F11 state, Windows appearance projection, notice dismissal, and completed-output links. A source-boundary regression test rejects product-owned Japanese text outside the locale resource or inside the Rust backend.
-- Playwright exercises the same critical flows in Chromium, including a structured backend error in the selected UI language, clicking the rendered playback-position handle before Space, real playback-state changes, full-duration click alignment after halving the selection, off-center trim-boundary grabs, trim export ranges, theme/accent projection, collapsible panes, F11, notification expiry, and screenshot layout.
+- Playwright exercises the same critical flows in Chromium, including settings-section order and encoder availability, a structured backend error in the selected UI language, clicking the rendered playback-position handle before Space, real playback-state changes, full-duration click alignment after halving the selection, off-center trim-boundary grabs, trim export ranges, computed theme/accent projection, requirement-specific alignment, collapsible panes, F11, and notification expiry.
 - Asset verification scans generated PNG/ICO pixels and source SVG colors for chromatic fixed artwork, rejects legacy green tints, and checks the Windows shortcut refresh configuration.
-- Screenshot baselines cover launcher, settings, save-menu, successful-save, and Windows light-theme states.
+- CI retains screenshots only as failure diagnostics. UI regressions are asserted through roles, accessible names, values, enabled states, computed styles, and geometry tied to explicit requirements rather than whole-screen pixel baselines.
 
 ### 13.3 Rust unit tests
 

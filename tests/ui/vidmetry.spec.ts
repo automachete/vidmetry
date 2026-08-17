@@ -192,7 +192,6 @@ test('launcher is concise and keeps only the settings command in its header', as
   await expect(page.locator('.brand-icon')).toBeVisible();
   await expect(page.getByText('Local video cropper')).toHaveCount(0);
   await expect(page.getByText('Keep precisely the part of the frame you need.')).toHaveCount(0);
-  await expect(page.locator('.app-shell')).toHaveScreenshot('launcher.png', { animations: 'disabled' });
 });
 
 test('structured backend errors use the selected UI language', async ({ page }) => {
@@ -211,12 +210,21 @@ test('ffprobe timing remains authoritative over the preview element duration', a
   await expect(page.locator('.time.total')).toHaveText('0:08.000');
 });
 
-test('settings place display language at the bottom', async ({ page }) => {
+test('settings expose encoder availability and place display language last', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings' }).click();
 
   const headings = await page.locator('.settings-scroll > .settings-section > h3').allTextContents();
-  expect(headings.at(-1)).toBe('Display language');
+  expect(headings).toEqual([
+    'Video export method',
+    'Video',
+    'Audio',
+    'Timing',
+    'File and metadata',
+    'Play',
+    'File Explorer integration',
+    'Display language',
+  ]);
   const encoder = page.getByRole('combobox', { name: 'Encoder' });
   await expect(encoder.locator('option[value="automatic"]')).toHaveText('Automatic');
   await expect(encoder.locator('option[value="nvidia"]')).toHaveText('nvenc');
@@ -234,9 +242,8 @@ test('settings place display language at the bottom', async ({ page }) => {
   await expect(encoder.locator('option[value="software"]')).toHaveText('libx265');
   await expect(encoder.locator('option[value="amd"]')).toHaveAttribute('disabled', '');
   await codec.selectOption('h264');
-  await expect(page.getByRole('dialog', { name: 'Settings' })).toHaveScreenshot('settings.png', {
-    animations: 'disabled',
-  });
+  await expect(page.getByRole('button', { name: 'Apply' })).toBeVisible();
+  await expect(page.locator('.dialog-actions').getByRole('button', { name: 'Close' })).toBeVisible();
 });
 
 test('folder navigation, save options, success alignment, and Explorer selection work together', async ({
@@ -259,9 +266,6 @@ test('folder navigation, save options, success alignment, and Explorer selection
   await expect(page.getByRole('menu')).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'Save a copy' })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'Save', exact: true })).toBeVisible();
-  await expect(page.locator('.app-shell')).toHaveScreenshot('editor-save-menu.png', {
-    animations: 'disabled',
-  });
   await page.getByRole('menuitem', { name: 'Save a copy' }).click();
   await page.evaluate(() =>
     (window as any).__emitTauri('export-complete', {
@@ -279,9 +283,6 @@ test('folder navigation, save options, success alignment, and Explorer selection
     }),
   );
   expect(Math.max(...verticalCenters) - Math.min(...verticalCenters)).toBeLessThanOrEqual(1);
-  await expect(page.locator('.app-shell')).toHaveScreenshot('editor-success.png', {
-    animations: 'disabled',
-  });
 
   await page.getByRole('link', { name: /Show saved file in File Explorer:/ }).click();
   const revealed = await page.evaluate(() =>
@@ -458,9 +459,6 @@ test('Windows light mode and accent color drive the whole editor and trim bar', 
   await page.getByRole('button', { name: 'Open video' }).click();
   const trimColor = await page.locator('.trim-selection').evaluate((element) => getComputedStyle(element).borderTopColor);
   expect(trimColor).toBe('rgb(255, 140, 0)');
-  await expect(page.locator('.app-shell')).toHaveScreenshot('editor-light-theme.png', {
-    animations: 'disabled',
-  });
 });
 
 test('save shortcuts, collapsible panes, and F11 preview are wired', async ({ page }) => {

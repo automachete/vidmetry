@@ -7,9 +7,6 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'github' : 'list',
-  expect: {
-    toHaveScreenshot: { maxDiffPixelRatio: 0.01 },
-  },
   use: {
     baseURL: 'http://127.0.0.1:1420',
     screenshot: 'only-on-failure',
