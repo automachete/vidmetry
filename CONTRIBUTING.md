@@ -51,10 +51,9 @@ cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings
 npm run test:integration
 ```
 
-- `test:ui`はPlaywrightで主要操作とスクリーンショットを検証します。
+- `test:ui`はPlaywrightで主要操作、状態遷移、表示位置などのUI契約を検証します。
 - `test:integration`は生成動画を使い、各保存方式、時間トリム、コーデック、寸法、フレーム同一性、上書き安全性を検証します。
 - Rustを変更した場合はfmt、test、Clippyをすべて実行します。
-- UIの意図的な見た目変更では`npm run test:ui:update`で基準画像を更新し、差分を目視確認します。
 
 ライセンスと依存関係を含む完全な確認には次を使います。
 

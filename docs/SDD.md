@@ -59,8 +59,9 @@ The following terms are distinct and must not be shortened to an unqualified “
 - **FR-002** The backend probes the primary video stream and reports container, video/audio codecs, coded dimensions, display rotation, sample aspect ratio, pixel format, bit depth, frame-rate rationals, duration, and color metadata when present.
 - **FR-003** Direct WebView playback is attempted first. On playback failure the user can generate, or the app can automatically generate, a temporary H.264 proxy from the original.
 - **FR-004** A newly opened video starts with the crop rectangle covering the complete displayed frame.
-- **FR-005** When a directory is active, the user can switch videos with an in-app list, previous/next controls, or Page Up/Page Down. File names are sorted case-insensitively.
+- **FR-005** When a directory is active, the user can switch videos with an in-app list, previous/next controls, or Page Up/Page Down. File names are sorted case-insensitively. If playback is active, the destination video starts automatically in both regular and fullscreen preview.
 - **FR-006** Each Windows installer registers Vidmetry for the installing user in Open with for every supported video extension and adds an Open with Vidmetry verb for selected directories. Either entry point opens the selected path.
+- **FR-007** While a directory remains active, supported videos added by Vidmetry or another application are reflected without reopening the directory. Change bursts are coalesced, the current video is retained when present, and refreshes requested during export run after the export finishes.
 
 ### 3.2 Crop interaction
 
@@ -105,6 +106,8 @@ The following terms are distinct and must not be shortened to an unqualified “
 - **FR-045** A successful-save notice closes after three seconds or when another UI control is used.
 - **FR-046** Ctrl+S invokes Copy and save. Ctrl+Shift+S invokes confirmed in-place Save only when the current profile supports the source extension.
 - **FR-047** A probed media descriptor is reused for export while its canonical source path, file length, and modification time remain unchanged. A changed source is probed again.
+- **FR-048** After in-place Save replaces the source, the backend invalidates its probe entry and the UI reloads the media descriptor and a newly versioned preview URL so WebView and ffprobe state describe the same file generation.
+- **FR-049** Starting export captures one immutable crop, trim, and export-settings snapshot before asynchronous work begins. Crop, playback scrub, and trim-boundary input cannot mutate that request while export is starting or running.
 
 ### 3.5 Common settings and localization
 
@@ -133,6 +136,7 @@ Tauri 2 desktop shell
   ├─ Svelte + TypeScript presentation layer
   │    ├─ Video viewport and crop overlay
   │    ├─ Playback/scrub and directory navigation
+  │    ├─ Coalesced directory refresh and export-state coordination
   │    ├─ Persistent settings and localization
   │    ├─ Typed application-error localization
   │    └─ Direct save actions and progress
@@ -141,6 +145,7 @@ Tauri 2 desktop shell
        ├─ Probe and media descriptor mapping
        ├─ Crop validation and orientation mapping
        ├─ Preview proxy lifecycle
+       ├─ Selected-directory change watcher
        ├─ Export profile/argument builder
        ├─ FFmpeg/ffprobe sidecar process manager
        ├─ Windows appearance/accent adapter
@@ -184,6 +189,7 @@ vidmetry/
       ffmpeg.rs
       media.rs
       appearance.rs
+      directory_watch.rs
       selection.rs
       lib.rs
   scripts/
@@ -242,6 +248,7 @@ Crop rectangles use the displayed orientation. The backend owns the conversion t
 | Command/event | Direction | Purpose |
 |---|---|---|
 | `inspect_selection(path)` | UI → Rust | Resolve a selected file or sorted directory playlist |
+| `watch_directory(path?)` | UI → Rust | Replace or stop the non-recursive watcher for the active directory |
 | `probe_video(path)` | UI → Rust | Return `MediaDescriptor` from ffprobe JSON |
 | `create_preview(path)` | UI → Rust | Create/reuse local proxy and return its path |
 | `create_timeline_strip(path, durationSeconds)` | UI → Rust | Create/reuse a 12-frame contact sheet for the trim bar |
@@ -253,6 +260,7 @@ Crop rectangles use the displayed orientation. The backend owns the conversion t
 | `system_accent_color()` | UI → Rust | Return the current Windows DWM accent as a CSS RGB color |
 | `export-progress` | Rust → UI | `{jobId, fraction, outTimeSeconds}` |
 | `export-complete` | Rust → UI | Final output path |
+| `directory-changed` | Rust → UI | Active directory root whose contents changed |
 | command errors | Rust → UI | `{code, detail?}`; code is stable and language-neutral |
 | `export-error` | Rust → UI | `{jobId, error: {code, detail?}, cancelled}` |
 
@@ -272,7 +280,7 @@ The first-run state is an accessible file/folder drop target. Export settings ar
 
 The application first reads duration, frame rate, and a declared exact frame count with ffprobe. Only when the container does not report a count does it run ffprobe's frame-counting pass. These values are required for the frame-index contract; the application reports a typed error instead of estimating a missing value. It then exposes the selected file through Tauri's scoped asset protocol and asks the native WebView media element to play it. If decoding fails, `create_preview` produces an orientation-normalized, square-pixel, maximum-1280-pixel H.264 MP4 proxy with frequent keyframes. The proxy is for interaction only; final export always reads the original.
 
-Proxy and timeline contact-sheet entries are stored under the operating-system cache directory and keyed by canonical path, file size, and last-write timestamp. Entries are reusable across sessions. Each cache has count, total-size, and age limits; least-recently-used entries are removed after creation or reuse. FFmpeg writes to unique staging paths, and only non-empty completed files are promoted to reusable entries.
+Proxy and timeline contact-sheet entries are stored under the operating-system cache directory and keyed by canonical path, file size, and last-write timestamp. Entries are reusable across sessions. Each cache has count, total-size, and age limits; least-recently-used entries are removed after creation or reuse. FFmpeg writes to unique staging paths, and only non-empty completed files are promoted to reusable entries. Successful in-place replacement explicitly invalidates the source probe entry; every media load uses a new asset-URL revision so the WebView cannot reuse bytes from an older generation at the same path.
 
 ## 10. Error handling and recovery
 
@@ -282,6 +290,7 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 - FFmpeg missing: display setup guidance and disable export.
 - Existing copy destination: native dialog confirmation and backend overwrite permission are both required.
 - In-place save: explicit application confirmation is required; encoding completes to a sibling temporary path before replacement.
+- Directory watcher unavailable: retain the opened video and report a typed localized error instead of silently presenting a stale live view.
 - Disk full or permission failure: retain the original and remove only the known partial file.
 - App closes during export: terminate owned child processes.
 - Sidecar output is logged without exposing unrelated environment variables.
@@ -323,8 +332,8 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 
 ### 13.2 Component and UI regression tests
 
-- Testing Library covers launcher content, settings, save shortcuts, Space playback from the focused playback scrubber, structured synchronous/asynchronous error localization, trim-boundary frame steps, pane collapse, F11 state, Windows appearance projection, notice dismissal, and completed-output links. A source-boundary regression test rejects product-owned Japanese text outside the locale resource or inside the Rust backend.
-- Playwright exercises the same critical flows in Chromium, including settings-section order and encoder availability, a structured backend error in the selected UI language, clicking the rendered playback-position handle before Space, real playback-state changes, full-duration click alignment after halving the selection, off-center trim-boundary grabs, trim export ranges, computed theme/accent projection, requirement-specific alignment, collapsible panes, F11, and notification expiry.
+- Testing Library covers launcher content, settings, save shortcuts, Space playback from the focused playback scrubber, directory playback carry and live refresh, same-path overwrite reload, immutable trim export requests, structured synchronous/asynchronous error localization, pane collapse, F11 state, Windows appearance projection, notice dismissal, and completed-output links. A source-boundary regression test rejects product-owned Japanese text outside the locale resource or inside the Rust backend.
+- Playwright exercises the same critical flows in Chromium, including settings-section order and encoder availability, a structured backend error in the selected UI language, regular/fullscreen directory playback carry, Explorer and copy-save directory additions, clicking the rendered playback-position handle before Space, real playback-state changes, full-duration click alignment after halving the selection, locked trim export ranges, computed theme/accent projection, requirement-specific alignment, collapsible panes, F11, and notification expiry.
 - Asset verification scans generated PNG/ICO pixels and source SVG colors for chromatic fixed artwork, rejects legacy green tints, and checks the Windows shortcut refresh configuration.
 - CI retains screenshots only as failure diagnostics. UI regressions are asserted through roles, accessible names, values, enabled states, computed styles, and geometry tied to explicit requirements rather than whole-screen pixel baselines.
 
@@ -337,6 +346,7 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 - Progress-line parsing.
 - Temporary output naming and destination validation.
 - Directory filtering, non-recursive discovery, and stable sorting.
+- Directory watcher event filtering.
 - Hardware availability probes, automatic/manual encoder ordering, backend-specific quality arguments, audio/frame-rate argument generation, and invalid-setting rejection.
 - Exact `start_frame`/`end_frame` FFmpeg filters, CFR late-seek adjustment, VFR full-decode fallback, audio alignment, and metadata-only rejection.
 - Media-probe cache invalidation and FFV1 thread/slice scaling.
@@ -386,7 +396,10 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - **AC-018** The crop inspector and time-trim footer collapse independently, and F11/Escape toggle a video-only window fullscreen preview.
 - **AC-019** Product-owned runtime errors are transported as language-neutral codes with optional diagnostics and render from the same Japanese/English locale resources as the rest of the UI; backend and component source contain no Japanese product prose.
 - **AC-020** A fresh MSI or NSIS installation exposes every supported video and selected directories to Vidmetry from File Explorer; the common setting removes and restores those entries, and an update preserves an explicit disabled state.
+- **AC-021** Directory navigation carries active playback into the destination video in regular and fullscreen preview, and the active playlist reflects Explorer and completed copy-save additions without reopening the folder.
+- **AC-022** In-place Save reloads dimensions, duration, frame count, and preview bytes from the replaced source generation rather than mixing cached generations.
+- **AC-023** Export uses the crop, trim range, and settings visible when Save begins; editor controls remain locked until the request finishes or fails.
 
 ## 15. Verification status
 
-The 0.4.7 implementation satisfies AC-001 through AC-020 at automated or implementation-inspection level. Native picker interaction, live Windows personalization and Shell changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.
+The 0.4.7 implementation satisfies AC-001 through AC-023 at automated or implementation-inspection level. Native picker interaction, live Windows personalization and Shell changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced installer hashes are recorded in `docs/VERIFICATION.md`.

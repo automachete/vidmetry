@@ -18,12 +18,12 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 | `npm run test:assets` | Pass — SVG, generated PNG/ICO pixels, legacy tint list, and NSIS shortcut-refresh configuration |
 | `npm run test:shell` | Pass — NSIS and MSI registrations match all 16 supported video extensions and include selected-directory handling, update-state preservation, and uninstall cleanup |
 | `npm run test:runtime` | Pass — pinned Node/npm/Rust, immutable FFmpeg manifest, sidecar hashes/notices, and full-SHA GitHub Actions references |
-| `npm test` | Pass — 56 tests across 10 files |
-| `npm run test:ui` | Pass — 13 Chromium scenarios covering semantic controls, state transitions, computed styles, and requirement-specific geometry |
-| `npm run test:coverage` | Pass — 94.25% statements, 81.09% branches, 97.67% functions, 95.31% lines |
+| `npm test` | Pass — 59 tests across 10 files |
+| `npm run test:ui` | Pass — 15 Chromium scenarios covering semantic controls, state transitions, computed styles, and requirement-specific geometry |
+| `npm run test:coverage` | Pass — 94.28% statements, 81.09% branches, 97.67% functions, 95.33% lines |
 | `npm run build` | Pass — Vite production build |
 | `cargo fmt --check --manifest-path src-tauri\Cargo.toml` | Pass |
-| `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 35 Rust unit tests |
+| `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 36 Rust unit tests |
 | `cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings` | Pass |
 | `scripts/test-integration.ps1` | Pass — H.264/H.265 selected `nvenc`; FFV1 used 64 slices; late input seek preserved all 60 frame hashes and decoded audio samples |
 | `npm audit --audit-level=high` | Pass — 0 vulnerabilities |
@@ -33,10 +33,12 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 | Application Release architecture | Pass — public/version/source preflight and Rust license audit precede parallel source transfer and Windows verification; the isolated publisher requires the exact four-asset set and rechecks public access immediately before publication |
 | `npm run tauri build` | Pass — MSI and NSIS bundles, including their File Explorer registration definitions |
 | Installer license payload | Pass — both bundle definitions contain FFmpeg license/source notice, complete dependency reports, MPL text, and all 5 MPL source archives |
-| Component interaction | Pass — Windows mode/accent projection, launcher/logo, settings and Explorer-integration toggling, startup Shell paths, save shortcuts/menu, focused playback-position Space control, trim-boundary frame steps, authoritative ffprobe timing, collapsible panes, F11 state, notification dismissal, structured command/event error localization, Explorer reveal, event-registration failure, rejected playback, durable-settings failure, multi-path drop validation, and playlist rollback |
+| Component interaction | Pass — Windows mode/accent projection, launcher/logo, settings and Explorer-integration toggling, startup Shell paths, save shortcuts/menu, focused playback-position Space control, regular/fullscreen directory playback carry, live directory additions, locked trim export ranges, authoritative ffprobe timing, same-path overwrite reload, collapsible panes, F11 state, notification dismissal, structured command/event error localization, Explorer reveal, event-registration failure, rejected playback, durable-settings failure, multi-path drop validation, and playlist rollback |
 | Localization boundary | Pass — i18next resolves typed Japanese/English resources; backend errors serialize generated stable codes with optional details; Japanese product text outside the resource is rejected automatically |
-| Persistence and cache lifecycle | Pass — strict Zod rejection of incomplete, unknown, obsolete, or out-of-range settings; disabled Explorer state retained across installer updates; unchanged media-probe reuse and fingerprint invalidation; non-empty staged cache promotion; retained-entry-safe count/size/age pruning |
-| Playback-state regression | Pass — Playwright clicks the rendered playback-position handle, verifies focus on its full-width scrubber, presses Space, and checks `paused` changes from true to false, a play event is emitted, and the UI displays Pause |
+| Persistence and cache lifecycle | Pass — strict Zod rejection of incomplete, unknown, obsolete, or out-of-range settings; disabled Explorer state retained across installer updates; unchanged media-probe reuse, explicit post-replacement invalidation, and fresh WebView asset revisions; non-empty staged cache promotion; retained-entry-safe count/size/age pruning |
+| Playback-state regression | Pass — Playwright verifies Space playback and confirms that previous/next navigation resumes the destination video in regular and fullscreen directory preview |
+| Directory synchronization | Pass — native change events are filtered and coalesced; component and Chromium tests reflect Explorer additions and completed copy saves while retaining the current item |
+| Export-state regression | Pass — an in-place replacement reloads changed geometry, duration, frame count, and a fresh media URL; export snapshots the exact trim range and disables its controls before asynchronous saving |
 | Pointer alignment regression | Pass — after selecting frames `[60, 180)` of a 240-frame video, a physical timeline click and an off-center handle drag remain aligned within half-frame rendering tolerance |
 | Packaged executable smoke launch | Pass — remained running until test shutdown; extracted executable icon contains only achromatic pixels |
 
@@ -74,13 +76,13 @@ These artifacts were generated from the verified 0.4.7 source tree. They are bui
 
 | Artifact | Size | SHA-256 |
 |---|---:|---|
-| `Vidmetry_0.4.7_x64_en-US.msi` | 111.00 MiB | `EB0A500C1BFBCCB37889DBD28B4ABA31F0609B0F9E7F2806E10339E49D5567A0` |
-| `Vidmetry_0.4.7_x64-setup.exe` | 81.45 MiB | `BF62C82A99BB86A25D8C64325C78D1B3DCC88ABEA4D32BBB4A74C1BC38E61EBB` |
+| `Vidmetry_0.4.7_x64_en-US.msi` | 111.07 MiB | `6F332FF9CCC161728617CE325D4FB80D24D3DE2731D81D0E7465D10DE8ABEC22` |
+| `Vidmetry_0.4.7_x64-setup.exe` | 81.51 MiB | `5FB0BF1F18FEFFE16F79991AEA654C08CF883DF5F4AB096AA99FB55406609DDE` |
 
 ## Remaining manual acceptance
 
 - Exercise the native file/folder/save dialogs, drag/drop, Page Up/Page Down, and all crop handles with representative personal footage.
 - Cover 4K HEVC 10-bit, rotated phone MOV, VFR, multi-audio MKV, Unicode paths, and low-disk/permission failures.
 - Confirm metadata-only rendering in each target player because support is deliberately player-dependent.
-- Confirm Explorer selection, live Windows personalization changes, pane controls, F11/Escape, and velocity-sensitive pointer feel in the packaged WebView with real personal media.
+- Confirm Explorer selection and live folder additions, post-overwrite preview state, Windows personalization changes, pane controls, F11/Escape, and velocity-sensitive pointer feel in the packaged WebView with real personal media.
 - Install each bundle on a disposable Windows user profile and confirm video Open with entries, the selected-folder Open with Vidmetry verb, toggle latency, update preservation, and uninstall cleanup in the live Shell.
