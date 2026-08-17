@@ -121,6 +121,12 @@ Assert-FileContainsLiteral $releaseWorkflow 'EmbarkStudios/cargo-deny-action@' '
 Assert-FileContainsLiteral $releaseWorkflow 'persist-credentials: false' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'setup-copyleft-sources.ps1' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'generate-third-party-licenses.ps1' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow './scripts/build-msix.ps1' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow 'npm run test:msix' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow "-Filter '*.msix'" 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow 'Expected three publication assets' 'Release workflow'
+Assert-FileDoesNotContainLiteral $releaseWorkflow "-Filter '*.msi'" 'Release workflow'
+Assert-FileDoesNotContainLiteral $releaseWorkflow "-Filter '*-setup.exe'" 'Release workflow'
 Assert-FileDoesNotContainLiteral $releaseWorkflow 'package-ffmpeg-corresponding-source.sh' 'Release workflow'
 $releaseWorkflowText = Get-Content -LiteralPath $releaseWorkflow -Raw
 foreach ($unsafeExpansion in @('-Tag "${{ github.ref_name }}"', '$tag = "${{ github.ref_name }}"')) {

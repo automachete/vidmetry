@@ -193,25 +193,40 @@ jobs:
       - name: Verify media exports
         run: npm run test:integration
 
-      - name: Build Windows installers
-        run: npm run tauri build
+      - name: Build Microsoft Store MSIX
+        shell: pwsh
+        env:
+          MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME }}
+          MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
+          MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          foreach ($name in @('MSIX_IDENTITY_NAME', 'MSIX_PUBLISHER', 'MSIX_PUBLISHER_DISPLAY_NAME')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Repository variable $name must match the reserved Partner Center identity."
+            }
+          }
+          ./scripts/build-msix.ps1 `
+            -IdentityName $env:MSIX_IDENTITY_NAME `
+            -Publisher $env:MSIX_PUBLISHER `
+            -PublisherDisplayName $env:MSIX_PUBLISHER_DISPLAY_NAME
 
-      - name: Stage Windows installers
+      - name: Verify Microsoft Store MSIX
+        run: npm run test:msix
+
+      - name: Stage Microsoft Store MSIX
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path windows-assets | Out-Null
-          $msi = @(Get-ChildItem -Path 'src-tauri/target/release/bundle/msi' -Filter '*.msi' -File)
-          $nsis = @(Get-ChildItem -Path 'src-tauri/target/release/bundle/nsis' -Filter '*-setup.exe' -File)
-          if ($msi.Count -ne 1 -or $nsis.Count -ne 1) {
-            throw "Expected one MSI and one setup EXE but found $($msi.Count) and $($nsis.Count)."
+          $msix = @(Get-ChildItem -Path 'src-tauri/target/release/bundle/msix' -Filter '*.msix' -File)
+          if ($msix.Count -ne 1) {
+            throw "Expected one MSIX package but found $($msix.Count)."
           }
-          Copy-Item -LiteralPath $msi[0].FullName -Destination windows-assets
-          Copy-Item -LiteralPath $nsis[0].FullName -Destination windows-assets
+          Copy-Item -LiteralPath $msix[0].FullName -Destination windows-assets
 
-      - name: Transfer installers to publisher
+      - name: Transfer MSIX to publisher
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: windows-installers
+          name: microsoft-store-msix
           path: windows-assets
           if-no-files-found: error
           compression-level: 0
@@ -231,10 +246,10 @@ jobs:
           name: immutable-ffmpeg-source
           path: release-assets
 
-      - name: Download Windows installers
+      - name: Download Microsoft Store MSIX
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: windows-installers
+          name: microsoft-store-msix
           path: release-assets
 
       - name: Reverify publication assets
@@ -247,8 +262,9 @@ jobs:
           (cd release-assets && sha256sum --check "$ARCHIVE_NAME.sha256")
           actual_sha256="$(sha256sum "release-assets/$ARCHIVE_NAME" | cut -d ' ' -f 1)"
           [[ "$actual_sha256" == "$ARCHIVE_SHA256" ]]
-          test "$(find release-assets -maxdepth 1 -type f -name '*.msi' | wc -l)" -eq 1
-          test "$(find release-assets -maxdepth 1 -type f -name '*-setup.exe' | wc -l)" -eq 1
+          test "$(find release-assets -maxdepth 1 -type f -name '*.msix' | wc -l)" -eq 1
+          test "$(find release-assets -maxdepth 1 -type f -name '*.msi' | wc -l)" -eq 0
+          test "$(find release-assets -maxdepth 1 -type f -name '*.exe' | wc -l)" -eq 0
 
       - name: Publish complete Release atomically
         shell: pwsh
@@ -271,7 +287,7 @@ jobs:
               '--verify-tag',
               '--title', "Vidmetry $tag",
               '--generate-notes',
-              '--notes', 'Windows x64 installers include verified GPL and MPL notices. The exact FFmpeg Complete Corresponding Source and its SHA-256 are attached beside the installers.'
+              '--notes', 'The Windows x64 MSIX is the verified Microsoft Store submission package and receives its production signature from Microsoft Store. The exact FFmpeg Complete Corresponding Source and its SHA-256 are attached beside it.'
             )
             if ($tag.Contains('-', [StringComparison]::Ordinal)) { $createArguments += '--prerelease' }
             & gh @createArguments
@@ -279,7 +295,7 @@ jobs:
           }
 
           $assets = @(Get-ChildItem -LiteralPath 'release-assets' -File | ForEach-Object FullName)
-          if ($assets.Count -ne 4) { throw "Expected four publication assets but found $($assets.Count)." }
+          if ($assets.Count -ne 3) { throw "Expected three publication assets but found $($assets.Count)." }
           gh release upload $tag @assets --clobber
           if ($LASTEXITCODE -ne 0) { throw 'Unable to upload complete Release assets.' }
 
@@ -289,14 +305,14 @@ jobs:
           $expectedNames = @($assets | ForEach-Object { Split-Path -Leaf $_ } | Sort-Object)
           $actualNames = @($assetNames | Sort-Object)
           if (($actualNames -join "`n") -cne ($expectedNames -join "`n")) {
-            throw "Draft Release assets differ from the four verified local assets: $($actualNames -join ', ')."
+            throw "Draft Release assets differ from the three verified local assets: $($actualNames -join ', ')."
           }
           foreach ($required in @($env:ARCHIVE_NAME, "$($env:ARCHIVE_NAME).sha256")) {
             if ($required -notin $assetNames) { throw "Draft Release is missing $required." }
           }
-          if (@($assetNames | Where-Object { $_ -match '\.msi$' }).Count -ne 1 -or
-              @($assetNames | Where-Object { $_ -match '-setup\.exe$' }).Count -ne 1) {
-            throw 'Draft Release must contain exactly one MSI and one setup EXE.'
+          if (@($assetNames | Where-Object { $_ -match '\.msix$' }).Count -ne 1 -or
+              @($assetNames | Where-Object { $_ -match '\.(msi|exe)$' }).Count -ne 0) {
+            throw 'Draft Release must contain exactly one MSIX and no MSI or setup EXE.'
           }
 
           $visibility = (& gh api "repos/$env:RELEASE_REPOSITORY" --jq '.visibility').Trim()
