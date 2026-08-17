@@ -108,7 +108,9 @@ function mockSelection(
   paths = videoPaths,
   failingProbePath?: string,
   startupPath: string | null = null,
+  descriptorForProbe?: (path: string, invocation: number) => ReturnType<typeof mediaDescriptor>,
 ): void {
+  let probeInvocation = 0;
   vi.mocked(invoke).mockImplementation(async (command, args) => {
     if (command === 'available_video_encoders') {
       return {
@@ -126,7 +128,8 @@ function mockSelection(
     if (command === 'probe_video') {
       const path = String((args as { path: string }).path);
       if (path === failingProbePath) throw new Error('probe failed');
-      return mediaDescriptor(path) as never;
+      probeInvocation += 1;
+      return (descriptorForProbe?.(path, probeInvocation) ?? mediaDescriptor(path)) as never;
     }
     if (command === 'system_accent_color') return '#FF8C00' as never;
     if (command === 'startup_selection') return startupPath as never;
@@ -528,6 +531,46 @@ describe('application shell', () => {
     });
   });
 
+  it('reloads an overwritten source with fresh media geometry and timing', async () => {
+    useEnglish();
+    vi.mocked(dialogOpen).mockResolvedValue(videoPaths[0]);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mockSelection(videoPaths, undefined, null, (path, invocation) =>
+      invocation === 1
+        ? mediaDescriptor(path)
+        : {
+            ...mediaDescriptor(path),
+            durationSeconds: 2,
+            frameCount: 60,
+            codedWidth: 640,
+            codedHeight: 360,
+            displayWidth: 640,
+            displayHeight: 360,
+          },
+    );
+    render(App);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Open video' }));
+    await screen.findByText('a.mp4');
+    const video = document.querySelector('video') as HTMLVideoElement;
+    const initialSource = video.getAttribute('src');
+    expect(initialSource).toContain('vidmetryRevision=1');
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Save' }));
+    await waitFor(() => expect(eventState.handlers.has('export-complete')).toBe(true));
+    eventState.handlers.get('export-complete')?.({
+      payload: { jobId: 'job-1', outputPath: videoPaths[0] } as never,
+    });
+
+    expect((await screen.findAllByText(/640 × 360/)).length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole('slider', { name: 'End trim-boundary handle' }).getAttribute('aria-valuenow'),
+    ).toBe('60');
+    await waitFor(() => expect(video.getAttribute('src')).toContain('vidmetryRevision=2'));
+    expect(video.getAttribute('src')).not.toBe(initialSource);
+  });
+
   it('adjusts the time range by one frame and sends the exclusive range to export', async () => {
     useEnglish();
     vi.mocked(dialogOpen).mockResolvedValue(videoPaths[0]);
@@ -559,6 +602,10 @@ describe('application shell', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Save options' }));
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Save a copy' }));
 
+    expect((startHandle as HTMLButtonElement).disabled).toBe(true);
+    expect((endHandle as HTMLButtonElement).disabled).toBe(true);
+    expect(startHandle.getAttribute('aria-valuenow')).toBe('11');
+    expect(endHandle.getAttribute('aria-valuenow')).toBe('109');
     expect(invoke).toHaveBeenCalledWith(
       'start_export',
       expect.objectContaining({

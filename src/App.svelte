@@ -121,6 +121,7 @@
   let crop: CropRect = { x: 0, y: 0, width: 16, height: 16 };
   let aspect: AspectPreset = 'free';
   let videoSrc = '';
+  let videoSourceRevision = 0;
   let videoElement: HTMLVideoElement;
   let stageWidth = 0;
   let stageHeight = 0;
@@ -206,6 +207,7 @@
     media !== null &&
     canSaveInPlace(media.sourcePath, settings.export.profile);
   $: profileLabel = profileName(settings.export.profile);
+  $: exportLocked = isStartingExport || exportJobId !== null;
 
   onMount(() => {
     systemLanguage = navigator.language || 'en-US';
@@ -516,7 +518,7 @@
       );
       crop = fullFrame({ width: descriptor.displayWidth, height: descriptor.displayHeight });
       aspect = 'free';
-      videoSrc = convertFileSrc(descriptor.sourcePath);
+      videoSrc = freshMediaSource(descriptor.sourcePath);
       if (!keepPlaylist) {
         playlist = [descriptor.sourcePath];
         playlistIndex = 0;
@@ -578,6 +580,13 @@
     void playVideo();
   }
 
+  function freshMediaSource(path: string): string {
+    videoSourceRevision += 1;
+    const source = convertFileSrc(path);
+    const separator = source.includes('?') ? '&' : '?';
+    return `${source}${separator}vidmetryRevision=${videoSourceRevision}`;
+  }
+
   async function handleVideoError() {
     if (!media || usingProxy || isPreparingProxy || isLoading || !videoSrc) return;
     isPreparingProxy = true;
@@ -585,7 +594,7 @@
     try {
       const proxyPath = await invoke<string>('create_preview', { path: media.sourcePath });
       usingProxy = true;
-      videoSrc = convertFileSrc(proxyPath);
+      videoSrc = freshMediaSource(proxyPath);
       await tick();
       videoElement?.load();
     } catch (error) {
@@ -646,7 +655,7 @@
   }
 
   function beginTimelineScrub(event: PointerEvent) {
-    if (!media || event.button !== 0 || exportJobId) return;
+    if (!media || event.button !== 0 || exportLocked) return;
     const input = event.currentTarget as HTMLInputElement;
     const timeline = input.closest('.trim-timeline');
     if (!(timeline instanceof HTMLElement)) return;
@@ -841,7 +850,7 @@
   }
 
   function beginTimeTrimDrag(event: PointerEvent, handle: TrimHandle) {
-    if (!media || event.button !== 0 || exportJobId) return;
+    if (!media || event.button !== 0 || exportLocked) return;
     const handleElement = event.currentTarget as HTMLButtonElement;
     const timeline = handleElement.closest('.trim-timeline');
     if (!(timeline instanceof HTMLElement)) return;
@@ -899,6 +908,7 @@
   }
 
   function handleTrimKey(event: KeyboardEvent, handle: TrimHandle) {
+    if (exportLocked) return;
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
     event.stopPropagation();
@@ -975,29 +985,31 @@
 
   async function startExport(outputPath: string, inPlace: boolean) {
     if (!media) return;
-    const sourcePath = media.sourcePath;
     isStartingExport = true;
     errorMessage = '';
     dismissSuccess();
+    endCropDrag();
+    endTimeTrimDrag();
+    endTimelineScrub();
+    const request: ExportRequest = {
+      sourcePath: media.sourcePath,
+      outputPath,
+      crop: { ...crop },
+      trim: { ...safeTrim },
+      settings: { ...settings.export },
+      overwrite: true,
+      inPlace,
+    };
     try {
       videoElement?.pause();
       if (inPlace) {
-        inPlaceExportPath = sourcePath;
+        inPlaceExportPath = request.sourcePath;
         videoSrc = '';
         await tick();
         videoElement?.load();
       }
       exportProgress = 0;
       exportOutTime = 0;
-      const request: ExportRequest = {
-        sourcePath,
-        outputPath,
-        crop,
-        trim: safeTrim,
-        settings: settings.export,
-        overwrite: true,
-        inPlace,
-      };
       exportJobId = await invoke<string>('start_export', { request });
     } catch (error) {
       if (inPlace) restoreSourcePreview();
@@ -1057,7 +1069,7 @@
   function restoreSourcePreview() {
     if (!media) return;
     usingProxy = false;
-    videoSrc = convertFileSrc(media.sourcePath);
+    videoSrc = freshMediaSource(media.sourcePath);
     void tick().then(() => videoElement?.load());
   }
 
@@ -1364,6 +1376,7 @@
             max={duration}
             step={duration / Math.max(1, totalFrames)}
             value={currentTime}
+            disabled={exportLocked}
             oninput={scrubTo}
             onpointerdown={beginTimelineScrub}
             onkeydown={handlePlaybackScrubberKey}
@@ -1381,6 +1394,7 @@
             aria-valuemax={safeTrim.endFrame - 1}
             aria-valuenow={safeTrim.startFrame}
             aria-valuetext={formatTime(trimStartSeconds)}
+            disabled={exportLocked}
             onpointerdown={(event) => beginTimeTrimDrag(event, 'start')}
             onkeydown={(event) => handleTrimKey(event, 'start')}
             onfocus={() => selectTrimHandle('start')}
@@ -1398,6 +1412,7 @@
             aria-valuemax={totalFrames}
             aria-valuenow={safeTrim.endFrame}
             aria-valuetext={formatTime(trimEndSeconds)}
+            disabled={exportLocked}
             onpointerdown={(event) => beginTimeTrimDrag(event, 'end')}
             onkeydown={(event) => handleTrimKey(event, 'end')}
             onfocus={() => selectTrimHandle('end')}

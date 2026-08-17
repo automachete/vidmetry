@@ -426,6 +426,7 @@ pub async fn start(
                         if status.code == Some(0) {
                             match commit_output(&temporary, &output, overwrite) {
                                 Ok(()) => {
+                                    task_app.state::<ffmpeg::ProbeCache>().invalidate(&output);
                                     if let Err(error) = task_app.emit(
                                         COMPLETED_EVENT,
                                         ExportCompleted {

@@ -73,6 +73,17 @@ impl ProbeCache {
             Err(_) => log::warn!("unable to update the media probe cache"),
         }
     }
+
+    pub fn invalidate(&self, source: &Path) {
+        match self.latest.lock() {
+            Ok(mut cache) => {
+                if cache.as_ref().is_some_and(|cached| cached.source == source) {
+                    *cache = None;
+                }
+            }
+            Err(_) => log::warn!("unable to invalidate the media probe cache"),
+        }
+    }
 }
 
 pub fn canonical_source(path: &str) -> Result<PathBuf, MediaError> {
@@ -655,6 +666,8 @@ mod tests {
                 .is_none()
         );
         assert!(cache.get(Path::new("other.mp4"), &fingerprint).is_none());
+        cache.invalidate(source);
+        assert!(cache.get(source, &fingerprint).is_none());
     }
 
     #[test]

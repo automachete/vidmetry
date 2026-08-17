@@ -373,9 +373,17 @@ test('trim-boundary handles use exact frame steps and export the selected range'
   await expect(end).toHaveAttribute('aria-valuenow', '239');
   await page.keyboard.press('Shift+ArrowLeft');
   await expect(end).toHaveAttribute('aria-valuenow', '229');
+  const startPosition = await start.evaluate((element) => getComputedStyle(element).left);
+  const endPosition = await end.evaluate((element) => getComputedStyle(element).left);
 
   await page.getByRole('button', { name: 'Save options' }).click();
   await page.getByRole('menuitem', { name: 'Save a copy' }).click();
+  await expect(start).toBeDisabled();
+  await expect(end).toBeDisabled();
+  await expect(start).toHaveAttribute('aria-valuenow', '11');
+  await expect(end).toHaveAttribute('aria-valuenow', '229');
+  expect(await start.evaluate((element) => getComputedStyle(element).left)).toBe(startPosition);
+  expect(await end.evaluate((element) => getComputedStyle(element).left)).toBe(endPosition);
   const trim = await page.evaluate(() => {
     const invocation = (window as any).__vidmetryInvocations.find(
       (item: { command: string }) => item.command === 'start_export',
