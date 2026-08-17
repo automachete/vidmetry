@@ -51,8 +51,13 @@ fn startup_selection_from(args: impl IntoIterator<Item = OsString>) -> Option<St
 pub fn set_explorer_integration(enabled: bool) -> Result<(), AppError> {
     #[cfg(windows)]
     {
-        let executable = std::env::current_exe().map_err(integration_error)?;
-        apply_registry_plan(&registration_plan(&executable, enabled)).map_err(integration_error)?;
+        let plan = if is_packaged() {
+            packaged_registration_plan(enabled)
+        } else {
+            let executable = std::env::current_exe().map_err(integration_error)?;
+            registration_plan(&executable, enabled)
+        };
+        apply_registry_plan(&plan).map_err(integration_error)?;
         notify_shell_association_changed();
         Ok(())
     }
@@ -62,6 +67,26 @@ pub fn set_explorer_integration(enabled: bool) -> Result<(), AppError> {
         let _ = enabled;
         Err(AppError::new(ErrorCode::ExplorerIntegrationUnsupported))
     }
+}
+
+fn packaged_registration_plan(enabled: bool) -> Vec<RegistryAction> {
+    vec![RegistryAction::SetDword {
+        key: STATE_KEY.into(),
+        name: STATE_VALUE.into(),
+        value: u32::from(enabled),
+    }]
+}
+
+#[cfg(windows)]
+fn is_packaged() -> bool {
+    use windows_sys::Win32::{
+        Foundation::ERROR_INSUFFICIENT_BUFFER, Storage::Packaging::Appx::GetCurrentPackageFullName,
+    };
+
+    let mut length = 0;
+    // SAFETY: A null buffer with a zero length is the documented package-identity probe.
+    (unsafe { GetCurrentPackageFullName(&mut length, std::ptr::null_mut()) })
+        == ERROR_INSUFFICIENT_BUFFER
 }
 
 fn registration_plan(executable: &std::path::Path, enabled: bool) -> Vec<RegistryAction> {
@@ -303,6 +328,26 @@ mod tests {
                 name: STATE_VALUE.into(),
                 value: 0,
             })
+        );
+    }
+
+    #[test]
+    fn packaged_installation_changes_only_its_private_visibility_state() {
+        assert_eq!(
+            packaged_registration_plan(false),
+            vec![RegistryAction::SetDword {
+                key: STATE_KEY.into(),
+                name: STATE_VALUE.into(),
+                value: 0,
+            }]
+        );
+        assert_eq!(
+            packaged_registration_plan(true),
+            vec![RegistryAction::SetDword {
+                key: STATE_KEY.into(),
+                name: STATE_VALUE.into(),
+                value: 1,
+            }]
         );
     }
 }
