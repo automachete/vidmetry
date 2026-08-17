@@ -4,10 +4,11 @@
 
 ## 事前確認
 
-1. `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`のバージョンを一致させます。
-2. [VERIFICATION.md](VERIFICATION.md)を対象バージョンのローカル検証結果と生成物に合わせて更新します。
-3. `npm run verify`、UI/Rust/統合テスト、ライセンス監査、`npm run tauri build`を完了します。
-4. リポジトリが公開状態で、固定済みFFmpeg対応ソース資産を一般利用者が取得できることを確認します。
+1. Partner Centerで製品名を予約し、GitHub ActionsのRepository variablesに`MSIX_IDENTITY_NAME`、`MSIX_PUBLISHER`、`MSIX_PUBLISHER_DISPLAY_NAME`を登録します。値はPartner Centerの製品IDに表示されるPackage/Identityと完全に一致させます。
+2. `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`のバージョンを一致させます。
+3. [VERIFICATION.md](VERIFICATION.md)を対象バージョンのローカル検証結果と生成物に合わせて更新します。
+4. `npm run verify`、UI/Rust/統合テスト、ライセンス監査、`npm run msix:build`、`npm run test:msix`を完了します。
+5. リポジトリが公開状態で、固定済みFFmpeg対応ソース資産を一般利用者が取得できることを確認します。
 
 ## アプリケーションの公開
 
@@ -20,7 +21,9 @@ git push origin v0.4.7
 
 `vX.Y.Z`タグによりReleaseワークフローが起動します。タグと各バージョンファイルが一致しない場合は公開されません。ハイフンを含むタグ（例: `v0.4.7-beta.1`）はプレリリースとして扱われます。
 
-ワークフローは固定済みFFmpeg対応ソースのSHA-256、依存関係とライセンス、テスト、MPL依存ソース、MSI／セットアップEXEを検証します。FFmpeg対応ソースの圧縮ファイルとSHA-256を含む必要資産が下書きReleaseに揃い、リポジトリの公開状態を再確認した場合だけReleaseを公開します。失敗した下書きは公開しません。
+ワークフローは固定済みFFmpeg対応ソースのSHA-256、依存関係とライセンス、テスト、MPL依存ソース、予約済みIDを持つx64 MSIXを検証します。MSIX、FFmpeg対応ソースの圧縮ファイル、SHA-256の3資産が下書きReleaseに揃い、リポジトリの公開状態を再確認した場合だけReleaseを公開します。失敗した下書きは公開しません。
+
+公開されたReleaseと同一のMSIXをPartner Centerへ提出します。このMSIXは提出時点では未署名で、認定後にMicrosoft Storeが本番署名します。パッケージのバージョン、アーキテクチャ、Identity、Publisherを提出画面でも再確認し、Store掲載後はStore版を実機へインストールして動画の「プログラムから開く」、フォルダーの「Open with Vidmetry」、設定によるフォルダーコマンド表示切替、更新、アンインストールを確認します。
 
 ## FFmpegエンジンの更新
 

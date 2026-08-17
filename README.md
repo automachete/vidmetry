@@ -53,7 +53,7 @@ Vidmetryでは、再生しやすさ、ファイル容量、画質のどれを優
 
 ## インストール
 
-対応環境はWindows 11 x64です。[GitHub Releases](https://github.com/automachete/vidmetry/releases)から最新のセットアップEXEまたはMSIをダウンロードしてインストールしてください。
+対応環境はWindows 11 x64です。Microsoft Storeからインストールしてください。
 
 ## ライセンスと開発
 

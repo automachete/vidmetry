@@ -8,6 +8,7 @@ Vidmetryの開発に参加するための環境構築、実装時の確認事項
 - `.node-version`に固定したNode.js 24.12.0とnpm 11.18.0
 - `rust-toolchain.toml`に固定したRust 1.97.1（MSVC）
 - Visual Studio Build ToolsのDesktop development with C++
+- Windows SDKのMakeAppxとSignTool
 - Microsoft Edge WebView2 Runtime
 
 ## セットアップと起動
@@ -66,10 +67,11 @@ cargo audit --file src-tauri\Cargo.lock
 ## ローカルビルド
 
 ```powershell
-npm run tauri build
+npm run msix:build
+npm run test:msix
 ```
 
-MSIとセットアップEXEは`src-tauri\target\release\bundle`以下に生成されます。インストーラーやShell登録を変更した場合は、両形式が生成できるところまで確認してください。
+Store提出用のMSIXは`src-tauri\target\release\bundle\msix`に生成されます。Partner Centerの予約IDで生成する場合は`build-msix.ps1`の`IdentityName`、`Publisher`、`PublisherDisplayName`を指定してください。`test:msix`はマニフェスト、x64実行ファイル、動画関連付け、フォルダー用COMコマンド、FFmpegおよびライセンス同梱物を展開して検証します。管理者PowerShellでは`npm run test:msix -- --LiveInstall`により署名、インストール、COM起動、アプリ起動、アンインストールまで確認できます。
 
 ## 文書の役割
 
