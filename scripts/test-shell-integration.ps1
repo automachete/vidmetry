@@ -2,8 +2,6 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $selectionPath = Join-Path $projectRoot 'src-tauri\src\selection.rs'
-$hookPath = Join-Path $projectRoot 'src-tauri\windows\hooks.nsh'
-$wixPath = Join-Path $projectRoot 'src-tauri\windows\shell-integration.wxs'
 $configPath = Join-Path $projectRoot 'src-tauri\tauri.conf.json'
 $msixManifestPath = Join-Path $projectRoot 'scripts\msix\AppxManifest.xml.template'
 $msixBuildPath = Join-Path $projectRoot 'scripts\build-msix.ps1'
@@ -11,8 +9,6 @@ $msixCommandPath = Join-Path $projectRoot 'src-tauri\windows\msix-explorer-comma
 $msixProjectPath = Join-Path $projectRoot 'src-tauri\windows\msix-explorer-command\ExplorerCommand.vcxproj'
 
 $selection = Get-Content -LiteralPath $selectionPath -Raw
-$hook = Get-Content -LiteralPath $hookPath -Raw
-$wix = Get-Content -LiteralPath $wixPath -Raw
 $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
 $msixManifest = Get-Content -LiteralPath $msixManifestPath -Raw
 $msixBuild = Get-Content -LiteralPath $msixBuildPath -Raw
@@ -30,45 +26,6 @@ $extensions = [regex]::Matches($extensionBlock.Groups['extensions'].Value, '"(?<
     ForEach-Object { $_.Groups['extension'].Value }
 if ($extensions.Count -eq 0) {
     throw 'The backend video-extension contract is empty.'
-}
-
-foreach ($extension in $extensions) {
-    $register = "!insertmacro VIDMETRY_REGISTER_VIDEO_EXTENSION `"$extension`""
-    $unregister = "!insertmacro VIDMETRY_UNREGISTER_VIDEO_EXTENSION `"$extension`""
-    if (-not $hook.Contains($register) -or -not $hook.Contains($unregister)) {
-        throw "The NSIS Explorer integration does not cover .$extension."
-    }
-    if (-not $wix.Contains("Software\Classes\.$extension\OpenWithProgids") -or
-        -not $wix.Contains("Name=`".$extension`"")) {
-        throw "The MSI Explorer integration does not cover .$extension."
-    }
-}
-
-$requiredHookContent = @(
-    'Software\Classes\Vidmetry.Video',
-    'Software\Classes\Directory\shell\Vidmetry',
-    'OpenWithProgids',
-    'ExplorerIntegrationEnabled',
-    'NSIS_HOOK_POSTINSTALL',
-    'NSIS_HOOK_POSTUNINSTALL',
-    'SHChangeNotify'
-)
-foreach ($required in $requiredHookContent) {
-    if (-not $hook.Contains($required)) {
-        throw "The NSIS Explorer integration is missing '$required'."
-    }
-}
-
-$requiredWixContent = @(
-    'Software\Classes\Vidmetry.Video',
-    'Software\Classes\Directory\shell\Vidmetry',
-    'VIDMETRY_EXPLORER_INTEGRATION_ENABLED',
-    'Transitive="yes"'
-)
-foreach ($required in $requiredWixContent) {
-    if (-not $wix.Contains($required)) {
-        throw "The MSI Explorer integration is missing '$required'."
-    }
 }
 
 $commandClsid = '7CD16804-1388-4150-991B-A977AEA22567'
@@ -123,15 +80,18 @@ foreach ($required in @('<Platform>x64</Platform>', '<RuntimeLibrary>MultiThread
     }
 }
 
-if ($config.bundle.windows.nsis.installMode -ne 'currentUser') {
-    throw 'Explorer integration requires the NSIS current-user install mode.'
+if ($config.bundle.active -ne $false -or
+    $config.bundle.PSObject.Properties.Name -contains 'targets' -or
+    $config.bundle.PSObject.Properties.Name -contains 'windows') {
+    throw 'Tauri MSI and NSIS bundling must remain disabled; distribution uses the dedicated MSIX pipeline.'
 }
-if ($config.bundle.windows.nsis.installerHooks -ne './windows/hooks.nsh') {
-    throw 'The NSIS Explorer integration hook is not configured.'
-}
-if ($config.bundle.windows.wix.fragmentPaths -notcontains './windows/shell-integration.wxs' -or
-    $config.bundle.windows.wix.componentGroupRefs -notcontains 'VidmetryExplorerIntegration') {
-    throw 'The MSI Explorer integration fragment is not configured.'
+foreach ($legacyInstallerDefinition in @(
+    'src-tauri\windows\hooks.nsh',
+    'src-tauri\windows\shell-integration.wxs'
+)) {
+    if (Test-Path -LiteralPath (Join-Path $projectRoot $legacyInstallerDefinition)) {
+        throw "Legacy installer definition remains: $legacyInstallerDefinition"
+    }
 }
 
-Write-Output "MSI, NSIS, and MSIX cover $($extensions.Count) video extensions and selected directories."
+Write-Output "MSIX covers $($extensions.Count) video extensions and selected directories; MSI and NSIS bundling is disabled."

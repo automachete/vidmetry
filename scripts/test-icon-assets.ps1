@@ -3,8 +3,6 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $svgPath = Join-Path $projectRoot 'assets\app-icon.svg'
 $stylesPath = Join-Path $projectRoot 'src\styles.css'
-$configPath = Join-Path $projectRoot 'src-tauri\tauri.conf.json'
-$hookPath = Join-Path $projectRoot 'src-tauri\windows\hooks.nsh'
 
 function Assert-AchromaticHexColors([string]$path) {
     $content = Get-Content -LiteralPath $path -Raw
@@ -105,16 +103,4 @@ foreach ($legacyTint in $legacyTints) {
     }
 }
 
-$config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
-if ($config.bundle.resources.'icons/icon.ico' -ne 'shortcut-icon-achromatic-v2.ico') {
-    throw 'The Windows shortcut icon must be installed under a versioned cache key.'
-}
-if ($config.bundle.windows.nsis.installerHooks -ne './windows/hooks.nsh') {
-    throw 'The NSIS shortcut-refresh hook is not configured.'
-}
-$hook = Get-Content -LiteralPath $hookPath -Raw
-if (-not $hook.Contains('shortcut-icon-achromatic-v2.ico') -or -not $hook.Contains('SHChangeNotify')) {
-    throw 'The NSIS hook does not replace cached shortcuts and refresh the Shell.'
-}
-
-Write-Output 'Achromatic icon and shortcut assets verified.'
+Write-Output 'Achromatic icon assets verified.'
