@@ -1,12 +1,12 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     fs,
     path::{Path, PathBuf},
     sync::Mutex,
 };
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, async_runtime::Receiver};
 use tauri_plugin_shell::{
     ShellExt,
     process::{CommandChild, CommandEvent},
@@ -56,6 +56,29 @@ pub enum ExportProfile {
 pub enum VideoCodec {
     H264,
     H265,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CompatibleEncoder {
+    Nvidia,
+    Intel,
+    Amd,
+    Software,
+}
+
+impl CompatibleEncoder {
+    fn is_hardware(self) -> bool {
+        self != Self::Software
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Nvidia => "NVIDIA NVENC",
+            Self::Intel => "Intel Quick Sync Video",
+            Self::Amd => "AMD AMF",
+            Self::Software => "software encoder",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -190,6 +213,10 @@ pub async fn start(
 
     let job_id = Uuid::new_v4().to_string();
     let temporary = temporary_output(&output, &job_id)?;
+    let mut encoders = compatible_encoder_attempts(&request.settings);
+    let mut encoder = encoders
+        .pop_front()
+        .expect("every export has at least one encoder attempt");
     let args = build_export_args(
         &source,
         &temporary,
@@ -197,18 +224,9 @@ pub async fn start(
         trim,
         &request.settings,
         &media,
+        encoder,
     );
-    let (mut receiver, child) = app
-        .shell()
-        .sidecar("ffmpeg")
-        .map_err(|error| {
-            AppError::with_detail(ErrorCode::ExportProcessPrepareFailed, error.to_string())
-        })?
-        .args(args)
-        .spawn()
-        .map_err(|error| {
-            AppError::with_detail(ErrorCode::ExportProcessStartFailed, error.to_string())
-        })?;
+    let (mut receiver, child) = spawn_export_process(&app, args)?;
 
     state
         .jobs
@@ -220,86 +238,158 @@ pub async fn start(
     let task_job_id = job_id.clone();
     let duration = trim_duration_seconds(trim, &media);
     let overwrite = request.overwrite;
+    let settings = request.settings;
+    let crop = request.crop;
     tauri::async_runtime::spawn(async move {
-        let mut diagnostics = Vec::new();
-        let mut received_termination = false;
-        while let Some(event) = receiver.recv().await {
-            match event {
-                CommandEvent::Stdout(bytes) => {
-                    if let Some(seconds) = parse_progress_time(&bytes) {
-                        let fraction = if duration > 0.0 {
-                            (seconds / duration).clamp(0.0, 1.0)
-                        } else {
-                            0.0
-                        };
-                        if let Err(error) = task_app.emit(
-                            PROGRESS_EVENT,
-                            ExportProgress {
-                                job_id: task_job_id.clone(),
-                                fraction,
-                                out_time_seconds: seconds,
-                            },
-                        ) {
-                            log::warn!("unable to emit export progress: {error}");
+        'attempts: loop {
+            let mut diagnostics = Vec::new();
+            let mut encoded_frame = false;
+            while let Some(event) = receiver.recv().await {
+                match event {
+                    CommandEvent::Stdout(bytes) => {
+                        if parse_progress_frame(&bytes).is_some_and(|frame| frame > 0) {
+                            encoded_frame = true;
+                        }
+                        if let Some(seconds) = parse_progress_time(&bytes) {
+                            let fraction = if duration > 0.0 {
+                                (seconds / duration).clamp(0.0, 1.0)
+                            } else {
+                                0.0
+                            };
+                            if let Err(error) = task_app.emit(
+                                PROGRESS_EVENT,
+                                ExportProgress {
+                                    job_id: task_job_id.clone(),
+                                    fraction,
+                                    out_time_seconds: seconds,
+                                },
+                            ) {
+                                log::warn!("unable to emit export progress: {error}");
+                            }
                         }
                     }
-                }
-                CommandEvent::Stderr(bytes) => {
-                    let line = String::from_utf8_lossy(&bytes).trim().to_owned();
-                    if !line.is_empty() {
-                        diagnostics.push(line);
-                        if diagnostics.len() > 12 {
-                            diagnostics.remove(0);
+                    CommandEvent::Stderr(bytes) => {
+                        let line = String::from_utf8_lossy(&bytes).trim().to_owned();
+                        if !line.is_empty() {
+                            diagnostics.push(line);
+                            if diagnostics.len() > 12 {
+                                diagnostics.remove(0);
+                            }
                         }
                     }
-                }
-                CommandEvent::Error(message) => diagnostics.push(message),
-                CommandEvent::Terminated(status) => {
-                    received_termination = true;
-                    take_job(&task_app, &task_job_id);
-                    let cancelled = take_cancelled(&task_app, &task_job_id);
-                    if status.code == Some(0) && !cancelled {
-                        match commit_output(&temporary, &output, overwrite) {
-                            Ok(()) => {
-                                if let Err(error) = task_app.emit(
-                                    COMPLETED_EVENT,
-                                    ExportCompleted {
-                                        job_id: task_job_id.clone(),
-                                        output_path: ffmpeg::display_path(&output),
-                                    },
-                                ) {
-                                    log::warn!("unable to emit export completion: {error}");
+                    CommandEvent::Error(message) => diagnostics.push(message),
+                    CommandEvent::Terminated(status) => {
+                        take_job(&task_app, &task_job_id);
+                        let cancelled = take_cancelled(&task_app, &task_job_id);
+                        if cancelled {
+                            remove_partial_export(&temporary);
+                            emit_failure(
+                                &task_app,
+                                &task_job_id,
+                                AppError::new(ErrorCode::ExportCancelled),
+                                true,
+                            );
+                            break 'attempts;
+                        }
+
+                        if should_retry_with_next_encoder(encoder, status.code, encoded_frame) {
+                            remove_partial_export(&temporary);
+                            let Some(next_encoder) = encoders.pop_front() else {
+                                unreachable!("software fallback is always the final attempt");
+                            };
+                            log::warn!(
+                                "{} could not start; retrying export with {}: {}",
+                                encoder.name(),
+                                next_encoder.name(),
+                                diagnostic_detail(&diagnostics, status.code)
+                            );
+                            if take_cancelled(&task_app, &task_job_id) {
+                                emit_failure(
+                                    &task_app,
+                                    &task_job_id,
+                                    AppError::new(ErrorCode::ExportCancelled),
+                                    true,
+                                );
+                                break 'attempts;
+                            }
+                            let args = build_export_args(
+                                &source,
+                                &temporary,
+                                crop,
+                                trim,
+                                &settings,
+                                &media,
+                                next_encoder,
+                            );
+                            let (next_receiver, next_child) =
+                                match spawn_export_process(&task_app, args) {
+                                    Ok(process) => process,
+                                    Err(error) => {
+                                        emit_failure(&task_app, &task_job_id, error, false);
+                                        break 'attempts;
+                                    }
+                                };
+                            if let Err(error) = insert_job(&task_app, &task_job_id, next_child) {
+                                emit_failure(&task_app, &task_job_id, error, false);
+                                break 'attempts;
+                            }
+                            if take_cancelled(&task_app, &task_job_id) {
+                                if let Some(child) = take_job(&task_app, &task_job_id)
+                                    && let Err(error) = child.kill()
+                                {
+                                    log::warn!(
+                                        "unable to stop a retried export after cancellation: {error}"
+                                    );
+                                }
+                                remove_partial_export(&temporary);
+                                emit_failure(
+                                    &task_app,
+                                    &task_job_id,
+                                    AppError::new(ErrorCode::ExportCancelled),
+                                    true,
+                                );
+                                break 'attempts;
+                            }
+                            receiver = next_receiver;
+                            encoder = next_encoder;
+                            continue 'attempts;
+                        }
+
+                        if status.code == Some(0) {
+                            match commit_output(&temporary, &output, overwrite) {
+                                Ok(()) => {
+                                    if let Err(error) = task_app.emit(
+                                        COMPLETED_EVENT,
+                                        ExportCompleted {
+                                            job_id: task_job_id.clone(),
+                                            output_path: ffmpeg::display_path(&output),
+                                        },
+                                    ) {
+                                        log::warn!("unable to emit export completion: {error}");
+                                    }
+                                }
+                                Err(error) => {
+                                    remove_partial_export(&temporary);
+                                    emit_failure(&task_app, &task_job_id, error, false);
                                 }
                             }
-                            Err(error) => {
-                                remove_partial_export(&temporary);
-                                emit_failure(&task_app, &task_job_id, error, false);
-                            }
-                        }
-                    } else {
-                        remove_partial_export(&temporary);
-                        let error = if cancelled {
-                            AppError::new(ErrorCode::ExportCancelled)
-                        } else if diagnostics.is_empty() {
-                            let detail = status
-                                .code
-                                .map(|code| format!("exit code {code}"))
-                                .unwrap_or_else(|| "no exit code".to_owned());
-                            AppError::with_detail(ErrorCode::ExportProcessFailed, detail)
                         } else {
-                            AppError::with_detail(
-                                ErrorCode::ExportProcessFailed,
-                                diagnostics.join(" "),
-                            )
-                        };
-                        emit_failure(&task_app, &task_job_id, error, cancelled);
+                            remove_partial_export(&temporary);
+                            emit_failure(
+                                &task_app,
+                                &task_job_id,
+                                AppError::with_detail(
+                                    ErrorCode::ExportProcessFailed,
+                                    diagnostic_detail(&diagnostics, status.code),
+                                ),
+                                false,
+                            );
+                        }
+                        break 'attempts;
                     }
-                    break;
+                    _ => {}
                 }
-                _ => {}
             }
-        }
-        if !received_termination {
             if let Some(child) = take_job(&task_app, &task_job_id)
                 && let Err(error) = child.kill()
             {
@@ -320,6 +410,7 @@ pub async fn start(
                 },
                 cancelled,
             );
+            break 'attempts;
         }
     });
 
@@ -327,6 +418,11 @@ pub async fn start(
 }
 
 pub fn cancel(state: State<'_, ExportState>, job_id: String) -> Result<(), AppError> {
+    state
+        .cancelled
+        .lock()
+        .map_err(|_| AppError::new(ErrorCode::CancellationStateUpdateFailed))?
+        .insert(job_id.clone());
     let child = state
         .jobs
         .lock()
@@ -335,11 +431,6 @@ pub fn cancel(state: State<'_, ExportState>, job_id: String) -> Result<(), AppEr
     let Some(child) = child else {
         return Ok(());
     };
-    state
-        .cancelled
-        .lock()
-        .map_err(|_| AppError::new(ErrorCode::CancellationStateUpdateFailed))?
-        .insert(job_id.clone());
     match child.kill() {
         Ok(()) => Ok(()),
         Err(error) => {
@@ -354,6 +445,55 @@ pub fn cancel(state: State<'_, ExportState>, job_id: String) -> Result<(), AppEr
     }
 }
 
+fn spawn_export_process(
+    app: &AppHandle,
+    args: Vec<String>,
+) -> Result<(Receiver<CommandEvent>, CommandChild), AppError> {
+    app.shell()
+        .sidecar("ffmpeg")
+        .map_err(|error| {
+            AppError::with_detail(ErrorCode::ExportProcessPrepareFailed, error.to_string())
+        })?
+        .args(args)
+        .spawn()
+        .map_err(|error| {
+            AppError::with_detail(ErrorCode::ExportProcessStartFailed, error.to_string())
+        })
+}
+
+fn insert_job(app: &AppHandle, job_id: &str, child: CommandChild) -> Result<(), AppError> {
+    match app.state::<ExportState>().jobs.lock() {
+        Ok(mut jobs) => {
+            jobs.insert(job_id.to_owned(), child);
+            Ok(())
+        }
+        Err(_) => {
+            if let Err(error) = child.kill() {
+                log::warn!("unable to stop export after its state update failed: {error}");
+            }
+            Err(AppError::new(ErrorCode::ExportStateUpdateFailed))
+        }
+    }
+}
+
+fn diagnostic_detail(diagnostics: &[String], exit_code: Option<i32>) -> String {
+    if diagnostics.is_empty() {
+        exit_code
+            .map(|code| format!("exit code {code}"))
+            .unwrap_or_else(|| "no exit code".to_owned())
+    } else {
+        diagnostics.join(" ")
+    }
+}
+
+fn should_retry_with_next_encoder(
+    encoder: CompatibleEncoder,
+    exit_code: Option<i32>,
+    encoded_frame: bool,
+) -> bool {
+    encoder.is_hardware() && exit_code != Some(0) && !encoded_frame
+}
+
 fn build_export_args(
     source: &Path,
     output: &Path,
@@ -361,6 +501,7 @@ fn build_export_args(
     trim: TrimRange,
     settings: &ExportSettings,
     media: &MediaDescriptor,
+    encoder: CompatibleEncoder,
 ) -> Vec<String> {
     let mut args = vec![
         "-hide_banner".into(),
@@ -386,13 +527,8 @@ fn build_export_args(
                 "0:a:0?".into(),
                 "-vf".into(),
                 crop_filter(crop, time_trimmed.then_some(trim), media),
-                "-c:v".into(),
-                video_encoder(settings.video_codec).into(),
-                "-preset".into(),
-                encoder_preset(settings.preset).into(),
-                "-crf".into(),
-                settings.crf.to_string(),
             ]);
+            add_video_encoder(&mut args, settings, encoder);
             add_pixel_format(&mut args, settings.pixel_format);
             add_frame_rate(&mut args, settings);
             add_audio_trim_filter(
@@ -477,10 +613,108 @@ fn build_export_args(
     args
 }
 
-fn video_encoder(codec: VideoCodec) -> &'static str {
-    match codec {
-        VideoCodec::H264 => "libx264",
-        VideoCodec::H265 => "libx265",
+fn compatible_encoder_attempts(settings: &ExportSettings) -> VecDeque<CompatibleEncoder> {
+    if settings.profile != ExportProfile::Compatible || settings.crf == 0 {
+        return VecDeque::from([CompatibleEncoder::Software]);
+    }
+    VecDeque::from([
+        CompatibleEncoder::Nvidia,
+        CompatibleEncoder::Intel,
+        CompatibleEncoder::Amd,
+        CompatibleEncoder::Software,
+    ])
+}
+
+fn video_encoder(codec: VideoCodec, encoder: CompatibleEncoder) -> &'static str {
+    match (codec, encoder) {
+        (VideoCodec::H264, CompatibleEncoder::Nvidia) => "h264_nvenc",
+        (VideoCodec::H265, CompatibleEncoder::Nvidia) => "hevc_nvenc",
+        (VideoCodec::H264, CompatibleEncoder::Intel) => "h264_qsv",
+        (VideoCodec::H265, CompatibleEncoder::Intel) => "hevc_qsv",
+        (VideoCodec::H264, CompatibleEncoder::Amd) => "h264_amf",
+        (VideoCodec::H265, CompatibleEncoder::Amd) => "hevc_amf",
+        (VideoCodec::H264, CompatibleEncoder::Software) => "libx264",
+        (VideoCodec::H265, CompatibleEncoder::Software) => "libx265",
+    }
+}
+
+fn add_video_encoder(
+    args: &mut Vec<String>,
+    settings: &ExportSettings,
+    encoder: CompatibleEncoder,
+) {
+    args.extend([
+        "-c:v".into(),
+        video_encoder(settings.video_codec, encoder).into(),
+    ]);
+    match encoder {
+        CompatibleEncoder::Nvidia => args.extend([
+            "-preset".into(),
+            nvenc_preset(settings.preset).into(),
+            "-tune".into(),
+            "hq".into(),
+            "-rc".into(),
+            "vbr".into(),
+            "-cq".into(),
+            settings.crf.to_string(),
+            "-b:v".into(),
+            "0".into(),
+        ]),
+        CompatibleEncoder::Intel => args.extend([
+            "-preset".into(),
+            qsv_preset(settings.preset).into(),
+            "-global_quality".into(),
+            settings.crf.to_string(),
+        ]),
+        CompatibleEncoder::Amd => args.extend([
+            "-usage".into(),
+            "transcoding".into(),
+            "-quality".into(),
+            amf_quality(settings.preset).into(),
+            "-rc".into(),
+            "qvbr".into(),
+            "-qvbr_quality_level".into(),
+            settings.crf.to_string(),
+        ]),
+        CompatibleEncoder::Software => args.extend([
+            "-preset".into(),
+            encoder_preset(settings.preset).into(),
+            "-crf".into(),
+            settings.crf.to_string(),
+        ]),
+    }
+}
+
+fn nvenc_preset(preset: EncoderPreset) -> &'static str {
+    match preset {
+        EncoderPreset::Ultrafast | EncoderPreset::Superfast => "p1",
+        EncoderPreset::Veryfast => "p2",
+        EncoderPreset::Faster => "p3",
+        EncoderPreset::Fast | EncoderPreset::Medium => "p4",
+        EncoderPreset::Slow => "p5",
+        EncoderPreset::Slower => "p6",
+        EncoderPreset::Veryslow => "p7",
+    }
+}
+
+fn qsv_preset(preset: EncoderPreset) -> &'static str {
+    match preset {
+        EncoderPreset::Ultrafast | EncoderPreset::Superfast | EncoderPreset::Veryfast => "veryfast",
+        EncoderPreset::Faster => "faster",
+        EncoderPreset::Fast => "fast",
+        EncoderPreset::Medium => "medium",
+        EncoderPreset::Slow => "slow",
+        EncoderPreset::Slower => "slower",
+        EncoderPreset::Veryslow => "veryslow",
+    }
+}
+
+fn amf_quality(preset: EncoderPreset) -> &'static str {
+    match preset {
+        EncoderPreset::Ultrafast | EncoderPreset::Superfast | EncoderPreset::Veryfast => "speed",
+        EncoderPreset::Faster | EncoderPreset::Fast | EncoderPreset::Medium => "balanced",
+        EncoderPreset::Slow | EncoderPreset::Slower => "quality",
+        EncoderPreset::Veryslow => "high_quality",
     }
 }
 
@@ -869,6 +1103,14 @@ fn parse_progress_time(bytes: &[u8]) -> Option<f64> {
     Some(value / 1_000_000.0)
 }
 
+fn parse_progress_frame(bytes: &[u8]) -> Option<u64> {
+    String::from_utf8_lossy(bytes)
+        .strip_prefix("frame=")?
+        .trim()
+        .parse()
+        .ok()
+}
+
 fn take_job(app: &AppHandle, job_id: &str) -> Option<CommandChild> {
     match app.state::<ExportState>().jobs.lock() {
         Ok(mut jobs) => jobs.remove(job_id),
@@ -1115,6 +1357,110 @@ mod tests {
     fn parses_ffmpeg_microsecond_progress() {
         assert_eq!(parse_progress_time(b"out_time_us=3250000\n"), Some(3.25));
         assert_eq!(parse_progress_time(b"progress=continue\n"), None);
+        assert_eq!(parse_progress_frame(b"frame=42\n"), Some(42));
+        assert_eq!(parse_progress_frame(b"fps=60.0\n"), None);
+    }
+
+    #[test]
+    fn tries_hardware_encoders_before_the_software_fallback() {
+        assert_eq!(
+            compatible_encoder_attempts(&default_settings())
+                .into_iter()
+                .collect::<Vec<_>>(),
+            vec![
+                CompatibleEncoder::Nvidia,
+                CompatibleEncoder::Intel,
+                CompatibleEncoder::Amd,
+                CompatibleEncoder::Software,
+            ]
+        );
+
+        let lossless_quality = ExportSettings {
+            crf: 0,
+            ..default_settings()
+        };
+        assert_eq!(
+            compatible_encoder_attempts(&lossless_quality)
+                .into_iter()
+                .collect::<Vec<_>>(),
+            vec![CompatibleEncoder::Software]
+        );
+
+        assert!(should_retry_with_next_encoder(
+            CompatibleEncoder::Nvidia,
+            Some(1),
+            false
+        ));
+        assert!(!should_retry_with_next_encoder(
+            CompatibleEncoder::Nvidia,
+            Some(1),
+            true
+        ));
+        assert!(!should_retry_with_next_encoder(
+            CompatibleEncoder::Software,
+            Some(1),
+            false
+        ));
+    }
+
+    #[test]
+    fn maps_the_existing_codec_quality_and_preset_to_hardware_encoders() {
+        let crop = CropRect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let descriptor = media(0);
+        let h264 = default_settings();
+        let nvenc = build_export_args(
+            Path::new("input.mp4"),
+            Path::new("output.mp4"),
+            crop,
+            full_trim(&descriptor),
+            &h264,
+            &descriptor,
+            CompatibleEncoder::Nvidia,
+        );
+        assert!(nvenc.windows(2).any(|pair| pair == ["-c:v", "h264_nvenc"]));
+        assert!(nvenc.windows(2).any(|pair| pair == ["-preset", "p4"]));
+        assert!(nvenc.windows(2).any(|pair| pair == ["-cq", "17"]));
+        assert!(!nvenc.contains(&"-crf".to_owned()));
+
+        let h265 = ExportSettings {
+            video_codec: VideoCodec::H265,
+            crf: 23,
+            preset: EncoderPreset::Slow,
+            ..default_settings()
+        };
+        let qsv = build_export_args(
+            Path::new("input.mp4"),
+            Path::new("output.mp4"),
+            crop,
+            full_trim(&descriptor),
+            &h265,
+            &descriptor,
+            CompatibleEncoder::Intel,
+        );
+        assert!(qsv.windows(2).any(|pair| pair == ["-c:v", "hevc_qsv"]));
+        assert!(qsv.windows(2).any(|pair| pair == ["-preset", "slow"]));
+        assert!(qsv.windows(2).any(|pair| pair == ["-global_quality", "23"]));
+
+        let amf = build_export_args(
+            Path::new("input.mp4"),
+            Path::new("output.mp4"),
+            crop,
+            full_trim(&descriptor),
+            &h265,
+            &descriptor,
+            CompatibleEncoder::Amd,
+        );
+        assert!(amf.windows(2).any(|pair| pair == ["-c:v", "hevc_amf"]));
+        assert!(amf.windows(2).any(|pair| pair == ["-quality", "quality"]));
+        assert!(
+            amf.windows(2)
+                .any(|pair| pair == ["-qvbr_quality_level", "23"])
+        );
     }
 
     #[test]
@@ -1140,6 +1486,7 @@ mod tests {
             full_trim(&media(0)),
             &default_settings(),
             &media(0),
+            CompatibleEncoder::Software,
         );
         assert!(args.windows(2).any(|pair| pair == ["-c:v", "libx264"]));
         assert!(args.windows(2).any(|pair| pair == ["-crf", "17"]));
@@ -1169,6 +1516,7 @@ mod tests {
             full_trim(&media(0)),
             &settings,
             &media(0),
+            CompatibleEncoder::Software,
         );
         assert!(args.windows(2).any(|pair| pair == ["-c:v", "ffv1"]));
         assert!(!args.contains(&"-pix_fmt".to_owned()));
@@ -1192,6 +1540,7 @@ mod tests {
             full_trim(&media(0)),
             &settings,
             &media(0),
+            CompatibleEncoder::Software,
         );
         assert!(args.windows(2).any(|pair| pair == ["-c", "copy"]));
         assert!(args.iter().any(|value| {
@@ -1226,6 +1575,7 @@ mod tests {
             full_trim(&media(0)),
             &settings,
             &media(0),
+            CompatibleEncoder::Software,
         );
         assert!(args.windows(2).any(|pair| pair == ["-c:v", "libx265"]));
         assert!(args.windows(2).any(|pair| pair == ["-crf", "23"]));
@@ -1276,6 +1626,7 @@ mod tests {
             },
             &default_settings(),
             &descriptor,
+            CompatibleEncoder::Software,
         );
 
         assert!(args.iter().any(|value| {

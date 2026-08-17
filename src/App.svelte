@@ -1422,7 +1422,7 @@
               <div class="settings-grid">
                 {#if settingsDraft.export.profile === 'compatible'}
                   <label class="settings-field"><span>{text('videoCodec')}</span><select value={settingsDraft.export.videoCodec} onchange={(event) => updateExportDraft('videoCodec', (event.currentTarget as HTMLSelectElement).value as VideoCodec)}><option value="h264">H.264</option><option value="h265">H.265 / HEVC</option></select></label>
-                  <label class="settings-field"><span>{text('encoder')}</span><input value={text('softwareEncoder', { encoder: settingsDraft.export.videoCodec === 'h264' ? 'libx264' : 'libx265' })} disabled /></label>
+                  <label class="settings-field"><span>{text('encoder')}</span><input value={text('automaticEncoder', { encoder: settingsDraft.export.videoCodec === 'h264' ? 'libx264' : 'libx265' })} disabled /></label>
                   <label class="settings-field"><span>{text('crf')}</span><input type="number" min="0" max="51" step="1" value={settingsDraft.export.crf} onchange={(event) => updateExportDraft('crf', Number((event.currentTarget as HTMLInputElement).value))} /><small>{text('crfHint')}</small></label>
                   <label class="settings-field"><span>{text('preset')}</span><select value={settingsDraft.export.preset} onchange={(event) => updateExportDraft('preset', (event.currentTarget as HTMLSelectElement).value as EncoderPreset)}>{#each encoderPresets as preset}<option value={preset}>{preset}</option>{/each}</select></label>
                 {/if}

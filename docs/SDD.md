@@ -88,7 +88,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 ### 3.4 Export
 
 - **FR-030** When output and source extensions differ, the header shows a direct Copy and save action with no menu. When they match, one combined Save options control opens Copy and save or confirmed in-place Save; there is no separate export-configuration screen.
-- **FR-031** Compatible mode outputs H.264 or H.265 MP4, always enables fast start, and allows CRF, encoder preset, pixel format, audio handling/bitrate, frame-rate handling, and metadata retention.
+- **FR-031** Compatible mode outputs H.264 or H.265 MP4, always enables fast start, and allows quality level, encoder preset, pixel format, audio handling/bitrate, frame-rate handling, and metadata retention. It tries the bundled FFmpeg hardware encoders in preference order and falls back to `libx264` or `libx265` when a hardware encoder cannot produce its first frame.
 - **FR-032** Lossless mode outputs FFV1 in Matroska. The video is decoded, cropped, and encoded losslessly while compatible audio/subtitle streams are copied.
 - **FR-033** Metadata-only mode is available only for H.264 or HEVC. It copies encoded media while setting codec crop metadata. The UI warns that coded pixels and file size remain, and that some players ignore the crop.
 - **FR-034** A physical crop filter is never combined with video stream copy.
@@ -121,7 +121,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 | Lossless FFV1/MKV | Yes | Yes | Lossless after source decode, provided pixel format and color metadata are preserved | Moderate/low |
 | Metadata-only | Display-only | No | Original coded stream retained | Codec/player dependent |
 
-The Compatible profile defaults to `libx264`, CRF 17, `medium`, `yuv420p`, source cadence, automatic audio, and metadata retention. Compatible MP4 output is always finalized with fast start. These defaults are not a guarantee of visual transparency for every source.
+The Compatible profile defaults to H.264, quality level 17, `medium`, `yuv420p`, source cadence, automatic audio, and metadata retention. Compatible MP4 output prefers NVENC, Quick Sync Video, and AMF before the software codec fallback and is always finalized with fast start. These defaults are not a guarantee of visual transparency for every source or encoder.
 
 The Lossless profile must avoid an unconditional conversion to 8-bit `yuv420p`. The backend retains a compatible source pixel format and carries color primaries, transfer characteristics, matrix, and range where FFmpeg exposes them.
 
@@ -331,7 +331,7 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 - Progress-line parsing.
 - Temporary output naming and destination validation.
 - Directory filtering, non-recursive discovery, and stable sorting.
-- Detailed encoder/audio/frame-rate argument generation and invalid-setting rejection.
+- Hardware/software encoder ordering, backend-specific quality arguments, audio/frame-rate argument generation, and invalid-setting rejection.
 - Exact `start_frame`/`end_frame` FFmpeg filters, audio alignment, and metadata-only rejection.
 - Windows extended-path normalization and Explorer selection arguments.
 - DWM ARGB-to-CSS accent conversion.

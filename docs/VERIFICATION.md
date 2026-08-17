@@ -23,9 +23,9 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 | `npm run test:coverage` | Pass — 94.25% statements, 81.09% branches, 97.67% functions, 95.31% lines |
 | `npm run build` | Pass — Vite production build |
 | `cargo fmt --check --manifest-path src-tauri\Cargo.toml` | Pass |
-| `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 28 Rust unit tests |
+| `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 30 Rust unit tests |
 | `cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings` | Pass |
-| `scripts/test-integration.ps1` | Pass |
+| `scripts/test-integration.ps1` | Pass — H.264 and H.265 selected NVENC on the RTX 5070 Ti |
 | `npm audit --audit-level=high` | Pass — 0 vulnerabilities |
 | `cargo audit --file src-tauri\Cargo.lock` | Pass — 0 vulnerabilities; 17 allowed informational warnings in Tauri's cross-target dependency graph |
 | `actionlint` | Pass — CI and release workflows |
@@ -48,14 +48,18 @@ The test script generates an H.264/AAC 1280×720, 30 fps source and crops `{x:10
 
 | Profile | Probed result | Additional assertion |
 |---|---|---|
-| Compatible | H.264, 640×360, yuv420p | Physical crop, compatible codec, and color metadata preserved |
-| Configured compatible | HEVC, 640×360, yuv420p10le | H.265, CRF/preset, 10-bit format, AAC, CFR, and color metadata applied |
+| Compatible | H.264 via NVENC, 640×360, yuv420p | Physical crop, compatible codec, and color metadata preserved |
+| Configured compatible | HEVC via NVENC, 640×360, yuv420p10le | H.265, quality/preset, 10-bit format, AAC, CFR, and color metadata applied |
 | Lossless | FFV1, 640×360, yuv420p | Every decoded-frame MD5 matches the source crop; color metadata preserved |
 | Metadata-only | H.264 stream copy, displayed 640×360 | No video encoder used |
 | Time trim | H.264/AAC, 640×360, 60 frames, 2.000 s | Source frame range `[30, 90)` applied exactly |
 | In-place staging | H.264, 640×360 | Temporary output replaces a copied source only after completion |
 
 The source SHA-256 before and after all exports is identical. Temporary test media is written only under the ignored `test-results` directory.
+
+## Hardware encoding benchmark
+
+An 8-second 3840×2160 source was cropped to 3200×1800 and encoded with the bundled FFmpeg on an RTX 5070 Ti using NVIDIA driver 610.88. H.264 completed in 1.62 seconds with NVENC versus 2.25 seconds with `libx264` (28% shorter). H.265 completed in 1.67 seconds with NVENC versus 3.23 seconds with `libx265` (48% shorter).
 
 ## Local release artifacts
 
