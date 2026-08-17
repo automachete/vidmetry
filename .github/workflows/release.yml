@@ -116,6 +116,7 @@ jobs:
 
   build-windows:
     needs: preflight
+    environment: microsoft-store-release
     runs-on: windows-latest
     timeout-minutes: 45
     permissions:

@@ -4,7 +4,7 @@
 
 ## 事前確認
 
-1. Partner Centerで製品名を予約し、GitHub ActionsのRepository variablesに`MSIX_IDENTITY_NAME`、`MSIX_PUBLISHER`、`MSIX_PUBLISHER_DISPLAY_NAME`を登録します。値はPartner Centerの製品IDに表示されるPackage/Identityと完全に一致させます。
+1. Partner Centerで製品名を予約し、GitHub ActionsのRepository variablesに`MSIX_IDENTITY_NAME`、`MSIX_PUBLISHER`、`MSIX_PUBLISHER_DISPLAY_NAME`を登録します。値はPartner Centerの製品IDに表示されるPackage/Identityと完全に一致させます。`microsoft-store-release` Environmentには`@automachete`の承認を必須にし、Store用MSIXジョブは承認後だけ実行します。
 2. `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`のバージョンを一致させます。
 3. [VERIFICATION.md](VERIFICATION.md)を対象バージョンのローカル検証結果と生成物に合わせて更新します。
 4. `npm run verify`、UI/Rust/統合テスト、ライセンス監査、`npm run msix:build`、`npm run test:msix`を完了します。
@@ -27,7 +27,7 @@ git push origin v0.4.7
 
 ## Store公開後の自動更新
 
-[MicrosoftのGitHub Actions手順](https://learn.microsoft.com/en-us/windows/apps/publish/msstore-dev-cli/github-actions?tabs=msix)に合わせ、Store Product IDをRepository variableの`STORE_PRODUCT_ID`へ登録します。Microsoft Entra IDとPartner Centerの認証情報はRepository variablesへ置かず、次の名前でRepository secretsへ登録します。
+[MicrosoftのGitHub Actions手順](https://learn.microsoft.com/en-us/windows/apps/publish/msstore-dev-cli/github-actions?tabs=msix)に合わせ、Store Product IDをRepository variableの`STORE_PRODUCT_ID`へ登録します。Microsoft Entra IDとPartner Centerの認証情報はRepository variablesへ置かず、`microsoft-store-release`のEnvironment secretsへ次の名前で登録します。
 
 - `AZURE_AD_APPLICATION_CLIENT_ID`
 - `AZURE_AD_APPLICATION_SECRET`

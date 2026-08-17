@@ -5,6 +5,11 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 
 $workflowDirectory = Join-Path $projectRoot '.github\workflows'
 foreach ($workflow in Get-ChildItem -LiteralPath $workflowDirectory -Filter '*.yml') {
+    $workflowText = Get-Content -LiteralPath $workflow.FullName -Raw
+    if ($workflowText -match '(?m)^\s*pull_request_target\s*:') {
+        throw "pull_request_target is forbidden because it can expose privileged workflow context to untrusted pull request code: $($workflow.Name)"
+    }
+
     foreach ($line in Get-Content -LiteralPath $workflow.FullName) {
         if ($line -match '^\s*uses:\s+([^\s]+)') {
             $reference = $Matches[1]
@@ -13,6 +18,19 @@ foreach ($workflow in Get-ChildItem -LiteralPath $workflowDirectory -Filter '*.y
             }
         }
     }
+}
+
+$codeOwnersPath = Join-Path $projectRoot '.github\CODEOWNERS'
+$codeOwners = @(Get-Content -LiteralPath $codeOwnersPath)
+foreach ($requiredEntry in @('/.github/workflows/** @automachete', '/.github/CODEOWNERS @automachete')) {
+    if ($requiredEntry -cnotin $codeOwners) {
+        throw "CODEOWNERS must contain: $requiredEntry"
+    }
+}
+
+$releaseWorkflow = Get-Content -LiteralPath (Join-Path $workflowDirectory 'release.yml') -Raw
+if ($releaseWorkflow -notmatch '(?m)^\s{4}environment:\s+microsoft-store-release\s*$') {
+    throw 'The Microsoft Store MSIX job must use the microsoft-store-release environment.'
 }
 
 $package = Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw | ConvertFrom-Json
