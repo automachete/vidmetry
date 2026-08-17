@@ -6,6 +6,7 @@ mod ffmpeg;
 mod media;
 mod reveal;
 mod selection;
+mod shell_integration;
 
 use tauri::Manager;
 
@@ -101,7 +102,9 @@ pub fn run() {
             start_export,
             cancel_export,
             inspect_selection,
-            reveal_in_explorer
+            reveal_in_explorer,
+            shell_integration::startup_selection,
+            shell_integration::set_explorer_integration
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Vidmetry");

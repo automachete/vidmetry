@@ -119,6 +119,7 @@ function mockSelection(paths = videoPaths, failingProbePath?: string): void {
       return mediaDescriptor(path) as never;
     }
     if (command === 'system_accent_color') return '#FF8C00' as never;
+    if (command === 'startup_selection') return null as never;
     if (command === 'start_export') return 'job-1' as never;
     if (command === 'reveal_in_explorer') return undefined as never;
     throw new Error(`Unexpected command: ${command}`);
@@ -162,6 +163,18 @@ describe('application shell', () => {
     expect(screen.queryByText('Keep precisely the part of the frame you need.')).toBeNull();
     expect(screen.queryByText(/WebM and more/)).toBeNull();
     expect(container.querySelector('.brand-icon')).toBeTruthy();
+  });
+
+  it('opens a file or folder passed by File Explorer at startup', async () => {
+    useEnglish();
+    mockSelection(['C:\\clips\\a.mp4', 'C:\\clips\\b.mp4']);
+    vi.mocked(invoke).mockImplementationOnce(async (command) => {
+      if (command === 'startup_selection') return 'C:\\clips' as never;
+      return '#FF8C00' as never;
+    });
+    render(App);
+
+    expect(await screen.findByRole('option', { name: '2. b.mp4' })).toBeTruthy();
   });
 
   it('opens common settings with the language section last', async () => {

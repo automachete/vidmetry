@@ -204,6 +204,7 @@
     systemLanguage = navigator.language || 'en-US';
     void initializeSettings();
     void initializeSystemAppearance();
+    void initializeStartupSelection();
 
     void initializeDragDrop();
     void initializeExportEvents();
@@ -224,6 +225,15 @@
       if (!destroyed) errorMessage = clientError('settingsLoadFailed', error);
     } finally {
       if (!destroyed) settingsReady = true;
+    }
+  }
+
+  async function initializeStartupSelection() {
+    try {
+      const path = await invoke<string | null>('startup_selection');
+      if (!destroyed && path) await loadSelection(path);
+    } catch (error) {
+      if (!destroyed) errorMessage = backendOrClientError('selectionFailed', error);
     }
   }
 

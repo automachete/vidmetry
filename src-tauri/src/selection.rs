@@ -7,7 +7,7 @@ use crate::{
     ffmpeg,
 };
 
-const VIDEO_EXTENSIONS: &[&str] = &[
+pub(crate) const VIDEO_EXTENSIONS: &[&str] = &[
     "3gp", "avi", "flv", "m2ts", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "mts", "ogv", "ts",
     "vob", "webm", "wmv",
 ];

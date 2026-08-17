@@ -26,4 +26,5 @@ tauri-plugin-store = "2.4.4"
 uuid = { version = "1.24.1", features = ["v4"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Graphics_Dwm", "Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Graphics_Dwm", "Win32_Storage_FileSystem", "Win32_UI_Shell"] }
+winreg = "0.55.0"

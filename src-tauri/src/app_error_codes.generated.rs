@@ -103,4 +103,8 @@ pub enum ErrorCode {
     ExplorerUnsupported,
     #[serde(rename = "accent_color_unavailable")]
     AccentColorUnavailable,
+    #[serde(rename = "explorer_integration_update_failed")]
+    ExplorerIntegrationUpdateFailed,
+    #[serde(rename = "explorer_integration_unsupported")]
+    ExplorerIntegrationUnsupported,
 }

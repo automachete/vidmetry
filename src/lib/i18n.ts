@@ -187,6 +187,8 @@ const ja = {
   errorExplorerOpenFailed: 'エクスプローラーを開けませんでした。',
   errorExplorerUnsupported: '保存先の表示はWindowsでのみ使用できます。',
   errorAccentColorUnavailable: 'Windowsのアクセントカラーを取得できませんでした。',
+  errorExplorerIntegrationUpdateFailed: 'エクスプローラーとの連携設定を変更できませんでした。',
+  errorExplorerIntegrationUnsupported: 'エクスプローラーとの連携はWindowsでのみ使用できます。',
 } as const;
 
 export type TranslationKey = keyof typeof ja;
@@ -376,6 +378,8 @@ const en: Record<TranslationKey, string> = {
   errorExplorerOpenFailed: 'File Explorer could not be opened.',
   errorExplorerUnsupported: 'Showing the saved file is available only on Windows.',
   errorAccentColorUnavailable: 'The Windows accent color could not be read.',
+  errorExplorerIntegrationUpdateFailed: 'File Explorer integration could not be changed.',
+  errorExplorerIntegrationUnsupported: 'File Explorer integration is available only on Windows.',
 };
 
 const i18n = createInstance();
@@ -452,6 +456,8 @@ const appErrorTranslationKeys: Record<AppErrorCode, TranslationKey> = {
   explorer_open_failed: 'errorExplorerOpenFailed',
   explorer_unsupported: 'errorExplorerUnsupported',
   accent_color_unavailable: 'errorAccentColorUnavailable',
+  explorer_integration_update_failed: 'errorExplorerIntegrationUpdateFailed',
+  explorer_integration_unsupported: 'errorExplorerIntegrationUnsupported',
 };
 
 export function localizeAppError(language: Language, error: AppErrorPayload): string {

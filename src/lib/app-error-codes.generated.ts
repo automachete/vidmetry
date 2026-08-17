@@ -50,7 +50,9 @@ export const appErrorCodes = [
   "commit_output_failed",
   "explorer_open_failed",
   "explorer_unsupported",
-  "accent_color_unavailable"
+  "accent_color_unavailable",
+  "explorer_integration_update_failed",
+  "explorer_integration_unsupported"
 ] as const;
 
 export type AppErrorCode = (typeof appErrorCodes)[number];

@@ -65,6 +65,7 @@ async function installTauriMock(page: Page): Promise<void> {
         return null;
       }
       if (command === 'system_accent_color') return '#FF8C00';
+      if (command === 'startup_selection') return null;
       if (command === 'plugin:store|load') return 1;
       if (command === 'plugin:store|get') return [storedSettings, storedSettings !== undefined];
       if (command === 'plugin:store|set') {
