@@ -11,7 +11,6 @@ function Get-WindowsSdkTool([string]$Name) {
     $sdkBin = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
     $tools = @(Get-ChildItem -LiteralPath $sdkBin -Filter $Name -File -Recurse |
         Where-Object { $_.Directory.Name -ceq 'x64' } |
-        Where-Object { $_.Directory.Parent.Name -cmatch '^\d+(\.\d+){1,3}$' } |
         Sort-Object { [Version]($_.Directory.Parent.Name -replace '[^0-9.]', '') } -Descending)
     if ($tools.Count -eq 0) {
         throw "$Name was not found in Windows SDK 10."
@@ -36,13 +35,6 @@ function Get-PeMachine([string]$Path) {
     } finally {
         $reader.Dispose()
         $stream.Dispose()
-    }
-}
-
-function Assert-BundleMarker([string]$Path, [string]$Expected) {
-    $binaryText = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($Path))
-    if (-not $binaryText.Contains($Expected, [StringComparison]::Ordinal)) {
-        throw "$Path does not contain the expected Tauri bundle marker $Expected."
     }
 }
 
@@ -298,7 +290,6 @@ try {
     if ((Get-PeMachine $applicationPath) -ne 0x8664 -or (Get-PeMachine $commandPath) -ne 0x8664) {
         throw 'The MSIX application and Explorer command must both be x64 PE files.'
     }
-    Assert-BundleMarker $applicationPath '__TAURI_BUNDLE_TYPE_VAR_UNK'
     foreach ($required in @(
         'ffmpeg.exe',
         'ffprobe.exe',

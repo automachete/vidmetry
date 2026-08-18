@@ -240,7 +240,7 @@ describe('application shell', () => {
     await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
     await fireEvent.click(settingsButton);
     await fireEvent.click(
-      screen.getByRole('checkbox', { name: 'Show Open with Vidmetry for folders' }),
+      screen.getByRole('checkbox', { name: 'Allow Vidmetry to be opened from context menus' }),
     );
     await fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
 
@@ -266,7 +266,7 @@ describe('application shell', () => {
     await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
     await fireEvent.click(settingsButton);
     await fireEvent.click(
-      screen.getByRole('checkbox', { name: 'Show Open with Vidmetry for folders' }),
+      screen.getByRole('checkbox', { name: 'Allow Vidmetry to be opened from context menus' }),
     );
     await fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
 

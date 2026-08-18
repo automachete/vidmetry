@@ -3,7 +3,6 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $selectionPath = Join-Path $projectRoot 'src-tauri\src\selection.rs'
 $configPath = Join-Path $projectRoot 'src-tauri\tauri.conf.json'
-$nsisHookPath = Join-Path $projectRoot 'src-tauri\windows\hooks.nsh'
 $msixManifestPath = Join-Path $projectRoot 'scripts\msix\AppxManifest.xml.template'
 $msixBuildPath = Join-Path $projectRoot 'scripts\build-msix.ps1'
 $msixCommandPath = Join-Path $projectRoot 'src-tauri\windows\msix-explorer-command\ExplorerCommand.cpp'
@@ -11,7 +10,6 @@ $msixProjectPath = Join-Path $projectRoot 'src-tauri\windows\msix-explorer-comma
 
 $selection = Get-Content -LiteralPath $selectionPath -Raw
 $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
-$nsisHook = Get-Content -LiteralPath $nsisHookPath -Raw
 $msixManifest = Get-Content -LiteralPath $msixManifestPath -Raw
 $msixBuild = Get-Content -LiteralPath $msixBuildPath -Raw
 $msixCommand = Get-Content -LiteralPath $msixCommandPath -Raw
@@ -28,58 +26,6 @@ $extensions = [regex]::Matches($extensionBlock.Groups['extensions'].Value, '"(?<
     ForEach-Object { $_.Groups['extension'].Value }
 if ($extensions.Count -eq 0) {
     throw 'The backend video-extension contract is empty.'
-}
-
-foreach ($extension in $extensions) {
-    $register = "!insertmacro VIDMETRY_REGISTER_VIDEO_EXTENSION `"$extension`""
-    $unregister = "!insertmacro VIDMETRY_UNREGISTER_VIDEO_EXTENSION `"$extension`""
-    if (-not $nsisHook.Contains($register) -or -not $nsisHook.Contains($unregister)) {
-        throw "The NSIS video Open with integration does not cover .$extension."
-    }
-}
-
-$postInstall = [regex]::Match(
-    $nsisHook,
-    '(?ms)!macro NSIS_HOOK_POSTINSTALL\r?\n(?<Body>.*?)!macroend'
-)
-$directoryUnregister = [regex]::Match(
-    $nsisHook,
-    '(?ms)!macro VIDMETRY_UNREGISTER_DIRECTORY_INTEGRATION\r?\n(?<Body>.*?)!macroend'
-)
-if (-not $postInstall.Success -or -not $directoryUnregister.Success) {
-    throw 'The NSIS Explorer integration macros could not be parsed.'
-}
-$postInstallBody = $postInstall.Groups['Body'].Value
-$nsisStateRead = $postInstallBody.IndexOf('"NsisExplorerIntegrationEnabled"', [StringComparison]::Ordinal)
-$legacyStateRead = $postInstallBody.IndexOf('"ExplorerIntegrationEnabled"', [StringComparison]::Ordinal)
-if ($postInstallBody.IndexOf('VIDMETRY_REGISTER_VIDEO_INTEGRATION', [StringComparison]::Ordinal) -lt 0 -or
-    $postInstallBody.IndexOf('VIDMETRY_REGISTER_VIDEO_INTEGRATION', [StringComparison]::Ordinal) -gt
-        $postInstallBody.IndexOf('ReadRegDWORD', [StringComparison]::Ordinal) -or
-    $nsisStateRead -lt 0 -or $legacyStateRead -le $nsisStateRead -or
-    -not $postInstallBody.Contains('VIDMETRY_REGISTER_DIRECTORY_INTEGRATION', [StringComparison]::Ordinal) -or
-    -not $postInstallBody.Contains('VIDMETRY_UNREGISTER_DIRECTORY_INTEGRATION', [StringComparison]::Ordinal)) {
-    throw 'NSIS must always register video Open with entries and toggle only the directory command.'
-}
-$directoryUnregisterBody = $directoryUnregister.Groups['Body'].Value
-foreach ($forbidden in @('OpenWithProgids', 'Applications\vidmetry.exe', 'Capabilities')) {
-    if ($directoryUnregisterBody.Contains($forbidden, [StringComparison]::Ordinal)) {
-        throw "Disabling the NSIS directory command must not remove video registration '$forbidden'."
-    }
-}
-foreach ($required in @(
-    'Software\Classes\Vidmetry.Video',
-    'Software\Classes\Applications\vidmetry.exe',
-    'Software\Classes\Directory\shell\Vidmetry',
-    'Open with Vidmetry',
-    'MultiSelectModel',
-    'NsisExplorerIntegrationEnabled',
-    'ExplorerIntegrationEnabled',
-    'NSIS_HOOK_POSTUNINSTALL',
-    'SHChangeNotify'
-)) {
-    if (-not $nsisHook.Contains($required, [StringComparison]::Ordinal)) {
-        throw "The NSIS Explorer integration is missing '$required'."
-    }
 }
 
 $commandClsid = '7CD16804-1388-4150-991B-A977AEA22567'
@@ -134,14 +80,18 @@ foreach ($required in @('<Platform>x64</Platform>', '<RuntimeLibrary>MultiThread
     }
 }
 
-if ($config.bundle.active -ne $true -or
-    (@($config.bundle.targets) -join "`n") -cne 'nsis' -or
-    $config.bundle.windows.nsis.installMode -cne 'currentUser' -or
-    $config.bundle.windows.nsis.installerHooks -cne './windows/hooks.nsh') {
-    throw 'Tauri bundling must produce only the current-user NSIS package with verified hooks.'
+if ($config.bundle.active -ne $false -or
+    $config.bundle.PSObject.Properties.Name -contains 'targets' -or
+    $config.bundle.PSObject.Properties.Name -contains 'windows') {
+    throw 'Tauri MSI and NSIS bundling must remain disabled; distribution uses the dedicated MSIX pipeline.'
 }
-if (Test-Path -LiteralPath (Join-Path $projectRoot 'src-tauri\windows\shell-integration.wxs')) {
-    throw 'The unsupported MSI Explorer integration definition must remain absent.'
+foreach ($legacyInstallerDefinition in @(
+    'src-tauri\windows\hooks.nsh',
+    'src-tauri\windows\shell-integration.wxs'
+)) {
+    if (Test-Path -LiteralPath (Join-Path $projectRoot $legacyInstallerDefinition)) {
+        throw "Legacy installer definition remains: $legacyInstallerDefinition"
+    }
 }
 
-Write-Output "MSIX and NSIS cover $($extensions.Count) video extensions and selected directories; MSI bundling is disabled."
+Write-Output "MSIX covers $($extensions.Count) video extensions and selected directories; MSI and NSIS bundling is disabled."
