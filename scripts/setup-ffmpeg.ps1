@@ -118,7 +118,7 @@ $VersionText
 FFmpeg complete corresponding source
 
 The FFmpeg and ffprobe executables in this Vidmetry distribution are licensed under $($Manifest.engine.license).
-Equivalent access to their machine-readable Complete Corresponding Source is offered next to the Windows packages in the same official GitHub Release, at no charge:
+Equivalent access to their machine-readable Complete Corresponding Source is offered next to the MSIX package in the same official GitHub Release, at no charge:
 
 $SourceUrl
 

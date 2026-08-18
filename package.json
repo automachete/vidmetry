@@ -21,7 +21,6 @@
     "test:coverage": "vitest run --coverage",
     "test:assets": "pwsh -NoProfile -File scripts/test-icon-assets.ps1",
     "test:shell": "pwsh -NoProfile -File scripts/test-shell-integration.ps1",
-    "test:nsis": "pwsh -NoProfile -File scripts/test-nsis-package.ps1",
     "test:msix": "pwsh -NoProfile -File scripts/test-msix-package.ps1",
     "test:runtime": "pwsh -NoProfile -File scripts/test-runtime-contracts.ps1",
     "test:licenses": "pwsh -NoProfile -File scripts/test-license-compliance.ps1",

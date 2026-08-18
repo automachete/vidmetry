@@ -57,7 +57,7 @@ jobs:
 
   verify-windows:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository
@@ -125,17 +125,8 @@ jobs:
       - name: Verify media exports
         run: npm run test:integration
 
-      - name: Build application once
-        run: npm run tauri build -- --no-bundle
-
       - name: Build and verify development MSIX
         shell: pwsh
         run: |
-          ./scripts/build-msix.ps1 -SkipAppBuild
+          npm run msix:build
           npm run test:msix
-
-      - name: Build and verify NSIS
-        shell: pwsh
-        run: |
-          npm run tauri bundle -- --bundles nsis
-          npm run test:nsis -- --LiveInstall
