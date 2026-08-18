@@ -32,14 +32,22 @@
     }
   },
   "bundle": {
-    "active": false,
+    "active": true,
+    "targets": ["nsis"],
     "externalBin": ["binaries/ffmpeg", "binaries/ffprobe"],
     "resources": {
       "../LICENSE": "LICENSE",
       "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
       "binaries/ffmpeg-notices": "FFmpeg",
       "binaries/license-reports": "ThirdPartyLicenses",
-      "binaries/license-sources": "LicenseSources"
+      "binaries/license-sources": "LicenseSources",
+      "icons/icon.ico": "shortcut-icon-achromatic-v2.ico"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "./windows/hooks.nsh"
+      }
     },
     "icon": [
       "icons/32x32.png",
