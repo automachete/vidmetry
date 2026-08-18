@@ -12,7 +12,7 @@ Windows標準アプリでは扱えない画面サイズの切り取りにも対�
 
 ## インストール
 
-対応環境はWindows 11 x64です。最新版の[msix](https://github.com/automachete/vidmetry/releases/latest)をダウンロードしてください。
+対応環境はWindows 11 x64です。通常はMicrosoft Store版を使用してください。Storeを利用できない環境や直接インストールでの検証には、[GitHub Releases](https://github.com/automachete/vidmetry/releases/latest)の`-setup.exe`で終わるNSISパッケージを使用できます。NSISパッケージは未署名のためSmartScreenの警告が表示されることがあり、更新は手動です。Release内のMSIXはMicrosoft Store提出用の未署名パッケージです。
 
 ## 使い方
 

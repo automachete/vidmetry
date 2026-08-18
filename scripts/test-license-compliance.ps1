@@ -123,12 +123,22 @@ Assert-FileContainsLiteral $releaseWorkflow 'setup-copyleft-sources.ps1' 'Releas
 Assert-FileContainsLiteral $releaseWorkflow 'generate-third-party-licenses.ps1' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow './scripts/build-msix.ps1' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'npm run test:msix' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow 'npm run tauri build -- --no-bundle' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow 'npm run tauri bundle -- --bundles nsis' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow 'npm run test:nsis -- --LiveInstall' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow "-Filter '*.msix'" 'Release workflow'
-Assert-FileContainsLiteral $releaseWorkflow 'Expected three publication assets' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow "-Filter '*-setup.exe'" 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow 'Expected four publication assets' 'Release workflow'
 Assert-FileDoesNotContainLiteral $releaseWorkflow "-Filter '*.msi'" 'Release workflow'
-Assert-FileDoesNotContainLiteral $releaseWorkflow "-Filter '*-setup.exe'" 'Release workflow'
 Assert-FileDoesNotContainLiteral $releaseWorkflow 'package-ffmpeg-corresponding-source.sh' 'Release workflow'
 $releaseWorkflowText = Get-Content -LiteralPath $releaseWorkflow -Raw
+if ($releaseWorkflowText.IndexOf('npm run tauri build -- --no-bundle', [StringComparison]::Ordinal) -ge
+        $releaseWorkflowText.IndexOf('./scripts/build-msix.ps1', [StringComparison]::Ordinal) -or
+    $releaseWorkflowText.IndexOf('./scripts/build-msix.ps1', [StringComparison]::Ordinal) -ge
+        $releaseWorkflowText.IndexOf('npm run tauri bundle -- --bundles nsis', [StringComparison]::Ordinal)) {
+    throw 'Release must package the unpatched application into MSIX before applying the NSIS bundle type.'
+}
+Assert-FileDoesNotContainLiteral $releaseWorkflow 'npm run tauri build -- --bundles nsis' 'Release workflow'
 foreach ($unsafeExpansion in @('-Tag "${{ github.ref_name }}"', '$tag = "${{ github.ref_name }}"')) {
     if ($releaseWorkflowText.Contains($unsafeExpansion, [StringComparison]::Ordinal)) {
         throw 'Release event values must enter PowerShell through environment variables, not expression interpolation.'
@@ -192,11 +202,24 @@ Assert-FileContainsLiteral $ciWorkflow 'npm run check:licenses' 'CI workflow'
 Assert-FileContainsLiteral $ciWorkflow 'npm run test:licenses' 'CI workflow'
 Assert-FileContainsLiteral $ciWorkflow 'setup-copyleft-sources.ps1' 'CI workflow'
 Assert-FileContainsLiteral $ciWorkflow 'generate-third-party-licenses.ps1' 'CI workflow'
+Assert-FileContainsLiteral $ciWorkflow 'npm run tauri build -- --no-bundle' 'CI workflow'
+Assert-FileContainsLiteral $ciWorkflow 'npm run tauri bundle -- --bundles nsis' 'CI workflow'
+Assert-FileContainsLiteral $ciWorkflow 'npm run test:nsis -- --LiveInstall' 'CI workflow'
+$ciWorkflowText = Get-Content -LiteralPath $ciWorkflow -Raw
+if ($ciWorkflowText.IndexOf('npm run tauri build -- --no-bundle', [StringComparison]::Ordinal) -ge
+        $ciWorkflowText.IndexOf('./scripts/build-msix.ps1', [StringComparison]::Ordinal) -or
+    $ciWorkflowText.IndexOf('./scripts/build-msix.ps1', [StringComparison]::Ordinal) -ge
+        $ciWorkflowText.IndexOf('npm run tauri bundle -- --bundles nsis', [StringComparison]::Ordinal)) {
+    throw 'CI must verify MSIX before applying the NSIS bundle type to the application binary.'
+}
 
 $tauriConfiguration = Join-Path $projectRoot 'src-tauri\tauri.conf.json'
 Assert-FileContainsLiteral $tauriConfiguration '"binaries/ffmpeg-notices": "FFmpeg"' 'Tauri bundle configuration'
 Assert-FileContainsLiteral $tauriConfiguration '"binaries/license-reports": "ThirdPartyLicenses"' 'Tauri bundle configuration'
 Assert-FileContainsLiteral $tauriConfiguration '"binaries/license-sources": "LicenseSources"' 'Tauri bundle configuration'
+Assert-FileContainsLiteral $tauriConfiguration '"icons/icon.ico": "shortcut-icon-achromatic-v2.ico"' 'Tauri bundle configuration'
+Assert-FileContainsLiteral $tauriConfiguration '"targets": ["nsis"]' 'Tauri bundle configuration'
+Assert-FileContainsLiteral $tauriConfiguration '"installerHooks": "./windows/hooks.nsh"' 'Tauri bundle configuration'
 
 $copyleftManifestPath = Join-Path $PSScriptRoot 'copyleft-sources.json'
 $copyleftManifest = Get-Content -LiteralPath $copyleftManifestPath -Raw | ConvertFrom-Json

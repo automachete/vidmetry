@@ -67,11 +67,14 @@ cargo audit --file src-tauri\Cargo.lock
 ## ローカルビルド
 
 ```powershell
-npm run msix:build
+npm run tauri build -- --no-bundle
+./scripts/build-msix.ps1 -SkipAppBuild
 npm run test:msix
+npm run tauri bundle -- --bundles nsis
+npm run test:nsis -- --LiveInstall
 ```
 
-Store提出用のMSIXは`src-tauri\target\release\bundle\msix`に生成されます。Partner Centerの予約IDで生成する場合は`build-msix.ps1`の`IdentityName`、`Publisher`、`PublisherDisplayName`を指定してください。`test:msix`はマニフェスト、x64実行ファイル、動画関連付け、フォルダー用COMコマンド、FFmpegおよびライセンス同梱物を展開して検証します。管理者PowerShellでは`npm run test:msix -- --LiveInstall`により署名、インストール、COM起動、アプリ起動、アンインストールまで確認できます。
+GitHub直接配布用のNSISは`src-tauri\target\release\bundle\nsis`、Store提出用のMSIXは`src-tauri\target\release\bundle\msix`に生成されます。`test:nsis -- --LiveInstall`は、既存のVidmetry登録がないWindowsユーザーでインストール、動画とフォルダーの右クリック登録、設定を無効にした状態での更新、アプリ起動、アンインストールを検証します。Partner Centerの予約IDでMSIXを生成する場合は`build-msix.ps1`の`IdentityName`、`Publisher`、`PublisherDisplayName`を指定してください。`test:msix`はマニフェスト、x64実行ファイル、動画関連付け、フォルダー用COMコマンド、FFmpegおよびライセンス同梱物を展開して検証します。管理者PowerShellでは`npm run test:msix -- --LiveInstall`により署名、インストール、COM起動、アプリ起動、アンインストールまで確認できます。
 
 ## 文書の役割
 
