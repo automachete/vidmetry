@@ -176,7 +176,7 @@ function Resolve-Commit {
 
 function Test-DiffLines {
     param(
-        [Parameter(Mandatory)][string[]]$Lines,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Lines,
         [Parameter(Mandatory)][string]$Context
     )
 
