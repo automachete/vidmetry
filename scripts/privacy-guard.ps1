@@ -273,11 +273,14 @@ function Test-TagIdentity {
 
     $parts = $fields[0] -split "`t", 3
     if ($parts.Count -eq 3 -and $parts[0] -eq 'tag') {
+        Add-PrivacyFinding -Category 'tagger metadataを持つ注釈付きtag' -Context 'annotated tag'
         $email = $parts[2].Trim()
         if ($email.StartsWith('<') -and $email.EndsWith('>')) {
             $email = $email.Substring(1, $email.Length - 2)
         }
         Test-IdentityValues -Name $parts[1] -Email $email -Context 'annotated tag'
+        $tagMessage = @(Invoke-GitCommand -Arguments @('for-each-ref', '--format=%(contents)', $TagRef) -AllowFailure) -join "`n"
+        Test-PrivacyText -Text $tagMessage -Context 'annotated tag message'
     }
 }
 

@@ -13,10 +13,10 @@
 
 ## アプリケーションの公開
 
-バージョンと同じ注釈付きタグを作成してプッシュします。
+tagger identityやmessageを保存しない、バージョンと同じ軽量tagを作成してプッシュします。privacy guardは注釈付きtagを拒否します。
 
 ```powershell
-git tag -a v0.4.7 -m "Vidmetry v0.4.7"
+git tag v0.4.7
 git push origin v0.4.7
 ```
 

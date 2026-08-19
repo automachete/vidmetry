@@ -32,7 +32,7 @@ jobs:
         shell: pwsh
         env:
           PRIVACY_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-          PRIVACY_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          PRIVACY_HEAD_SHA: ${{ github.sha }}
           PRIVACY_REF_NAME: ${{ github.ref }}
         run: |
           ./scripts/privacy-guard.ps1 `

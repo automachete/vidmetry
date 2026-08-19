@@ -27,7 +27,7 @@ npm run tauri dev
 
 `setup-ffmpeg.ps1`はマニフェストで固定されたアーカイブと実行ファイルのSHA-256、構成、必要なエンコーダーを検証してから、Tauri用のFFmpeg／ffprobeサイドカーを配置します。生成されたバイナリ、通知、依存ソースはGit管理対象外です。
 
-`setup:privacy`はこのcheckoutでGitの設定値だけをidentityとして使用し、commit前、commit message作成後、push前のprivacy guardを有効にします。実行前に`user.name`を空白を含まない公開ハンドルへ、`user.email`をGitHubのnoreplyメールへ設定してください。個人メール、実名形式のGit表示名、ユーザープロファイルの絶対パス、内部アカウント形式の識別子はcommitできません。検出時のログには該当値を表示しません。`--no-verify`でhooksを回避しないでください。
+`setup:privacy`はこのcheckoutでGitの設定値だけをidentityとして使用し、commit前、commit message作成後、push前のprivacy guardを有効にします。実行前に`user.name`を空白を含まない公開ハンドルへ、`user.email`をGitHubのnoreplyメールへ設定してください。個人メール、実名形式のGit表示名、ユーザープロファイルの絶対パス、内部アカウント形式の識別子はcommitできません。tagger identityとmessageを持つ注釈付きtagも拒否するため、リリースには軽量tagを使います。検出時のログには該当値を表示しません。`--no-verify`でhooksを回避しないでください。
 
 ## 変更時の指針
 
