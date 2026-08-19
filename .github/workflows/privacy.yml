@@ -1,0 +1,43 @@
+name: Privacy Guard
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: privacy-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  privacy-check:
+    name: privacy-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Self-test privacy guard
+        shell: pwsh
+        run: ./scripts/privacy-guard.ps1 -Mode SelfTest
+
+      - name: Reject personal metadata and content
+        shell: pwsh
+        env:
+          PRIVACY_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          PRIVACY_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          PRIVACY_REF_NAME: ${{ github.ref }}
+        run: |
+          ./scripts/privacy-guard.ps1 `
+            -Mode Range `
+            -BaseSha $env:PRIVACY_BASE_SHA `
+            -HeadSha $env:PRIVACY_HEAD_SHA `
+            -RefName $env:PRIVACY_REF_NAME `
+            -ScanRepository

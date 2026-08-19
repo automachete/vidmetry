@@ -17,6 +17,7 @@ PowerShellで次を実行します。
 
 ```powershell
 npm ci
+npm run setup:privacy
 npx playwright install chromium
 .\scripts\setup-ffmpeg.ps1
 .\scripts\setup-copyleft-sources.ps1
@@ -26,6 +27,8 @@ npm run tauri dev
 
 `setup-ffmpeg.ps1`はマニフェストで固定されたアーカイブと実行ファイルのSHA-256、構成、必要なエンコーダーを検証してから、Tauri用のFFmpeg／ffprobeサイドカーを配置します。生成されたバイナリ、通知、依存ソースはGit管理対象外です。
 
+`setup:privacy`はこのcheckoutでGitの設定値だけをidentityとして使用し、commit前、commit message作成後、push前のprivacy guardを有効にします。実行前に`user.name`を空白を含まない公開ハンドルへ、`user.email`をGitHubのnoreplyメールへ設定してください。個人メール、実名形式のGit表示名、ユーザープロファイルの絶対パス、内部アカウント形式の識別子はcommitできません。検出時のログには該当値を表示しません。`--no-verify`でhooksを回避しないでください。
+
 ## 変更時の指針
 
 - UIとフロントエンドは`src`、Tauri/Rustバックエンドは`src-tauri/src`にあります。
@@ -33,6 +36,7 @@ npm run tauri dev
 - ユーザー向けの日本語／英語テキストはロケールリソースへ追加します。
 - 要件や受け入れ条件が変わる場合は`docs/SDD.md`、実行済みの検証内容が変わる場合は`docs/VERIFICATION.md`を同じ粒度で更新します。
 - 依存関係を追加・更新する場合は、JavaScriptとRustのライセンス許可リストおよび同梱通知も確認します。
+- Git identityと追加内容は`npm run check:privacy`で検査します。GitHub側でも同じ検査を必須化し、GitHub noreply以外のauthor／committerメールを受信時に拒否します。
 
 ## テスト
 

@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+repository_root="$(git rev-parse --show-toplevel)"
+exec pwsh -NoProfile -File "$repository_root/scripts/privacy-guard.ps1" -Mode Staged

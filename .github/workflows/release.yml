@@ -30,7 +30,15 @@ jobs:
       - name: Check out tagged source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Verify privacy boundary
+        shell: pwsh
+        env:
+          RELEASE_COMMIT: ${{ github.sha }}
+          RELEASE_REF: ${{ github.ref }}
+        run: ./scripts/privacy-guard.ps1 -Mode Repository -Revision $env:RELEASE_COMMIT -RefName $env:RELEASE_REF
 
       - name: Verify release version
         shell: pwsh

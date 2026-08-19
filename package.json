@@ -10,6 +10,9 @@
     "npm": ">=11.18.0 <12"
   },
   "scripts": {
+    "setup:privacy": "pwsh -NoProfile -File scripts/setup-privacy-guard.ps1",
+    "check:privacy": "pwsh -NoProfile -File scripts/privacy-guard.ps1 -Mode Repository",
+    "test:privacy": "pwsh -NoProfile -File scripts/privacy-guard.ps1 -Mode SelfTest",
     "generate:contracts": "node scripts/generate-error-contract.mjs",
     "check:contracts": "node scripts/generate-error-contract.mjs --check",
     "check:licenses": "license-checker-rseidelsohn --production --excludePrivatePackages --onlyAllow \"0BSD;Apache-2.0;BSD-2-Clause;BSD-3-Clause;CC0-1.0;ISC;MIT;Unicode-3.0;Unicode-DFS-2016;Zlib\"",
@@ -28,7 +31,7 @@
     "test:ui": "playwright test",
     "test:integration": "pwsh -NoProfile -File scripts/test-integration.ps1",
     "msix:build": "pwsh -NoProfile -File scripts/build-msix.ps1",
-    "verify": "npm run check:contracts && npm run check:licenses && npm run check && npm run test:assets && npm run test:shell && npm run test:runtime && npm run test:licenses && npm test && npm run build",
+    "verify": "npm run test:privacy && npm run check:privacy && npm run check:contracts && npm run check:licenses && npm run check && npm run test:assets && npm run test:shell && npm run test:runtime && npm run test:licenses && npm test && npm run build",
     "tauri": "tauri"
   },
   "dependencies": {

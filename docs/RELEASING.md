@@ -9,6 +9,7 @@
 3. [VERIFICATION.md](VERIFICATION.md)を対象バージョンのローカル検証結果と生成物に合わせて更新します。
 4. `npm run verify`、UI/Rust/統合テスト、ライセンス監査、単一アプリビルドからのMSIX構造検証とNSISのライブインストール検証を完了します。
 5. リポジトリが公開状態で、固定済みFFmpeg対応ソース資産を一般利用者が取得できることを確認します。
+6. `npm run setup:privacy`が有効で、公開ハンドルとGitHub noreplyメールだけがGit identityに使われていることを確認します。タグを含むpush前検査を回避しないでください。
 
 ## アプリケーションの公開
 
