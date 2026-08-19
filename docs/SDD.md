@@ -60,7 +60,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 - **FR-003** Direct WebView playback is attempted first. On playback failure the user can generate, or the app can automatically generate, a temporary H.264 proxy from the original.
 - **FR-004** A newly opened video starts with the crop rectangle covering the complete displayed frame.
 - **FR-005** When a directory is active, the user can switch videos with an in-app list, previous/next controls, or Page Up/Page Down. File names are sorted case-insensitively. If playback is active, the destination video starts automatically in both regular and fullscreen preview.
-- **FR-006** The MSIX package declares Vidmetry in Open with for every supported video extension and registers a packaged COM Open with Vidmetry command for selected directories. Either entry point activates the packaged application with the selected path.
+- **FR-006** Both Windows packages expose Vidmetry in Open with for every supported video extension and expose Open with Vidmetry for selected directories. MSIX uses manifest associations and a packaged COM command; NSIS uses current-user registrations. Either entry point activates its installed application with the selected path.
 - **FR-007** While a directory remains active, supported videos added by Vidmetry or another application are reflected without reopening the directory. Change bursts are coalesced, the current video is retained when present, and refreshes requested during export run after the export finishes.
 
 ### 3.2 Crop interaction
@@ -115,7 +115,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 - **FR-051** Settings persist locally and cover save profile, applicable encoder options, audio, frame rate, file metadata, loop playback, and File Explorer integration.
 - **FR-052** Language mode is an exclusive choice between Windows language and manual selection. Manual selection supports Japanese and English; unsupported Windows languages fall back to English.
 - **FR-053** All product-owned UI and runtime-error text comes from the Japanese/English locale resources. Rust commands and events return a stable language-neutral error code plus optional diagnostic detail; the presentation layer resolves that code in the active UI language. Language controls are the final common-settings section.
-- **FR-054** File Explorer integration is enabled on a fresh installation. Disabling it hides the packaged directory context command and survives application updates without changing another application's file associations. The manifest-owned video Open with entry remains available until the MSIX package is removed.
+- **FR-054** File Explorer directory integration is enabled on a fresh installation. Disabling it hides only Open with Vidmetry for directories and survives application updates without changing another application's file associations. The first restored NSIS update migrates the legacy preference into package-specific state. Video Open with entries remain available until the installed package is removed.
 
 ## 4. Quality semantics
 
@@ -150,7 +150,7 @@ Tauri 2 desktop shell
        ├─ FFmpeg/ffprobe sidecar process manager
        ├─ Windows appearance/accent adapter
        ├─ File Explorer reveal adapter
-       └─ MSIX File Explorer visibility-state adapter
+       └─ File Explorer directory-command visibility adapter
 ```
 
 No localhost HTTP service or database is required. Tauri IPC carries small structured messages only; video bytes never pass through IPC.
@@ -191,15 +191,19 @@ vidmetry/
       appearance.rs
       directory_watch.rs
       selection.rs
+      shell_integration.rs
       lib.rs
+    windows/
+      hooks.nsh
+      msix-explorer-command/
+        ExplorerCommand.cpp
+        ExplorerCommand.vcxproj
   scripts/
     build-msix.ps1
     setup-ffmpeg.ps1
+    test-nsis-package.ps1
     test-msix-package.ps1
     test-integration.ps1
-  src-tauri/windows/msix-explorer-command/
-    ExplorerCommand.cpp
-    ExplorerCommand.vcxproj
 ```
 
 ## 6. Domain model
@@ -279,7 +283,7 @@ The main window uses three regions:
 2. A flexible, neutrally colored video stage containing optional directory navigation, the video, and crop overlay.
 3. A collapsible frame-strip footer with a playback-position handle, start/end trim-boundary handles, persistent loop, and mute, plus a collapsible spatial inspector with coordinates, dimensions, aspect ratio, and Reset.
 
-The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. A strict Zod schema is the runtime and compile-time source for `AppSettings`; unknown, obsolete, partial, or out-of-range shapes are rejected. Valid settings are persisted in `settings.json` under Tauri's application-data directory by the official Store plugin. Windows mode/accent changes are projected through CSS variables; fixed app-icon artwork is strictly achromatic. The MSIX manifest registers supported-video Open with activation and a packaged COM directory command. The application stores only the directory command's visibility state in package-private registry state, and Shell-registration changes refresh the Windows Shell cache. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
+The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. A strict Zod schema is the runtime and compile-time source for `AppSettings`; unknown, obsolete, partial, or out-of-range shapes are rejected. Valid settings are persisted in `settings.json` under Tauri's application-data directory by the official Store plugin. Windows mode/accent changes are projected through CSS variables; fixed app-icon artwork is strictly achromatic. MSIX registers supported-video Open with activation and a packaged COM directory command; NSIS creates equivalent current-user video and directory registrations. The application stores and applies only the directory command's visibility state, while video Open with registration remains installed. Shell-registration changes refresh the Windows Shell cache. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
 
 ## 9. Preview strategy
 
@@ -308,10 +312,10 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 - File access is limited to user-selected paths and the app cache.
 - FFmpeg is invoked as an allowlisted sidecar with structured arguments.
 - The FFmpeg build identifier, immutable dated GitHub Release URL, archive and executable hashes, GPL license hash, full source commits, required configuration flags and encoders, corresponding-source asset tag, and corresponding-source archive hash are pinned in `scripts/ffmpeg-sidecars.json`. Existing files and fresh downloads are both verified.
-- Vidmetry does not link FFmpeg libraries or exchange internal data structures. The independent executables are invoked through ordinary command-line arguments, files, and progress text, and every MSIX package carries the GPL text, exact build report, and release-specific corresponding-source URL.
+- Vidmetry does not link FFmpeg libraries or exchange internal data structures. The independent executables are invoked through ordinary command-line arguments, files, and progress text, and every Windows package carries the GPL text, exact build report, and release-specific corresponding-source URL.
 - FFmpeg binaries are not committed to Git. When source-determining inputs change on `main`, a read-only job with no persisted checkout credentials assembles and audits the exact FFmpeg source, pinned public build definition and patches, and every dependency source archive selected by the resolved Windows GPL build graph. The digest-pinned source toolchain image is assigned to the upstream acquisition command before it can resolve a moving image tag; the same image repacks dependency trees and the outer archive without network access. Checkout-specific VCS administration data is removed, external links are recorded and removed, special filesystem entries are rejected, and ordering, ownership, timestamps, and portable executable/non-executable permissions are canonicalized. A separate publication job receives only the verified archive and checksum, publishes them once under the pinned engine-specific tag, and never overwrites that asset.
-- Node.js, npm, and Rust are version-constrained. GitHub Actions are pinned to full commit SHAs; npm audit, JavaScript and Rust license allowlists, RustSec, and distribution-contract tests run in CI, and Dependabot proposes dependency and Action updates. Locked Rust and production JavaScript graphs generate package-level license reports for every MSIX. MPL-2.0 dependencies are additionally matched exactly to a source manifest, and their verified Source Form archives and license are bundled.
-- A pushed `vX.Y.Z` tag must match every application version file. After a fail-closed public-distribution preflight, the release workflow verifies the pinned immutable corresponding-source asset and builds and tests one x64 MSIX with the Partner Center identity; it never regenerates FFmpeg source for an unchanged engine. A final publisher creates or resumes a draft Release and publishes the MSIX only after the complete corresponding-source archive and its SHA-256 are attached and all three assets are re-read from GitHub. Repository visibility is checked again immediately before publication. The same unsigned MSIX is submitted to Partner Center and receives its production signature from Microsoft Store. Hyphenated versions are marked as prereleases.
+- Node.js, npm, and Rust are version-constrained. GitHub Actions are pinned to full commit SHAs; npm audit, JavaScript and Rust license allowlists, RustSec, and distribution-contract tests run in CI, and Dependabot proposes dependency and Action updates. Locked Rust and production JavaScript graphs generate package-level license reports for every Windows package. MPL-2.0 dependencies are additionally matched exactly to a source manifest, and their verified Source Form archives and license are bundled.
+- A pushed `vX.Y.Z` tag must match every application version file. After a fail-closed public-distribution preflight, the release workflow verifies the pinned immutable corresponding-source asset and builds one application binary. It first packages and tests the unpatched binary as one x64 MSIX with the Partner Center identity, then applies Tauri's NSIS bundle marker and packages and live-tests one x64 NSIS; it never regenerates FFmpeg source for an unchanged engine. A final publisher creates or resumes a draft Release and publishes both packages only after the complete corresponding-source archive and its SHA-256 are attached and all four assets are re-read from GitHub. Repository visibility is checked again immediately before publication. The same unsigned MSIX is submitted to Partner Center and receives its production signature from Microsoft Store; the unsigned NSIS remains a manually updated direct-download option. Hyphenated versions are marked as prereleases.
 
 ## 12. Performance requirements
 
@@ -340,7 +344,7 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 - Testing Library covers launcher content, settings, save shortcuts, Space playback from the focused playback scrubber, directory playback carry and live refresh, same-path overwrite reload, immutable trim export requests, structured synchronous/asynchronous error localization, pane collapse, F11 state, Windows appearance projection, notice dismissal, and completed-output links. A source-boundary regression test rejects product-owned Japanese text outside the locale resource or inside the Rust backend.
 - Playwright exercises the same critical flows in Chromium, including settings-section order and encoder availability, a structured backend error in the selected UI language, regular/fullscreen directory playback carry, Explorer and copy-save directory additions, clicking the rendered playback-position handle before Space, real playback-state changes, full-duration click alignment after halving the selection, locked trim export ranges, computed theme/accent projection, requirement-specific alignment, collapsible panes, F11, and notification expiry.
 - Asset verification scans generated PNG/ICO pixels and source SVG colors for chromatic fixed artwork and rejects legacy green tints.
-- MSIX verification unpacks the package and checks its identity, classic-app activation, x64 payloads, all supported video associations, packaged COM directory command, locked sidecars, licenses, and absence of build-only files. An elevated live mode additionally signs, installs, activates COM and the app, and uninstalls an isolated development identity.
+- MSIX verification unpacks the package and checks its identity, classic-app activation, x64 payloads, all supported video associations, packaged COM directory command, locked sidecars, licenses, and absence of build-only files. An elevated live mode additionally signs, installs, activates COM and the app, and uninstalls an isolated development identity. NSIS verification performs an isolated current-user installation, checks its payload and equivalent video/directory menu registrations, preserves a disabled directory command across an update, launches the app, and verifies uninstall cleanup.
 - CI retains screenshots only as failure diagnostics. UI regressions are asserted through roles, accessible names, values, enabled states, computed styles, and geometry tied to explicit requirements rather than whole-screen pixel baselines.
 
 ### 13.3 Rust unit tests
@@ -401,7 +405,7 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - **AC-017** Start/end trim-boundary handles move by 1 or 10 frames from keyboard focus. Space from the focused playback-position handle changes the media element to a real playing state and changes the UI to Pause. Playback-scrubber clicks and off-center trim-boundary drags remain aligned after the selected range is reduced to half the video.
 - **AC-018** The crop inspector and time-trim footer collapse independently, and F11/Escape toggle a video-only window fullscreen preview.
 - **AC-019** Product-owned runtime errors are transported as language-neutral codes with optional diagnostics and render from the same Japanese/English locale resources as the rest of the UI; backend and component source contain no Japanese product prose.
-- **AC-020** A fresh MSIX installation exposes every supported video and selected directories to Vidmetry from File Explorer; the common setting hides and restores the directory command, an update preserves that state, and uninstall removes package-owned entries.
+- **AC-020** A fresh MSIX or NSIS installation exposes every supported video and selected directories to Vidmetry from File Explorer; the common setting hides and restores only the directory command, an update preserves that state, and uninstall removes package-owned entries.
 - **AC-021** Directory navigation carries active playback into the destination video in regular and fullscreen preview, and the active playlist reflects Explorer and completed copy-save additions without reopening the folder.
 - **AC-022** In-place Save reloads dimensions, duration, frame count, and preview bytes from the replaced source generation rather than mixing cached generations.
 - **AC-023** Export uses the crop, trim range, and settings visible when Save begins; editor controls remain locked until the request finishes or fails.

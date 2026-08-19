@@ -40,6 +40,7 @@ function Get-WindowsSdkTool([string]$Name) {
 
     $tools = @(Get-ChildItem -LiteralPath $sdkBin -Filter $Name -File -Recurse |
         Where-Object { $_.Directory.Name -ceq 'x64' } |
+        Where-Object { $_.Directory.Parent.Name -cmatch '^\d+(\.\d+){1,3}$' } |
         Sort-Object { [Version]($_.Directory.Parent.Name -replace '[^0-9.]', '') } -Descending)
     if ($tools.Count -eq 0) {
         throw "$Name was not found in Windows SDK 10."

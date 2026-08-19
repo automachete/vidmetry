@@ -233,7 +233,7 @@ jobs:
             --draft `
             --latest=false `
             --title "Vidmetry FFmpeg corresponding source $env:ASSET_TAG" `
-            --notes 'Immutable, checksum-pinned Complete Corresponding Source for the FFmpeg and ffprobe engine identified by this tag. Application releases reuse these exact assets and attach them beside their Windows MSIX package.'
+            --notes 'Immutable, checksum-pinned Complete Corresponding Source for the FFmpeg and ffprobe engine identified by this tag. Application releases reuse these exact assets and attach them beside their Windows packages.'
           if ($LASTEXITCODE -ne 0) { throw 'Unable to create the immutable FFmpeg source Release.' }
 
           $release = gh release view $env:ASSET_TAG --json isDraft,assets | ConvertFrom-Json
