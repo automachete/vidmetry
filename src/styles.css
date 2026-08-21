@@ -1253,8 +1253,9 @@ select:focus-visible {
 .settings-dialog {
   display: grid;
   width: min(920px, 100%);
-  max-height: min(820px, calc(100vh - 48px));
+  height: min(760px, calc(100vh - 48px));
   grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
   padding: 24px;
   border: 1px solid rgb(255 255 255 / 12%);
   border-radius: 16px;
@@ -1315,7 +1316,8 @@ select:focus-visible {
 .settings-page {
   min-width: 0;
   overflow-y: auto;
-  padding-right: 8px;
+  padding: 4px 8px 4px 4px;
+  scrollbar-gutter: stable;
 }
 
 .settings-section {
@@ -1369,12 +1371,14 @@ select:focus-visible {
 .settings-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: 12px;
 }
 
 .settings-field {
   display: grid;
   min-width: 0;
+  align-content: start;
   gap: 8px;
   color: #929ba7;
   font-size: var(--type-caption);
@@ -1407,6 +1411,14 @@ select:focus-visible {
 .settings-field select:disabled,
 .unit-input:has(input:disabled) {
   opacity: 0.5;
+}
+
+.settings-field select:focus-visible,
+.settings-field > input:focus-visible,
+.unit-input:has(input:focus-visible) {
+  border-color: var(--accent);
+  outline: 0;
+  box-shadow: 0 0 0 2px var(--accent);
 }
 
 .settings-field small {
@@ -1615,14 +1627,6 @@ select:focus-visible {
   margin-top: 16px;
 }
 
-.settings-save-status {
-  min-height: var(--line-caption);
-  margin-right: auto;
-  color: #818a96;
-  font-size: var(--type-caption);
-  line-height: var(--line-caption);
-}
-
 .metadata-warning,
 .settings-note {
   margin: 5px 0 0;
@@ -1781,7 +1785,6 @@ select:focus-visible {
 :root[data-theme="light"] .metadata-warning,
 :root[data-theme="light"] .settings-note,
 :root[data-theme="light"] .shortcut-help,
-:root[data-theme="light"] .settings-save-status,
 :root[data-theme="light"] .inline-export span {
   color: #656a72;
 }
@@ -2068,7 +2071,7 @@ select:focus-visible {
   }
 
   .settings-dialog {
-    max-height: calc(100vh - 20px);
+    height: calc(100vh - 20px);
     padding: 16px;
   }
 

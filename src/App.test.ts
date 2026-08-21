@@ -241,6 +241,7 @@ describe('application shell', () => {
     expect(within(encoder).getByRole('option', { name: 'libx264' })).toBeTruthy();
     await fireEvent.change(encoder, { target: { value: 'amd' } });
     await waitFor(() => expect(storeState.value).toMatchObject({ export: { encoder: 'amd' } }));
+    expect(container.querySelector('.settings-save-status')).toBeNull();
     await fireEvent.click(within(settingsNavigation).getByRole('button', { name: 'Language' }));
     expect(screen.getByRole('combobox', { name: 'Display language' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Apply' })).toBeNull();
@@ -306,6 +307,14 @@ describe('application shell', () => {
     await waitFor(() =>
       expect(storeState.value).toMatchObject({ shortcuts: { openVideo: 'Ctrl+KeyP' } }),
     );
+    expect(
+      screen.getByRole('button', { name: 'Change shortcut: Save a copy' }),
+    ).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Change shortcut: Play / pause' }));
+    await fireEvent.keyDown(window, { code: 'KeyK', key: 'k' });
+    await waitFor(() =>
+      expect(storeState.value).toMatchObject({ shortcuts: { playPause: 'KeyK' } }),
+    );
 
     await fireEvent.click(screen.getByRole('button', { name: 'Change shortcut: Open folder' }));
     await fireEvent.keyDown(window, { code: 'KeyP', key: 'p', ctrlKey: true });
@@ -317,8 +326,12 @@ describe('application shell', () => {
         name: 'Close',
       })[1],
     );
+    mockSelection();
+    vi.mocked(dialogOpen).mockResolvedValue(videoPaths[0]);
     await fireEvent.keyDown(window, { code: 'KeyP', key: 'p', ctrlKey: true });
-    await waitFor(() => expect(dialogOpen).toHaveBeenCalledOnce());
+    await screen.findByText('a.mp4');
+    await fireEvent.keyDown(document.body, { code: 'KeyK', key: 'k' });
+    await waitFor(() => expect(HTMLMediaElement.prototype.play).toHaveBeenCalledOnce());
   });
 
   it('opens Settings and folders with conventional shortcuts and switches export profiles', async () => {

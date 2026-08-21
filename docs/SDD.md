@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Document version | 1.7 |
+| Document version | 1.8 |
 | Product version | 0.4.8 |
 | Status | Implemented and verified |
 | Primary platform | Windows 11 x64 |
@@ -84,7 +84,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 - **FR-026** App mode and accent color independently default to Windows settings. The user can instead select Light or Dark and one of the reviewed Fluent accent colors. Changes apply immediately to WebView surfaces; mode choices also update the native window theme.
 - **FR-027** The trim selection border and start/end trim-boundary handles follow the Windows accent-color setting with a computed readable foreground.
 - **FR-028** The spatial crop inspector and time-trim footer can each be collapsed and restored with accessible icon-only controls.
-- **FR-029** F11 enters or exits a video-only window fullscreen preview. Escape exits fullscreen.
+- **FR-029** The configurable fullscreen-preview accelerator enters or exits a video-only window fullscreen preview and defaults to F11. Escape remains the standard exit action while fullscreen.
 
 ### 3.4 Export
 
@@ -104,7 +104,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 - **FR-043** Compatible and lossless exports apply the selected ordinal frame range in FFmpeg. Late constant-frame-rate trims seek near the range before decoding and adjust the video/audio filters to preserve exact boundaries; uncertain or variable timing retains full decoding. Packet-copied audio is encoded when necessary to align it with an exact time trim.
 - **FR-044** Metadata-only stream copy cannot promise arbitrary frame boundaries and is disabled while a time trim is active.
 - **FR-045** A successful-save notice closes after three seconds or when another UI control is used.
-- **FR-046** Ctrl+S invokes Copy and save. Ctrl+Shift+S invokes confirmed in-place Save only when the current profile supports the source extension.
+- **FR-046** The configurable Copy and save and in-place Save accelerators default to Ctrl+S and Ctrl+Shift+S. In-place Save still requires confirmation and a profile that supports the source extension.
 - **FR-047** A probed media descriptor is reused for export while its canonical source path, file length, and modification time remain unchanged. A changed source is probed again.
 - **FR-048** After in-place Save replaces the source, the backend invalidates its probe entry and the UI reloads the media descriptor and a newly versioned preview URL so WebView and ffprobe state describe the same file generation.
 - **FR-049** Starting export captures one immutable crop, trim, and export-settings snapshot before asynchronous work begins. Crop, playback scrub, and trim-boundary input cannot mutate that request while export is starting or running.
@@ -116,8 +116,8 @@ The following terms are distinct and must not be shortened to an unqualified “
 - **FR-052** Language mode is an exclusive choice between Windows language and manual selection. Manual selection supports Japanese and English; unsupported Windows languages fall back to English.
 - **FR-053** All product-owned UI and runtime-error text comes from the Japanese/English locale resources. Rust commands and events return a stable language-neutral error code plus optional diagnostic detail; the presentation layer resolves that code in the active UI language. Language is the final item in the settings category navigation.
 - **FR-054** File Explorer directory integration is enabled on a fresh installation. Disabling it hides only Open with Vidmetry for directories and survives application updates without changing another application's file associations. The first restored NSIS update migrates the legacy preference into package-specific state. Video Open with entries remain available until the installed package is removed.
-- **FR-055** The desktop UI follows the Windows effective-pixel type ramp with 14/20 body text and 12/16 captions as its compact-text floor, 40-pixel primary control targets, and four-pixel layout increments. Its panes and responsive layout scale with a 1280×900 default and 960×720 minimum window. Accent color communicates actions and selection rather than repeating a nearby heading.
-- **FR-056** The preview provides configurable accelerators for Open video, Open folder, common settings, Compatible MP4, Lossless FFV1/MKV, and Metadata only. Defaults are Ctrl+O, Ctrl+Shift+O, Ctrl+Comma, and Alt+1/2/3. Tooltips disclose the relevant accelerators. Shortcut recording waits for physical key input, rejects Windows-key, duplicate, invalid, and reserved standard-action chords, supports Escape cancellation, and can reset all assignments.
+- **FR-055** The desktop UI follows the Windows effective-pixel type ramp with 14/20 body text and 12/16 captions as its compact-text floor, 40-pixel primary control targets, and four-pixel layout increments. Its panes and responsive layout scale with a 1280×900 default and 960×720 minimum window. Common settings use a stable 920×760 frame at the default size, clamp to 24-pixel viewport gutters at the minimum size, and scroll only the detail page so category changes and expanded choices cannot resize the frame. Settings controls in the same grid row align at their top edge, and the scroll viewport reserves enough inset for every focus visual. Accent color communicates actions and selection rather than repeating a nearby heading.
+- **FR-056** The preview provides configurable accelerators for Open video, Open folder, common settings, all three export profiles, both save actions, previous/next video, play/pause, one- and ten-frame seek in either direction, and fullscreen preview. The settings list orders them by expected use frequency while keeping related pairs adjacent: playback and seek, save, playlist navigation, open, profile selection, fullscreen, and common settings. Defaults remain Ctrl+O, Ctrl+Shift+O, Ctrl+Comma, Alt+1/2/3, Ctrl+S, Ctrl+Shift+S, Page Up/Down, Space, Left/Right, Shift+Left/Right, and F11. Tooltips disclose the relevant accelerators. Shortcut recording waits for physical key input, rejects Windows-key, duplicate, invalid, and reserved standard-action chords, supports Escape cancellation, and can reset all assignments.
 
 ## 4. Quality semantics
 
@@ -248,7 +248,7 @@ ExportSettings
 AppSettings
   languageMode/language
   appearance: system/manual theme and accent choices
-  shortcuts: six canonical physical-key chords
+  shortcuts: sixteen canonical physical-key chords
   loopPlayback
   explorerIntegration
   export: ExportSettings
@@ -346,7 +346,7 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 ### 13.2 Component and UI regression tests
 
 - Testing Library covers launcher content, immediate settings persistence, category navigation, appearance choices, shortcut capture/conflicts and dispatch, save shortcuts, Space playback from the focused playback scrubber, directory playback carry and live refresh, same-path overwrite reload, immutable trim export requests, structured synchronous/asynchronous error localization, pane collapse, F11 state, Windows appearance projection, notice dismissal, and completed-output links. A source-boundary regression test rejects product-owned Japanese text outside the locale resource or inside the Rust backend.
-- Playwright exercises the same critical flows in Chromium, including settings category navigation and encoder availability, immediate appearance/shortcut persistence, accelerator dispatch, English/Japanese settings layout across every category, a structured backend error in the selected UI language, regular/fullscreen directory playback carry, Explorer and copy-save directory additions, clicking the rendered playback-position handle before Space, real playback-state changes, full-duration click alignment after halving the selection, locked trim export ranges, computed theme/accent projection, requirement-specific alignment, collapsible panes, F11, and notification expiry.
+- Playwright exercises the same critical flows in Chromium, including fixed-size settings category navigation and encoder availability, immediate appearance/shortcut persistence, accelerator dispatch, English/Japanese settings layout across every category, a structured backend error in the selected UI language, regular/fullscreen directory playback carry, Explorer and copy-save directory additions, clicking the rendered playback-position handle before Space, real playback-state changes, full-duration click alignment after halving the selection, locked trim export ranges, computed theme/accent projection, requirement-specific alignment, collapsible panes, F11, and notification expiry.
 - Asset verification scans generated PNG/ICO pixels and source SVG colors for chromatic fixed artwork and rejects legacy green tints.
 - MSIX verification unpacks the package and checks its identity, classic-app activation, x64 payloads, all supported video associations, packaged COM directory command, locked sidecars, licenses, and absence of build-only files. An elevated live mode additionally signs, installs, activates COM and the app, and uninstalls an isolated development identity. NSIS verification performs an isolated current-user installation, checks its payload and equivalent video/directory menu registrations, preserves a disabled directory command across an update, launches the app, and verifies uninstall cleanup.
 - CI retains screenshots only as failure diagnostics. UI regressions are asserted through roles, accessible names, values, enabled states, computed styles, and geometry tied to explicit requirements rather than whole-screen pixel baselines.
@@ -406,7 +406,7 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - **AC-013** Start/end trim-boundary handles provide velocity-sensitive mouse adjustment and keyboard frame steps, and the exported video contains the selected ordinal frames.
 - **AC-014** The save notice expires after three seconds or another interaction; its link opens Explorer with the saved file selected.
 - **AC-015** Windows light/dark app mode and accent color drive all app surfaces and the trim bar, and fixed icon assets are achromatic.
-- **AC-016** Ctrl+S starts Copy and save, while Ctrl+Shift+S starts confirmed in-place Save when eligible.
+- **AC-016** Copy and save and confirmed in-place Save use configurable accelerators with Ctrl+S and Ctrl+Shift+S defaults.
 - **AC-017** Start/end trim-boundary handles move by 1 or 10 frames from keyboard focus. Space from the focused playback-position handle changes the media element to a real playing state and changes the UI to Pause. Playback-scrubber clicks and off-center trim-boundary drags remain aligned after the selected range is reduced to half the video.
 - **AC-018** The crop inspector and time-trim footer collapse independently, and F11/Escape toggle a video-only window fullscreen preview.
 - **AC-019** Product-owned runtime errors are transported as language-neutral codes with optional diagnostics and render from the same Japanese/English locale resources as the rest of the UI; backend and component source contain no Japanese product prose.
@@ -415,8 +415,8 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - **AC-022** In-place Save reloads dimensions, duration, frame count, and preview bytes from the replaced source generation rather than mixing cached generations.
 - **AC-023** Export uses the crop, trim range, and settings visible when Save begins; editor controls remain locked until the request finishes or fails.
 - **AC-024** Computed Chromium geometry verifies the Windows type ramp, 40-pixel controls, proportionally enlarged editor panes, default-size viewport, minimum-size reflow, and a single non-duplicated settings heading.
-- **AC-025** A settings change takes effect and is durable without Apply; one-level category navigation exposes export, playback, appearance, shortcuts, Explorer, and language without clipped or unintended wrapped text at the minimum window size.
-- **AC-026** Windows/manual mode and accent choices update immediately, while default and recorded preview accelerators open video/folder/settings and switch all three export profiles; duplicate and reserved assignments are rejected.
+- **AC-025** A settings change takes effect and is durable without Apply; one-level category navigation exposes export, playback, appearance, shortcuts, Explorer, and language without clipped focus visuals, misaligned paired controls, or unintended wrapped text at the minimum window size.
+- **AC-026** Windows/manual mode and accent choices update immediately, while all sixteen default and recorded preview accelerators dispatch their corresponding app commands; duplicate and reserved assignments are rejected.
 
 ## 15. Verification status
 

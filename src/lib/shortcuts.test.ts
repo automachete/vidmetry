@@ -11,7 +11,7 @@ import {
 } from './shortcuts';
 
 describe('custom keyboard shortcuts', () => {
-  it('uses conventional defaults for opening, settings, and profile selection', () => {
+  it('preserves every existing application shortcut as a configurable default', () => {
     expect(defaultShortcuts).toEqual({
       openVideo: 'Ctrl+KeyO',
       openFolder: 'Ctrl+Shift+KeyO',
@@ -19,6 +19,16 @@ describe('custom keyboard shortcuts', () => {
       profileCompatible: 'Alt+Digit1',
       profileLossless: 'Alt+Digit2',
       profileMetadata: 'Alt+Digit3',
+      copySave: 'Ctrl+KeyS',
+      saveInPlace: 'Ctrl+Shift+KeyS',
+      previousVideo: 'PageUp',
+      nextVideo: 'PageDown',
+      playPause: 'Space',
+      seekBackward: 'ArrowLeft',
+      seekForward: 'ArrowRight',
+      seekBackwardLarge: 'Shift+ArrowLeft',
+      seekForwardLarge: 'Shift+ArrowRight',
+      toggleFullscreen: 'F11',
     });
     expect(formatShortcutChord(defaultShortcuts.openSettings)).toBe('Ctrl+,');
     expect(formatShortcutChord(defaultShortcuts.profileLossless)).toBe('Alt+2');
@@ -40,6 +50,7 @@ describe('custom keyboard shortcuts', () => {
     expect(findShortcutConflict('openVideo', defaultShortcuts.openFolder, defaultShortcuts)).toBe(
       'openFolder',
     );
-    expect(reservedShortcutChords.has('Ctrl+KeyS')).toBe(true);
+    expect(reservedShortcutChords.has('Escape')).toBe(true);
+    expect(reservedShortcutChords.has('Ctrl+KeyS')).toBe(false);
   });
 });

@@ -119,6 +119,16 @@
     profileCompatible: 'shortcutCompatible',
     profileLossless: 'shortcutLossless',
     profileMetadata: 'shortcutMetadata',
+    copySave: 'shortcutCopySave',
+    saveInPlace: 'shortcutSaveInPlace',
+    previousVideo: 'shortcutPreviousVideo',
+    nextVideo: 'shortcutNextVideo',
+    playPause: 'shortcutPlayPause',
+    seekBackward: 'shortcutSeekBackward',
+    seekForward: 'shortcutSeekForward',
+    seekBackwardLarge: 'shortcutSeekBackwardLarge',
+    seekForwardLarge: 'shortcutSeekForwardLarge',
+    toggleFullscreen: 'shortcutToggleFullscreen',
   };
 
   const accentLabels: Record<AccentColorId, TranslationKey> = {
@@ -227,7 +237,6 @@
   let persistedSettings: AppSettings = cloneSettings(defaultSettings);
   let settingsSaveQueue: Promise<void> = Promise.resolve();
   let settingsRevision = 0;
-  let settingsSaveState: 'idle' | 'saving' | 'saved' | 'error' = 'idle';
   let shortcutRecording: ShortcutActionId | null = null;
   let shortcutError = '';
   let settingsCategory: SettingsCategory = 'export';
@@ -814,7 +823,7 @@
   }
 
   function handlePlaybackScrubberKey(event: KeyboardEvent) {
-    if (event.code !== 'Space') return;
+    if (!shortcutMatchesEvent(settings.shortcuts.playPause, event)) return;
     event.preventDefault();
     event.stopPropagation();
     void togglePlayback();
@@ -918,7 +927,8 @@
   function handleKeyboard(event: KeyboardEvent) {
     if (successPath) dismissSuccess();
     const target = event.target instanceof Element ? event.target : null;
-    const editingText = target?.matches('input, select, textarea, [contenteditable="true"]') ?? false;
+    const focusedControl =
+      target?.matches('input, select, textarea, button, [contenteditable="true"]') ?? false;
     if (shortcutRecording) {
       captureShortcut(event);
       return;
@@ -935,7 +945,7 @@
     }
     if (
       settingsReady &&
-      shortcutAllowedFromTarget(settings.shortcuts.openSettings, editingText) &&
+      shortcutAllowedFromTarget(settings.shortcuts.openSettings, focusedControl) &&
       shortcutMatchesEvent(settings.shortcuts.openSettings, event)
     ) {
       event.preventDefault();
@@ -944,7 +954,7 @@
     }
     if (showSettings) return;
     if (
-      shortcutAllowedFromTarget(settings.shortcuts.openVideo, editingText) &&
+      shortcutAllowedFromTarget(settings.shortcuts.openVideo, focusedControl) &&
       shortcutMatchesEvent(settings.shortcuts.openVideo, event)
     ) {
       event.preventDefault();
@@ -952,14 +962,18 @@
       return;
     }
     if (
-      shortcutAllowedFromTarget(settings.shortcuts.openFolder, editingText) &&
+      shortcutAllowedFromTarget(settings.shortcuts.openFolder, focusedControl) &&
       shortcutMatchesEvent(settings.shortcuts.openFolder, event)
     ) {
       event.preventDefault();
       if (!isLoading && !isPreparingProxy && exportJobId === null) void chooseDirectory();
       return;
     }
-    if (event.code === 'F11' && media && !showSettings) {
+    if (
+      media &&
+      shortcutAllowedFromTarget(settings.shortcuts.toggleFullscreen, focusedControl) &&
+      shortcutMatchesEvent(settings.shortcuts.toggleFullscreen, event)
+    ) {
       event.preventDefault();
       void setVideoFullscreen(!isVideoFullscreen);
       return;
@@ -972,7 +986,7 @@
     ];
     const selection = profileShortcuts.find(
       ([action]) =>
-        shortcutAllowedFromTarget(settings.shortcuts[action], editingText) &&
+        shortcutAllowedFromTarget(settings.shortcuts[action], focusedControl) &&
         shortcutMatchesEvent(settings.shortcuts[action], event),
     );
     if (selection) {
@@ -980,31 +994,58 @@
       setProfile(selection[1]);
       return;
     }
-    if ((event.ctrlKey || event.metaKey) && event.code === 'KeyS') {
+    if (
+      shortcutAllowedFromTarget(settings.shortcuts.saveInPlace, focusedControl) &&
+      shortcutMatchesEvent(settings.shortcuts.saveInPlace, event)
+    ) {
       event.preventDefault();
-      if (event.shiftKey) {
-        if (canOverwrite) void saveInPlace();
-      } else {
-        void saveCopy();
-      }
+      if (canOverwrite) void saveInPlace();
       return;
     }
-    if (event.code === 'PageUp' || event.code === 'PageDown') {
-      if (target?.matches('input, select, textarea')) return;
+    if (
+      shortcutAllowedFromTarget(settings.shortcuts.copySave, focusedControl) &&
+      shortcutMatchesEvent(settings.shortcuts.copySave, event)
+    ) {
       event.preventDefault();
-      void navigatePlaylist(event.code === 'PageDown' ? 1 : -1);
+      void saveCopy();
       return;
     }
-    if (event.code === 'Space' && !target?.matches('input, select, textarea, button')) {
+    const playlistShortcuts: Array<[ShortcutActionId, number]> = [
+      ['previousVideo', -1],
+      ['nextVideo', 1],
+    ];
+    const playlistNavigation = playlistShortcuts.find(
+      ([action]) =>
+        shortcutAllowedFromTarget(settings.shortcuts[action], focusedControl) &&
+        shortcutMatchesEvent(settings.shortcuts[action], event),
+    );
+    if (playlistNavigation) {
+      event.preventDefault();
+      void navigatePlaylist(playlistNavigation[1]);
+      return;
+    }
+    if (
+      shortcutAllowedFromTarget(settings.shortcuts.playPause, focusedControl) &&
+      shortcutMatchesEvent(settings.shortcuts.playPause, event)
+    ) {
       event.preventDefault();
       void togglePlayback();
       return;
     }
-    if (target?.matches('input, select, textarea, button')) return;
-    if (event.code === 'ArrowLeft' || event.code === 'ArrowRight') {
+    const seekShortcuts: Array<[ShortcutActionId, number, number]> = [
+      ['seekBackward', -1, 1],
+      ['seekForward', 1, 1],
+      ['seekBackwardLarge', -1, 10],
+      ['seekForwardLarge', 1, 10],
+    ];
+    const seek = seekShortcuts.find(
+      ([action]) =>
+        shortcutAllowedFromTarget(settings.shortcuts[action], focusedControl) &&
+        shortcutMatchesEvent(settings.shortcuts[action], event),
+    );
+    if (seek) {
       event.preventDefault();
-      const direction = event.code === 'ArrowRight' ? 1 : -1;
-      const amount = event.shiftKey ? 10 : 1;
+      const [, direction, amount] = seek;
       const currentFrame = secondsToFrame(currentTime, totalFrames, duration);
       seekToFrame(
         Math.min(safeTrim.endFrame, Math.max(safeTrim.startFrame, currentFrame + direction * amount)),
@@ -1012,8 +1053,8 @@
     }
   }
 
-  function shortcutAllowedFromTarget(chord: string, editingText: boolean): boolean {
-    return !editingText || chord.includes('+');
+  function shortcutAllowedFromTarget(chord: string, focusedControl: boolean): boolean {
+    return !focusedControl || chord.includes('+');
   }
 
   async function setVideoFullscreen(fullscreen: boolean) {
@@ -1299,7 +1340,6 @@
 
   function openSettingsDialog() {
     settingsDraft = cloneSettings(settings);
-    if (settingsSaveState === 'saved') settingsSaveState = 'idle';
     shortcutError = '';
     showSaveMenu = false;
     showSettings = true;
@@ -1323,7 +1363,6 @@
 
     settings = next;
     settingsDraft = cloneSettings(next);
-    settingsSaveState = 'saving';
     const revision = ++settingsRevision;
     const snapshot = cloneSettings(next);
     settingsSaveQueue = settingsSaveQueue
@@ -1339,7 +1378,6 @@
           }
           await persistSettings(snapshot);
           persistedSettings = cloneSettings(snapshot);
-          if (revision === settingsRevision) settingsSaveState = 'saved';
         } catch (error) {
           if (explorerIntegrationApplied) {
             try {
@@ -1357,7 +1395,6 @@
         if (revision === settingsRevision) {
           settings = cloneSettings(persistedSettings);
           settingsDraft = cloneSettings(persistedSettings);
-          settingsSaveState = 'error';
           errorMessage = backendOrClientError('settingsSaveFailed', error);
         }
       });
@@ -1565,7 +1602,7 @@
               type="button"
               aria-haspopup="menu"
               aria-expanded={showSaveMenu}
-              title={!exportEventsReady ? text('exportEventsUnavailable') : !profileSupported ? (timeTrimmed ? text('timeTrimMetadataUnavailable') : text('metadataUnavailable')) : `${text('saveOptions')} (Ctrl+S / Ctrl+Shift+S)`}
+              title={!exportEventsReady ? text('exportEventsUnavailable') : !profileSupported ? (timeTrimmed ? text('timeTrimMetadataUnavailable') : text('metadataUnavailable')) : `${text('saveOptions')} (${formatShortcutChord(settings.shortcuts.copySave)} / ${formatShortcutChord(settings.shortcuts.saveInPlace)})`}
               disabled={!exportEventsReady || !profileSupported || exportJobId !== null || isStartingExport}
               onclick={() => (showSaveMenu = !showSaveMenu)}
             >
@@ -1574,13 +1611,13 @@
             </button>
             {#if showSaveMenu}
               <div class="save-menu" role="menu">
-                <button type="button" role="menuitem" onclick={saveCopy}>{text('copySave')}</button>
-                <button type="button" role="menuitem" onclick={saveInPlace}>{text('save')}</button>
+                <button type="button" role="menuitem" title={shortcutTitle(text('copySave'), 'copySave')} onclick={saveCopy}>{text('copySave')}</button>
+                <button type="button" role="menuitem" title={shortcutTitle(text('save'), 'saveInPlace')} onclick={saveInPlace}>{text('save')}</button>
               </div>
             {/if}
           </div>
         {:else}
-          <button class="button primary" type="button" disabled={!exportEventsReady || !profileSupported || exportJobId !== null || isStartingExport} onclick={saveCopy} title={!exportEventsReady ? text('exportEventsUnavailable') : !profileSupported ? (timeTrimmed ? text('timeTrimMetadataUnavailable') : text('metadataUnavailable')) : `${text('copySave')} (Ctrl+S)`}>
+          <button class="button primary" type="button" disabled={!exportEventsReady || !profileSupported || exportJobId !== null || isStartingExport} onclick={saveCopy} title={!exportEventsReady ? text('exportEventsUnavailable') : !profileSupported ? (timeTrimmed ? text('timeTrimMetadataUnavailable') : text('metadataUnavailable')) : shortcutTitle(text('copySave'), 'copySave')}>
             {text('copySave')}
           </button>
         {/if}
@@ -1597,7 +1634,7 @@
       <section class="stage-panel" aria-label={text('videoPreview')}>
         {#if playlist.length > 1}
           <div class="playlist-bar" title={directoryPath ?? ''}>
-            <button class="playlist-nav" type="button" aria-label={text('previousVideo')} title={`${text('previousVideo')} (Page Up)`} disabled={playlistIndex === 0 || isLoading || exportJobId !== null} onclick={() => navigatePlaylist(-1)}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m10 3-5 5 5 5" /></svg></button>
+            <button class="playlist-nav" type="button" aria-label={text('previousVideo')} title={shortcutTitle(text('previousVideo'), 'previousVideo')} disabled={playlistIndex === 0 || isLoading || exportJobId !== null} onclick={() => navigatePlaylist(-1)}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m10 3-5 5 5 5" /></svg></button>
             <label>
               <span>{text('chooseFromFolder')}</span>
               <select value={playlistIndex} onchange={selectPlaylistVideo} disabled={isLoading || exportJobId !== null}>
@@ -1607,11 +1644,11 @@
               </select>
             </label>
             <span class="playlist-count">{text('folderPosition', { current: playlistIndex + 1, total: playlist.length })}</span>
-            <button class="playlist-nav" type="button" aria-label={text('nextVideo')} title={`${text('nextVideo')} (Page Down)`} disabled={playlistIndex === playlist.length - 1 || isLoading || exportJobId !== null} onclick={() => navigatePlaylist(1)}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg></button>
+            <button class="playlist-nav" type="button" aria-label={text('nextVideo')} title={shortcutTitle(text('nextVideo'), 'nextVideo')} disabled={playlistIndex === playlist.length - 1 || isLoading || exportJobId !== null} onclick={() => navigatePlaylist(1)}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg></button>
           </div>
         {/if}
 
-        <div class="video-stage" use:observeStage title={isVideoFullscreen ? `${text('exitFullscreen')} (F11)` : `${text('enterFullscreen')} (F11)`}>
+        <div class="video-stage" use:observeStage title={shortcutTitle(isVideoFullscreen ? text('exitFullscreen') : text('enterFullscreen'), 'toggleFullscreen')}>
           <div class="video-frame" style={frameStyle}>
             <video
               bind:this={videoElement}
@@ -1700,7 +1737,7 @@
     {#if showTransport}
     <footer class="transport">
       <div class="transport-playback">
-        <button class="icon-button" type="button" aria-label={isPlaying ? text('pause') : text('play')} title={`${isPlaying ? text('pause') : text('play')} (Space)`} onclick={togglePlayback}>{isPlaying ? 'Ⅱ' : '▶'}</button>
+        <button class="icon-button" type="button" aria-label={isPlaying ? text('pause') : text('play')} title={shortcutTitle(isPlaying ? text('pause') : text('play'), 'playPause')} onclick={togglePlayback}>{isPlaying ? 'Ⅱ' : '▶'}</button>
         <span class="time current">{formatTime(currentTime)}</span>
       </div>
 
@@ -1959,7 +1996,6 @@
         </div>
 
         <div class="dialog-actions">
-          <span class="settings-save-status" aria-live="polite">{settingsSaveState === 'saving' ? text('settingsSaving') : settingsSaveState === 'saved' ? text('settingsSaved') : ''}</span>
           <button class="button primary" type="button" onclick={closeSettingsDialog}>{text('close')}</button>
         </div>
       </div>

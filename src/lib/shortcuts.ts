@@ -1,10 +1,20 @@
 export const shortcutActionIds = [
+  'playPause',
+  'seekBackward',
+  'seekForward',
+  'seekBackwardLarge',
+  'seekForwardLarge',
+  'copySave',
+  'saveInPlace',
+  'previousVideo',
+  'nextVideo',
   'openVideo',
   'openFolder',
-  'openSettings',
   'profileCompatible',
   'profileLossless',
   'profileMetadata',
+  'toggleFullscreen',
+  'openSettings',
 ] as const;
 
 export type ShortcutActionId = (typeof shortcutActionIds)[number];
@@ -17,17 +27,19 @@ export const defaultShortcuts: ShortcutSettings = {
   profileCompatible: 'Alt+Digit1',
   profileLossless: 'Alt+Digit2',
   profileMetadata: 'Alt+Digit3',
+  copySave: 'Ctrl+KeyS',
+  saveInPlace: 'Ctrl+Shift+KeyS',
+  previousVideo: 'PageUp',
+  nextVideo: 'PageDown',
+  playPause: 'Space',
+  seekBackward: 'ArrowLeft',
+  seekForward: 'ArrowRight',
+  seekBackwardLarge: 'Shift+ArrowLeft',
+  seekForwardLarge: 'Shift+ArrowRight',
+  toggleFullscreen: 'F11',
 };
 
-export const reservedShortcutChords = new Set([
-  'Escape',
-  'F11',
-  'Space',
-  'PageUp',
-  'PageDown',
-  'Ctrl+KeyS',
-  'Ctrl+Shift+KeyS',
-]);
+export const reservedShortcutChords = new Set(['Escape']);
 
 const modifierOrder = ['Ctrl', 'Alt', 'Shift'] as const;
 const shortcutCodePattern = /^(?:Key[A-Z]|Digit[0-9]|Numpad[0-9]|F(?:[1-9]|1[0-2])|Comma|Period|Slash|Semicolon|Quote|BracketLeft|BracketRight|Backslash|Minus|Equal|Backquote|Space|Enter|Arrow(?:Up|Down|Left|Right)|Home|End|PageUp|PageDown|Insert|Delete)$/;

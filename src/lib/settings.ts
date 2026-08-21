@@ -45,6 +45,16 @@ const shortcutSettingsSchema = z.strictObject({
   profileCompatible: shortcutChordSchema,
   profileLossless: shortcutChordSchema,
   profileMetadata: shortcutChordSchema,
+  copySave: shortcutChordSchema,
+  saveInPlace: shortcutChordSchema,
+  previousVideo: shortcutChordSchema,
+  nextVideo: shortcutChordSchema,
+  playPause: shortcutChordSchema,
+  seekBackward: shortcutChordSchema,
+  seekForward: shortcutChordSchema,
+  seekBackwardLarge: shortcutChordSchema,
+  seekForwardLarge: shortcutChordSchema,
+  toggleFullscreen: shortcutChordSchema,
 });
 
 export const appSettingsSchema = z.strictObject({

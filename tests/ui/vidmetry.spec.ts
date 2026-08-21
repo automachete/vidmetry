@@ -16,6 +16,16 @@ const settings = {
     profileCompatible: 'Alt+Digit1',
     profileLossless: 'Alt+Digit2',
     profileMetadata: 'Alt+Digit3',
+    copySave: 'Ctrl+KeyS',
+    saveInPlace: 'Ctrl+Shift+KeyS',
+    previousVideo: 'PageUp',
+    nextVideo: 'PageDown',
+    playPause: 'Space',
+    seekBackward: 'ArrowLeft',
+    seekForward: 'ArrowRight',
+    seekBackwardLarge: 'Shift+ArrowLeft',
+    seekForwardLarge: 'Shift+ArrowRight',
+    toggleFullscreen: 'F11',
   },
   loopPlayback: true,
   explorerIntegration: true,
@@ -259,6 +269,25 @@ test('Windows desktop type ramp and scaled panes stay balanced', async ({ page }
       return { clipped, singleLine };
     });
 
+  const expectContainedSettingsFocus = async (control: Locator) => {
+    await control.focus();
+    await expect(control).toBeFocused();
+    const metrics = await control.evaluate((element) => {
+      const page = element.closest('.settings-page')!.getBoundingClientRect();
+      const focusOwner = element.closest('.unit-input') ?? element;
+      const box = focusOwner.getBoundingClientRect();
+      const style = getComputedStyle(focusOwner);
+      return {
+        leftClearance: box.left - page.left,
+        rightClearance: page.right - box.right,
+        focusVisible: style.outlineStyle !== 'none' || style.boxShadow !== 'none',
+      };
+    });
+    expect(metrics.leftClearance).toBeGreaterThanOrEqual(4);
+    expect(metrics.rightClearance).toBeGreaterThanOrEqual(4);
+    expect(metrics.focusVisible).toBe(true);
+  };
+
   await page.goto('/');
 
   const launcherMetrics = await page.evaluate(() => {
@@ -290,6 +319,7 @@ test('Windows desktop type ramp and scaled panes stay balanced', async ({ page }
     const rect = (selector: string) => dialog.querySelector(selector)!.getBoundingClientRect();
     return {
       width: dialog.getBoundingClientRect().width,
+      height: dialog.getBoundingClientRect().height,
       titleFontSize: style('h2').fontSize,
       sectionFontSize: style('.settings-section h3').fontSize,
       navigationWidth: rect('.settings-nav').width,
@@ -300,6 +330,7 @@ test('Windows desktop type ramp and scaled panes stay balanced', async ({ page }
     };
   });
   expect(dialogMetrics.width).toBe(920);
+  expect(dialogMetrics.height).toBe(760);
   expect(dialogMetrics.titleFontSize).toBe('20px');
   expect(dialogMetrics.sectionFontSize).toBe('20px');
   expect(dialogMetrics.navigationWidth).toBe(190);
@@ -307,6 +338,38 @@ test('Windows desktop type ramp and scaled panes stay balanced', async ({ page }
   expect(dialogMetrics.selectHeight).toBe(40);
   expect(dialogMetrics.closeButtonSize).toBe(40);
   expect(dialogMetrics.profileHeight).toBeGreaterThanOrEqual(96);
+
+  const pairedControlOffsets = await settingsDialog.locator('.settings-grid').evaluateAll((grids) =>
+    grids.flatMap((grid) => {
+      const fields = Array.from(grid.children);
+      const offsets: number[] = [];
+      for (let index = 0; index + 1 < fields.length; index += 2) {
+        const first = fields[index]?.querySelector('select, input, .unit-input');
+        const second = fields[index + 1]?.querySelector('select, input, .unit-input');
+        if (!first || !second) continue;
+        offsets.push(
+          Math.abs(first.getBoundingClientRect().top - second.getBoundingClientRect().top),
+        );
+      }
+      return offsets;
+    }),
+  );
+  expect(pairedControlOffsets.length).toBeGreaterThan(0);
+  expect(Math.max(...pairedControlOffsets)).toBeLessThanOrEqual(0.5);
+
+  for (const control of await settingsDialog.locator('.settings-page select, .settings-page input[type="number"]:not(:disabled)').all()) {
+    await expectContainedSettingsFocus(control);
+  }
+
+  await settingsDialog.getByRole('button', { name: 'Appearance' }).click();
+  await settingsDialog.locator('.appearance-group').first().getByRole('radio', { name: 'Customize' }).check();
+  const themeChoice = settingsDialog.getByRole('combobox', { name: 'App mode' });
+  await expectContainedSettingsFocus(themeChoice);
+  await settingsDialog.getByRole('button', { name: 'Language' }).click();
+  await settingsDialog.getByRole('radio', { name: 'Choose a language' }).check();
+  const languageChoice = settingsDialog.getByRole('combobox', { name: 'Display language' });
+  await expectContainedSettingsFocus(languageChoice);
+  await settingsDialog.getByRole('button', { name: 'Export' }).click();
 
   await page.locator('.dialog-actions').getByRole('button', { name: 'Close' }).click();
   await page.getByRole('button', { name: 'Open video' }).click();
@@ -339,6 +402,12 @@ test('Windows desktop type ramp and scaled panes stay balanced', async ({ page }
   await page.locator('.settings-button').click();
   const compactSettings = page.locator('.settings-dialog');
   await expect(compactSettings).toBeVisible();
+  const fixedCompactSize = await compactSettings.evaluate((dialog) => {
+    const box = dialog.getBoundingClientRect();
+    return { width: box.width, height: box.height };
+  });
+  expect(fixedCompactSize).toEqual({ width: 912, height: 672 });
+  await expect(compactSettings.locator('.settings-save-status')).toHaveCount(0);
   expect(await auditTextLayout(compactSettings)).toEqual({ clipped: [], singleLine: [] });
 
   for (const category of ['Playback', 'Appearance', 'Keyboard shortcuts', 'File Explorer', 'Language']) {
@@ -347,12 +416,25 @@ test('Windows desktop type ramp and scaled panes stay balanced', async ({ page }
       await compactSettings.locator('.appearance-group').nth(1).getByRole('radio', { name: 'Customize' }).check();
       await compactSettings.getByRole('button', { name: 'Open color palette' }).click();
     }
+    expect(
+      await compactSettings.evaluate((dialog) => {
+        const box = dialog.getBoundingClientRect();
+        return { width: box.width, height: box.height };
+      }),
+    ).toEqual(fixedCompactSize);
     expect(await auditTextLayout(compactSettings)).toEqual({ clipped: [], singleLine: [] });
   }
 
   await compactSettings.locator('.settings-field.compact select').selectOption('ja');
   await expect(compactSettings.getByRole('heading', { name: '共通設定' })).toBeVisible();
   await expect(compactSettings.getByText('共通設定', { exact: true })).toHaveCount(1);
+  await expectContainedSettingsFocus(compactSettings.locator('.settings-field.compact select'));
+  expect(
+    await compactSettings.evaluate((dialog) => {
+      const box = dialog.getBoundingClientRect();
+      return { width: box.width, height: box.height };
+    }),
+  ).toEqual(fixedCompactSize);
   expect(await auditTextLayout(compactSettings)).toEqual({ clipped: [], singleLine: [] });
 
   await compactSettings.locator('.dialog-actions .button.primary').click();
@@ -471,10 +553,37 @@ test('settings save appearance and recorded shortcuts immediately', async ({ pag
     .toEqual({ themeMode: 'manual', theme: 'light', accentMode: 'manual', accentColor: 'purple' });
 
   await dialog.getByRole('button', { name: 'Keyboard shortcuts' }).click();
+  expect(
+    await dialog
+      .getByRole('button', { name: /^Change shortcut:/ })
+      .evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label'))),
+  ).toEqual([
+    'Change shortcut: Play / pause',
+    'Change shortcut: Seek back 1 frame',
+    'Change shortcut: Seek forward 1 frame',
+    'Change shortcut: Seek back 10 frames',
+    'Change shortcut: Seek forward 10 frames',
+    'Change shortcut: Save a copy',
+    'Change shortcut: Save over the source video',
+    'Change shortcut: Previous video',
+    'Change shortcut: Next video',
+    'Change shortcut: Open video',
+    'Change shortcut: Open folder',
+    'Change shortcut: Switch to Compatible MP4',
+    'Change shortcut: Switch to Lossless FFV1 / MKV',
+    'Change shortcut: Switch to Metadata only',
+    'Change shortcut: Toggle fullscreen preview',
+    'Change shortcut: Open Settings',
+  ]);
   await dialog.getByRole('button', { name: 'Change shortcut: Open video' }).click();
   await page.keyboard.press('Control+p');
   await expect(dialog.getByRole('button', { name: 'Change shortcut: Open video' }).locator('kbd')).toHaveText(
     'Ctrl+P',
+  );
+  await dialog.getByRole('button', { name: 'Change shortcut: Play / pause' }).click();
+  await page.keyboard.press('k');
+  await expect(dialog.getByRole('button', { name: 'Change shortcut: Play / pause' }).locator('kbd')).toHaveText(
+    'K',
   );
   await dialog.getByRole('button', { name: 'Change shortcut: Open folder' }).click();
   await page.keyboard.press('Control+p');
@@ -484,6 +593,8 @@ test('settings save appearance and recorded shortcuts immediately', async ({ pag
 
   await page.keyboard.press('Control+p');
   await expect(page.getByText('sample.mp4', { exact: true })).toBeVisible();
+  await page.keyboard.press('k');
+  await expect.poll(() => page.evaluate(() => (window as any).__vidmetryPlayCount)).toBe(1);
   await page.keyboard.press('Alt+2');
   await expect(page.getByText('Export: Lossless FFV1 / MKV')).toBeVisible();
   await page.keyboard.press('Alt+3');
