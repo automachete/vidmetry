@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const settings = {
   languageMode: 'manual',
@@ -197,6 +197,148 @@ test('launcher is concise and keeps only the settings command in its header', as
   await expect(page.locator('.brand-icon')).toBeVisible();
   await expect(page.getByText('Local video cropper')).toHaveCount(0);
   await expect(page.getByText('Keep precisely the part of the frame you need.')).toHaveCount(0);
+});
+
+test('Windows desktop type ramp and scaled panes stay balanced', async ({ page }) => {
+  const auditTextLayout = async (root: Locator) =>
+    root.evaluate((scope) => {
+      const visible = (element: HTMLElement) => {
+        const style = getComputedStyle(element);
+        return style.display !== 'none' && style.visibility !== 'hidden' && element.getClientRects().length > 0;
+      };
+      const candidates = Array.from(
+        scope.querySelectorAll<HTMLElement>(
+          '.button, .square-button, .pane-button, .text-button, .empty-description, .dialog-heading h2, .dialog-heading p, .settings-section h3, .settings-field, .radio-row label, .check-list label, .profile-settings button, .settings-note, .metadata-warning, .inspector h2, .field, .output-size, .media-details div, .trim-readout > span, .trim-reset, .time',
+        ),
+      ).filter(visible);
+      const clipped = candidates
+        .filter(
+          (element) =>
+            element.clientWidth > 0 &&
+            (element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1),
+        )
+        .map((element) => `${element.tagName.toLowerCase()}.${element.className}: ${element.textContent?.trim()}`);
+      const singleLine = Array.from(
+        scope.querySelectorAll<HTMLElement>(
+          '.button, .empty-description, .dialog-heading h2, .settings-section h3, .settings-field > span, .profile-settings strong, .inspector h2, .text-button, .field > span, .section-label, .trim-readout > span, .trim-reset, .time',
+        ),
+      )
+        .filter(visible)
+        .filter((element) => {
+          const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+          const lineTops: number[] = [];
+          while (walker.nextNode()) {
+            if (!walker.currentNode.textContent?.trim()) continue;
+            const range = document.createRange();
+            range.selectNodeContents(walker.currentNode);
+            lineTops.push(
+              ...Array.from(range.getClientRects())
+                .filter((rect) => rect.width > 0 && rect.height > 0)
+                .map((rect) => Math.round(rect.top)),
+            );
+          }
+          return new Set(lineTops).size > 1;
+        })
+        .map((element) => `${element.tagName.toLowerCase()}.${element.className}: ${element.textContent?.trim()}`);
+      return { clipped, singleLine };
+    });
+
+  await page.goto('/');
+
+  const launcherMetrics = await page.evaluate(() => {
+    const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+    const style = (selector: string) => getComputedStyle(document.querySelector(selector)!);
+    return {
+      bodyFontFamily: style('body').fontFamily,
+      bodyFontSize: style('body').fontSize,
+      headerHeight: rect('.app-header').height,
+      descriptionFontSize: style('.empty-description').fontSize,
+      largeButtonHeight: rect('.button.large').height,
+      settingsButtonSize: rect('.launcher-settings').width,
+    };
+  });
+  expect(launcherMetrics.bodyFontFamily).toContain('Segoe UI Variable');
+  expect(launcherMetrics.bodyFontSize).toBe('14px');
+  expect(launcherMetrics.headerHeight).toBe(76);
+  expect(launcherMetrics.descriptionFontSize).toBe('18px');
+  expect(launcherMetrics.largeButtonHeight).toBe(48);
+  expect(launcherMetrics.settingsButtonSize).toBe(40);
+  expect(await auditTextLayout(page.locator('.app-shell'))).toEqual({ clipped: [], singleLine: [] });
+
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const settingsDialog = page.getByRole('dialog', { name: 'Settings' });
+  await expect(settingsDialog.getByText('Settings', { exact: true })).toHaveCount(1);
+  await expect(settingsDialog.locator('.section-label')).toHaveCount(0);
+  const dialogMetrics = await settingsDialog.evaluate((dialog) => {
+    const style = (selector: string) => getComputedStyle(dialog.querySelector(selector)!);
+    const rect = (selector: string) => dialog.querySelector(selector)!.getBoundingClientRect();
+    return {
+      width: dialog.getBoundingClientRect().width,
+      titleFontSize: style('h2').fontSize,
+      descriptionFontSize: style('.dialog-heading p').fontSize,
+      sectionFontSize: style('.settings-section h3').fontSize,
+      labelFontSize: style('.settings-field').fontSize,
+      selectHeight: rect('.settings-field select').height,
+      closeButtonSize: rect('.dialog-close').width,
+      profileHeight: rect('.profile-settings button').height,
+    };
+  });
+  expect(dialogMetrics.width).toBe(840);
+  expect(dialogMetrics.titleFontSize).toBe('20px');
+  expect(dialogMetrics.descriptionFontSize).toBe('14px');
+  expect(dialogMetrics.sectionFontSize).toBe('14px');
+  expect(dialogMetrics.labelFontSize).toBe('12px');
+  expect(dialogMetrics.selectHeight).toBe(40);
+  expect(dialogMetrics.closeButtonSize).toBe(40);
+  expect(dialogMetrics.profileHeight).toBeGreaterThanOrEqual(96);
+
+  await page.locator('.dialog-actions').getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('button', { name: 'Open video' }).click();
+  const editorMetrics = await page.evaluate(() => {
+    const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+    return {
+      inspectorWidth: rect('.inspector').width,
+      transportHeight: rect('.transport').height,
+      timelineHeight: rect('.trim-timeline').height,
+      paneButtonSize: rect('.pane-button').width,
+      cropHandleSize: rect('.crop-handle').width,
+    };
+  });
+  expect(editorMetrics).toEqual({
+    inspectorWidth: 320,
+    transportHeight: 148,
+    timelineHeight: 64,
+    paneButtonSize: 32,
+    cropHandleSize: 16,
+  });
+
+  await page.setViewportSize({ width: 960, height: 720 });
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+    .toBe(true);
+  await expect(page.locator('.video-stage')).toBeVisible();
+  await expect(page.locator('.transport')).toBeVisible();
+  expect(await auditTextLayout(page.locator('.app-shell'))).toEqual({ clipped: [], singleLine: [] });
+
+  await page.locator('.settings-button').click();
+  const compactSettings = page.locator('.settings-dialog');
+  await expect(compactSettings).toBeVisible();
+  expect(await auditTextLayout(compactSettings)).toEqual({ clipped: [], singleLine: [] });
+
+  await compactSettings.locator('.settings-field.compact select').selectOption('ja');
+  await expect(compactSettings.getByRole('heading', { name: '共通設定' })).toBeVisible();
+  await expect(compactSettings.getByText('共通設定', { exact: true })).toHaveCount(1);
+  expect(await auditTextLayout(compactSettings)).toEqual({ clipped: [], singleLine: [] });
+
+  await compactSettings.locator('.dialog-actions .button.primary').click();
+  await expect(page.getByRole('button', { name: '共通設定' })).toBeVisible();
+  expect(await auditTextLayout(page.locator('.app-shell'))).toEqual({ clipped: [], singleLine: [] });
+  expect(
+    await page.evaluate(() => ({
+      horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth,
+      verticalOverflow: document.documentElement.scrollHeight > window.innerHeight,
+    })),
+  ).toEqual({ horizontalOverflow: false, verticalOverflow: false });
 });
 
 test('structured backend errors use the selected UI language', async ({ page }) => {

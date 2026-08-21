@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Document version | 1.5 |
+| Document version | 1.6 |
 | Product version | 0.4.8 |
 | Status | Implemented and verified |
 | Primary platform | Windows 11 x64 |
@@ -116,6 +116,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 - **FR-052** Language mode is an exclusive choice between Windows language and manual selection. Manual selection supports Japanese and English; unsupported Windows languages fall back to English.
 - **FR-053** All product-owned UI and runtime-error text comes from the Japanese/English locale resources. Rust commands and events return a stable language-neutral error code plus optional diagnostic detail; the presentation layer resolves that code in the active UI language. Language controls are the final common-settings section.
 - **FR-054** File Explorer directory integration is enabled on a fresh installation. Disabling it hides only Open with Vidmetry for directories and survives application updates without changing another application's file associations. The first restored NSIS update migrates the legacy preference into package-specific state. Video Open with entries remain available until the installed package is removed.
+- **FR-055** The desktop UI follows the Windows effective-pixel type ramp with 14/20 body text and 12/16 captions as its compact-text floor, 40-pixel primary control targets, and four-pixel layout increments. Its panes and responsive layout scale with a 1280×900 default and 960×720 minimum window. Accent color communicates actions and selection rather than repeating a nearby heading.
 
 ## 4. Quality semantics
 
@@ -283,7 +284,7 @@ The main window uses three regions:
 2. A flexible, neutrally colored video stage containing optional directory navigation, the video, and crop overlay.
 3. A collapsible frame-strip footer with a playback-position handle, start/end trim-boundary handles, persistent loop, and mute, plus a collapsible spatial inspector with coordinates, dimensions, aspect ratio, and Reset.
 
-The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. A strict Zod schema is the runtime and compile-time source for `AppSettings`; unknown, obsolete, partial, or out-of-range shapes are rejected. Valid settings are persisted in `settings.json` under Tauri's application-data directory by the official Store plugin. Windows mode/accent changes are projected through CSS variables; fixed app-icon artwork is strictly achromatic. MSIX registers supported-video Open with activation and a packaged COM directory command; NSIS creates equivalent current-user video and directory registrations. The application stores and applies only the directory command's visibility state, while video Open with registration remains installed. Shell-registration changes refresh the Windows Shell cache. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
+The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. CSS type-ramp and control-size tokens keep English and Japanese text, buttons, fields, pane controls, and status surfaces in one Windows-scaled hierarchy; the settings title is not repeated as decorative accent text. A strict Zod schema is the runtime and compile-time source for `AppSettings`; unknown, obsolete, partial, or out-of-range shapes are rejected. Valid settings are persisted in `settings.json` under Tauri's application-data directory by the official Store plugin. Windows mode/accent changes are projected through CSS variables; fixed app-icon artwork is strictly achromatic. MSIX registers supported-video Open with activation and a packaged COM directory command; NSIS creates equivalent current-user video and directory registrations. The application stores and applies only the directory command's visibility state, while video Open with registration remains installed. Shell-registration changes refresh the Windows Shell cache. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
 
 ## 9. Preview strategy
 
@@ -409,7 +410,8 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - **AC-021** Directory navigation carries active playback into the destination video in regular and fullscreen preview, and the active playlist reflects Explorer and completed copy-save additions without reopening the folder.
 - **AC-022** In-place Save reloads dimensions, duration, frame count, and preview bytes from the replaced source generation rather than mixing cached generations.
 - **AC-023** Export uses the crop, trim range, and settings visible when Save begins; editor controls remain locked until the request finishes or fails.
+- **AC-024** Computed Chromium geometry verifies the Windows type ramp, 40-pixel controls, proportionally enlarged editor panes, default-size viewport, minimum-size reflow, and a single non-duplicated settings heading.
 
 ## 15. Verification status
 
-The 0.4.8 implementation satisfies AC-001 through AC-023 at automated or implementation-inspection level. Native picker interaction, live Windows personalization, Store-signed MSIX installation and Shell changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced package hashes are recorded in `docs/VERIFICATION.md`.
+The 0.4.8 implementation satisfies AC-001 through AC-024 at automated or implementation-inspection level. Native picker interaction, live Windows personalization, Store-signed MSIX installation and Shell changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced package hashes are recorded in `docs/VERIFICATION.md`.

@@ -14,10 +14,10 @@
       {
         "label": "main",
         "title": "Vidmetry",
-        "width": 1180,
-        "height": 820,
-        "minWidth": 840,
-        "minHeight": 640,
+        "width": 1280,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 720,
         "resizable": true,
         "fullscreen": false,
         "dragDropEnabled": true

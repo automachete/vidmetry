@@ -36,6 +36,17 @@ if ($releaseWorkflow -notmatch '(?m)^\s{4}environment:\s+microsoft-store-release
     throw 'The Microsoft Store MSIX job must use the microsoft-store-release environment.'
 }
 
+$tauriConfiguration = Get-Content -LiteralPath (Join-Path $projectRoot 'src-tauri\tauri.conf.json') -Raw | ConvertFrom-Json
+$mainWindows = @($tauriConfiguration.app.windows | Where-Object label -ceq 'main')
+if ($mainWindows.Count -ne 1) {
+    throw 'Tauri must define exactly one main application window.'
+}
+$mainWindow = $mainWindows[0]
+if ($mainWindow.width -ne 1280 -or $mainWindow.height -ne 900 -or
+    $mainWindow.minWidth -ne 960 -or $mainWindow.minHeight -ne 720) {
+    throw 'The main window must use the verified 1280x900 default and 960x720 minimum layout.'
+}
+
 $package = Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw | ConvertFrom-Json
 $nodeVersion = (Get-Content -LiteralPath (Join-Path $projectRoot '.node-version') -Raw).Trim()
 $parsedNodeVersion = [Version]$nodeVersion

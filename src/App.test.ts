@@ -205,7 +205,10 @@ describe('application shell', () => {
     await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
     await fireEvent.click(settingsButton);
 
-    expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy();
+    const settingsDialog = screen.getByRole('dialog', { name: 'Settings' });
+    expect(within(settingsDialog).getByRole('heading', { name: 'Settings' })).toBeTruthy();
+    expect(within(settingsDialog).getAllByText('Settings')).toHaveLength(1);
+    expect(container.querySelector('.settings-dialog .section-label')).toBeNull();
     expect(screen.getByText('Video export method')).toBeTruthy();
     expect(screen.queryByText('Export video')).toBeNull();
     expect(screen.queryByText('Optimize for web playback (faststart)')).toBeNull();

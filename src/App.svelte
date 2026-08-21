@@ -1573,7 +1573,7 @@
     <div class="modal-backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && closeSettingsDialog()}>
       <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div class="dialog-heading">
-          <div><span class="section-label">{text('settings')}</span><h2 id="settings-title">{text('settingsTitle')}</h2><p>{text('settingsDescription')}</p></div>
+          <div><h2 id="settings-title">{text('settingsTitle')}</h2><p>{text('settingsDescription')}</p></div>
           <button class="dialog-close" type="button" aria-label={text('close')} onclick={closeSettingsDialog}>×</button>
         </div>
 
