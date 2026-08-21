@@ -79,6 +79,24 @@ class ResizeObserverStub {
 }
 
 const videoPaths = ['C:\\clips\\a.mp4'];
+const supportedVideoExtensions = [
+  '3gp',
+  'avi',
+  'flv',
+  'm2ts',
+  'm4v',
+  'mkv',
+  'mov',
+  'mp4',
+  'mpeg',
+  'mpg',
+  'mts',
+  'ogv',
+  'ts',
+  'vob',
+  'webm',
+  'wmv',
+];
 
 function mediaDescriptor(sourcePath: string) {
   return {
@@ -119,6 +137,10 @@ function mockSelection(
         h265: { nvidia: true, intel: false, amd: false },
       } as never;
     }
+    if (command === 'supported_video_extensions') {
+      return supportedVideoExtensions as never;
+    }
+    if (command === 'pick_video_folder') return 'C:\\clips' as never;
     if (command === 'inspect_selection') {
       return {
         kind: paths.length > 1 ? 'directory' : 'file',
@@ -326,10 +348,14 @@ describe('application shell', () => {
         name: 'Close',
       })[1],
     );
+    expect(screen.getByRole('button', { name: 'Open video' }).getAttribute('title')).toBe(
+      'Open video (Ctrl+P)',
+    );
     mockSelection();
     vi.mocked(dialogOpen).mockResolvedValue(videoPaths[0]);
     await fireEvent.keyDown(window, { code: 'KeyP', key: 'p', ctrlKey: true });
     await screen.findByText('a.mp4');
+    expect(screen.getByRole('button', { name: 'Play' }).getAttribute('title')).toBe('Play (K)');
     await fireEvent.keyDown(document.body, { code: 'KeyK', key: 'k' });
     await waitFor(() => expect(HTMLMediaElement.prototype.play).toHaveBeenCalledOnce());
   });
@@ -357,7 +383,13 @@ describe('application shell', () => {
     vi.mocked(dialogOpen).mockClear().mockResolvedValue(null);
     await fireEvent.keyDown(window, { code: 'KeyO', key: 'o', ctrlKey: true, shiftKey: true });
     await waitFor(() =>
-      expect(dialogOpen).toHaveBeenCalledWith(expect.objectContaining({ directory: true })),
+      expect(invoke).toHaveBeenCalledWith('pick_video_folder', {
+        title: 'Select folder',
+        selectFolderLabel: 'Select folder',
+        selectCurrentFolderLabel: 'Select this folder',
+        filterName: 'Video',
+        initialDirectory: 'C:\\clips',
+      }),
     );
   });
 
@@ -409,12 +441,12 @@ describe('application shell', () => {
   it('navigates a folder and requires two clicks to save when extensions match', async () => {
     useEnglish();
     const paths = ['C:\\clips\\a.mp4', 'C:\\clips\\b.mp4'];
-    vi.mocked(dialogOpen).mockResolvedValue('C:\\clips');
     vi.mocked(dialogSave).mockResolvedValue(null);
     mockSelection(paths);
     const { container } = render(App);
 
     await fireEvent.click(screen.getByRole('button', { name: 'Open folder' }));
+    expect(invoke).toHaveBeenCalledWith('inspect_selection', { path: 'C:\\clips' });
     expect(await screen.findByRole('option', { name: '2. b.mp4' })).toBeTruthy();
     await waitFor(() =>
       expect((screen.getByRole('button', { name: 'Next video' }) as HTMLButtonElement).disabled).toBe(
@@ -435,7 +467,6 @@ describe('application shell', () => {
   it('keeps the current playlist position when the next video cannot be probed', async () => {
     useEnglish();
     const paths = ['C:\\clips\\a.mp4', 'C:\\clips\\b.mp4'];
-    vi.mocked(dialogOpen).mockResolvedValue('C:\\clips');
     mockSelection(paths, paths[1]);
     render(App);
 
@@ -455,7 +486,6 @@ describe('application shell', () => {
   it('continues playback after moving between videos in a selected directory', async () => {
     useEnglish();
     const paths = ['C:\\clips\\a.mp4', 'C:\\clips\\b.mp4'];
-    vi.mocked(dialogOpen).mockResolvedValue('C:\\clips');
     mockSelection(paths);
     render(App);
 
@@ -531,8 +561,10 @@ describe('application shell', () => {
 
   it('localizes structured backend errors in English mode', async () => {
     useEnglish();
-    vi.mocked(dialogOpen).mockResolvedValue('C:\\blocked');
-    vi.mocked(invoke).mockRejectedValue({ code: 'folder_read_failed', detail: 'access denied' });
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === 'pick_video_folder') return 'C:\\blocked' as never;
+      throw { code: 'folder_read_failed', detail: 'access denied' };
+    });
     render(App);
 
     await fireEvent.click(screen.getByRole('button', { name: 'Open folder' }));
@@ -646,7 +678,6 @@ describe('application shell', () => {
   it('refreshes an open folder after Explorer additions and completed copy saves', async () => {
     useEnglish();
     const paths = ['C:\\clips\\a.mp4', 'C:\\clips\\b.mp4'];
-    vi.mocked(dialogOpen).mockResolvedValue('C:\\clips');
     vi.mocked(dialogSave).mockResolvedValue('C:\\clips\\d-copy.mp4');
     mockSelection(paths);
     render(App);

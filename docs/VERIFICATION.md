@@ -22,12 +22,12 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 | `npm run test:msix` | Pass — unpacked manifest, classic-app activation, all 16 file associations, packaged COM directory command, x64 PE and unmarked Tauri payload, locked FFmpeg sidecars, license/source payloads, and build-file exclusions |
 | `npm run test:runtime` | Pass — pinned Node/npm/Rust, immutable FFmpeg manifest, sidecar hashes/notices, and full-SHA GitHub Actions references |
 | `npm test` | Pass — 66 tests across 11 files |
-| `npm run test:ui` | Pass — 17 Chromium scenarios covering semantic controls, immediate settings and all 16 shortcut assignments, stable settings dimensions, paired-control alignment and contained focus visuals, computed styles, every English/Japanese settings category without clipping or unintended wrapping, and minimum-window overflow |
+| `npm run test:ui` | Pass — 17 Chromium scenarios covering semantic controls, immediate settings, all 16 shortcut assignments and live tooltip updates, the native folder-dialog contract, stable settings dimensions, paired-control alignment and contained focus visuals, computed styles, every English/Japanese settings category without clipping or unintended wrapping, and minimum-window overflow |
 | `npm run test:coverage` | Pass — 94.28% statements, 81.09% branches, 97.67% functions, 95.33% lines |
 | `npm run build` | Pass — Vite production build |
 | `npm run tauri build -- --no-bundle` | Pass — optimized Windows application build |
 | `cargo fmt --check --manifest-path src-tauri\Cargo.toml` | Pass |
-| `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 37 Rust unit tests |
+| `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 38 Rust unit tests, including the complete supported-video filter used by the Explorer-style folder dialog |
 | `cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings` | Pass |
 | `scripts/test-integration.ps1` | Pass — H.264/H.265 selected available hardware encoders; FFV1 used parallel slices; late input seek preserved all 60 frame hashes and decoded audio samples |
 | `npm audit --audit-level=high` | Pass — 0 vulnerabilities |
@@ -45,6 +45,7 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 | Export-state regression | Pass — an in-place replacement reloads changed geometry, duration, frame count, and a fresh media URL; export snapshots the exact trim range and disables its controls before asynchronous saving |
 | Pointer alignment regression | Pass — after selecting frames `[60, 180)` of a 240-frame video, a physical timeline click and an off-center handle drag remain aligned within half-frame rendering tolerance |
 | Release executable smoke launch | Pass — remained running until test shutdown; extracted executable icon contains only achromatic pixels |
+| Native folder-dialog smoke | Pass — the optimized executable retained the Explorer-style dialog, exposed all 19 MP4 files in a representative folder through the complete supported-video filter, and returned the current folder through the prominent selection action |
 
 The MSVC linker emits a localized informational message while producing the Rust `cdylib` import library. It is surfaced by Cargo as `linker_messages` but is not a compiler or Clippy diagnostic.
 
@@ -85,7 +86,7 @@ These artifacts were generated from the verified 0.4.8 source tree. The unsigned
 
 ## Remaining manual acceptance
 
-- Exercise the native file/folder/save dialogs, drag/drop, Page Up/Page Down, and all crop handles with representative personal footage.
+- Exercise the native file/save dialogs, drag/drop, Page Up/Page Down, and all crop handles with representative personal footage; extend the verified folder-dialog smoke across network and removable-drive paths.
 - Cover 4K HEVC 10-bit, rotated phone MOV, VFR, multi-audio MKV, Unicode paths, and low-disk/permission failures.
 - Confirm metadata-only rendering in each target player because support is deliberately player-dependent.
 - Confirm Explorer selection and live folder additions, post-overwrite preview state, Windows personalization changes, pane controls, F11/Escape, and velocity-sensitive pointer feel in the packaged WebView with real personal media.

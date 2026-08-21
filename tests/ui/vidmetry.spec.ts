@@ -92,6 +92,26 @@ async function installTauriMock(page: Page): Promise<void> {
         return null;
       }
       if (command === 'system_accent_color') return '#FF8C00';
+      if (command === 'supported_video_extensions') {
+        return [
+          '3gp',
+          'avi',
+          'flv',
+          'm2ts',
+          'm4v',
+          'mkv',
+          'mov',
+          'mp4',
+          'mpeg',
+          'mpg',
+          'mts',
+          'ogv',
+          'ts',
+          'vob',
+          'webm',
+          'wmv',
+        ];
+      }
       if (command === 'available_video_encoders') {
         return {
           h264: { nvidia: true, intel: false, amd: true },
@@ -107,13 +127,15 @@ async function installTauriMock(page: Page): Promise<void> {
       }
       if (command === 'plugin:store|save') return null;
       if (command === 'plugin:log|log') return null;
-      if (command === 'plugin:dialog|open') {
-        return args.options?.directory ? 'C:\\clips' : sourcePath;
-      }
+      if (command === 'plugin:dialog|open') return sourcePath;
       if (command === 'plugin:dialog|save') return 'C:\\clips\\sample_cropped.mp4';
+      if (command === 'pick_video_folder') return 'C:\\clips';
       if (command === 'watch_directory') return null;
       if (command === 'inspect_selection') {
-        if (new URLSearchParams(location.search).get('selectionError') === 'folder') {
+        if (
+          args.path === 'C:\\clips' &&
+          new URLSearchParams(location.search).get('selectionError') === 'folder'
+        ) {
           throw { code: 'folder_read_failed', detail: 'access denied' };
         }
         const folder = args.path === 'C:\\clips';
@@ -585,14 +607,91 @@ test('settings save appearance and recorded shortcuts immediately', async ({ pag
   await expect(dialog.getByRole('button', { name: 'Change shortcut: Play / pause' }).locator('kbd')).toHaveText(
     'K',
   );
+  await dialog.getByRole('button', { name: 'Change shortcut: Save a copy' }).click();
+  await page.keyboard.press('Control+k');
+  await dialog
+    .getByRole('button', { name: 'Change shortcut: Save over the source video' })
+    .click();
+  await page.keyboard.press('Control+Shift+k');
+  await dialog.getByRole('button', { name: 'Change shortcut: Previous video' }).click();
+  await page.keyboard.press('Control+PageUp');
+  await dialog.getByRole('button', { name: 'Change shortcut: Next video' }).click();
+  await page.keyboard.press('Control+PageDown');
+  await dialog.getByRole('button', { name: 'Change shortcut: Switch to Compatible MP4' }).click();
+  await page.keyboard.press('Alt+4');
+  await dialog.getByRole('button', { name: 'Change shortcut: Toggle fullscreen preview' }).click();
+  await page.keyboard.press('F10');
+  await dialog.getByRole('button', { name: 'Change shortcut: Open Settings' }).click();
+  await page.keyboard.press('Control+Period');
   await dialog.getByRole('button', { name: 'Change shortcut: Open folder' }).click();
   await page.keyboard.press('Control+p');
   await expect(dialog.getByRole('alert')).toContainText('Already used by “Open video”.');
   await page.keyboard.press('Escape');
+  await dialog.getByRole('button', { name: 'Change shortcut: Open folder' }).click();
+  await page.keyboard.press('Control+Shift+p');
+  await dialog.getByRole('button', { name: 'Export' }).click();
+  await expect(dialog.locator('.profile-settings button').nth(0)).toHaveAttribute(
+    'title',
+    'Compatible MP4 (Alt+4)',
+  );
   await dialog.locator('.dialog-actions').getByRole('button', { name: 'Close' }).click();
+
+  await expect(page.getByRole('button', { name: 'Open video' })).toHaveAttribute(
+    'title',
+    'Open video (Ctrl+P)',
+  );
+  await expect(page.getByRole('button', { name: 'Open folder' })).toHaveAttribute(
+    'title',
+    'Open folder (Ctrl+Shift+P)',
+  );
+  await expect(page.getByRole('button', { name: 'Settings' })).toHaveAttribute(
+    'title',
+    'Settings (Ctrl+.)',
+  );
 
   await page.keyboard.press('Control+p');
   await expect(page.getByText('sample.mp4', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open another video' })).toHaveAttribute(
+    'title',
+    'Open another video (Ctrl+P)',
+  );
+  await page.getByRole('button', { name: 'Open folder' }).click();
+  await expect(page.getByRole('option', { name: '2. second.mp4' })).toBeAttached();
+  await expect(page.getByRole('button', { name: 'Previous video' })).toHaveAttribute(
+    'title',
+    'Previous video (Ctrl+Page Up)',
+  );
+  await expect(page.getByRole('button', { name: 'Next video' })).toHaveAttribute(
+    'title',
+    'Next video (Ctrl+Page Down)',
+  );
+  await expect(page.locator('.video-stage')).toHaveAttribute(
+    'title',
+    'Fullscreen preview (F10)',
+  );
+  await expect(page.getByRole('button', { name: 'Play', exact: true })).toHaveAttribute(
+    'title',
+    'Play (K)',
+  );
+  await expect(page.locator('.source-summary small')).toHaveAttribute(
+    'title',
+    'Compatible MP4: Alt+4 · Lossless FFV1 / MKV: Alt+2 · Metadata only: Alt+3',
+  );
+  await expect(page.getByRole('button', { name: 'Save options' })).toHaveAttribute(
+    'title',
+    'Save options (Ctrl+K / Ctrl+Shift+K)',
+  );
+  await page.getByRole('button', { name: 'Save options' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Save a copy' })).toHaveAttribute(
+    'title',
+    'Save a copy (Ctrl+K)',
+  );
+  await expect(page.getByRole('menuitem', { name: 'Save', exact: true })).toHaveAttribute(
+    'title',
+    'Save (Ctrl+Shift+K)',
+  );
+  await page.getByRole('button', { name: 'Save options' }).click();
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press('k');
   await expect.poll(() => page.evaluate(() => (window as any).__vidmetryPlayCount)).toBe(1);
   await page.keyboard.press('Alt+2');
@@ -607,6 +706,32 @@ test('folder navigation, save options, success alignment, and Explorer selection
   await page.goto('/');
   await page.getByRole('button', { name: 'Open folder' }).click();
   await expect(page.getByRole('option', { name: '2. second.mp4' })).toBeAttached();
+  expect(
+    await page.evaluate(() => {
+      const invocations = (window as any).__vidmetryInvocations as Array<{
+        command: string;
+        args: { options?: unknown; path?: string };
+      }>;
+      return {
+        picker: invocations.find((item) => item.command === 'pick_video_folder'),
+        inspection: invocations.find(
+          (item) => item.command === 'inspect_selection' && item.args.path === 'C:\\clips',
+        ),
+      };
+    }),
+  ).toEqual({
+    picker: {
+      command: 'pick_video_folder',
+      args: {
+        title: 'Select folder',
+        selectFolderLabel: 'Select folder',
+        selectCurrentFolderLabel: 'Select this folder',
+        filterName: 'Video',
+        initialDirectory: null,
+      },
+    },
+    inspection: { command: 'inspect_selection', args: { path: 'C:\\clips' } },
+  });
 
   for (const navigationButton of await page.locator('.playlist-nav').all()) {
     const buttonBox = await navigationButton.boundingBox();

@@ -131,6 +131,12 @@
     toggleFullscreen: 'shortcutToggleFullscreen',
   };
 
+  const profileShortcutActions: Record<ExportProfile, ShortcutActionId> = {
+    compatible: 'profileCompatible',
+    lossless: 'profileLossless',
+    metadata: 'profileMetadata',
+  };
+
   const accentLabels: Record<AccentColorId, TranslationKey> = {
     blue: 'accentBlue',
     teal: 'accentTeal',
@@ -516,12 +522,7 @@
       const selected = await open({
         multiple: false,
         directory: false,
-        filters: [
-          {
-            name: text('selectVideoFilter'),
-            extensions: ['mp4', 'mov', 'mkv', 'webm', 'avi', 'm4v', 'wmv', 'mts', 'm2ts', 'mpg', 'mpeg'],
-          },
-        ],
+        filters: await videoDialogFilters(),
       });
       if (typeof selected === 'string') await loadSelection(selected);
     } catch (error) {
@@ -531,11 +532,26 @@
 
   async function chooseDirectory() {
     try {
-      const selected = await open({ multiple: false, directory: true });
+      const selected = await invoke<string | null>('pick_video_folder', {
+        title: text('chooseFolderVideo'),
+        selectFolderLabel: text('selectFolderButton'),
+        selectCurrentFolderLabel: text('selectCurrentFolderButton'),
+        filterName: text('selectVideoFilter'),
+        initialDirectory: directoryPath ?? parentDirectory(media?.sourcePath),
+      });
       if (typeof selected === 'string') await loadSelection(selected);
     } catch (error) {
-      errorMessage = clientError('openDialogFailed', error);
+      errorMessage = backendOrClientError('openDialogFailed', error);
     }
+  }
+
+  async function videoDialogFilters() {
+    return [
+      {
+        name: text('selectVideoFilter'),
+        extensions: await invoke<string[]>('supported_video_extensions'),
+      },
+    ];
   }
 
   async function loadSelection(path: string) {
@@ -1494,15 +1510,15 @@
     updateSettings({ ...settingsDraft, shortcuts: { ...defaultShortcuts } });
   }
 
-  function shortcutTitle(label: string, action: ShortcutActionId): string {
-    return `${label} (${formatShortcutChord(settings.shortcuts[action])})`;
+  function shortcutTitle(label: string, chord: string): string {
+    return `${label} (${formatShortcutChord(chord)})`;
   }
 
-  function profileShortcutSummary(): string {
+  function profileShortcutSummary(shortcuts: AppSettings['shortcuts']): string {
     return [
-      `${text('compatible')}: ${formatShortcutChord(settings.shortcuts.profileCompatible)}`,
-      `${text('lossless')}: ${formatShortcutChord(settings.shortcuts.profileLossless)}`,
-      `${text('metadata')}: ${formatShortcutChord(settings.shortcuts.profileMetadata)}`,
+      `${text('compatible')}: ${formatShortcutChord(shortcuts.profileCompatible)}`,
+      `${text('lossless')}: ${formatShortcutChord(shortcuts.profileLossless)}`,
+      `${text('metadata')}: ${formatShortcutChord(shortcuts.profileMetadata)}`,
     ].join(' · ');
   }
 
@@ -1528,6 +1544,14 @@
   function fileName(path: string): string {
     const separator = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
     return separator >= 0 ? path.slice(separator + 1) : path;
+  }
+
+  function parentDirectory(path: string | undefined): string | null {
+    if (!path) return null;
+    const separator = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+    if (separator < 0) return null;
+    if (separator === 2 && path[1] === ':') return path.slice(0, 3);
+    return separator === 0 ? path.slice(0, 1) : path.slice(0, separator);
   }
 
   function readableError(error: unknown): string {
@@ -1582,17 +1606,17 @@
       <div class="source-summary" title={media.sourcePath}>
         <strong>{media.fileName}</strong>
         <span>{media.displayWidth} × {media.displayHeight} · {formatFrameRate(media.frameRate)} · {media.videoCodec.toUpperCase()}</span>
-        <small title={profileShortcutSummary()}>{text('activeProfile', { profile: profileLabel })}</small>
+        <small title={profileShortcutSummary(settings.shortcuts)}>{text('activeProfile', { profile: profileLabel })}</small>
       </div>
 
       <div class="header-actions">
-        <button class="square-button" type="button" aria-label={text('openAnother')} title={shortcutTitle(text('openAnother'), 'openVideo')} onclick={chooseVideo} disabled={isLoading || isPreparingProxy || exportJobId !== null}>
+        <button class="square-button" type="button" aria-label={text('openAnother')} title={shortcutTitle(text('openAnother'), settings.shortcuts.openVideo)} onclick={chooseVideo} disabled={isLoading || isPreparingProxy || exportJobId !== null}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 3.5h8l4 4v5.2M5.5 3.5v17h7M13.5 3.5v4h4M16.5 16.5h5M19 14v5" /></svg>
         </button>
-        <button class="square-button" type="button" aria-label={text('openFolder')} title={shortcutTitle(text('openFolder'), 'openFolder')} onclick={chooseDirectory} disabled={isLoading || isPreparingProxy || exportJobId !== null}>
+        <button class="square-button" type="button" aria-label={text('openFolder')} title={shortcutTitle(text('openFolder'), settings.shortcuts.openFolder)} onclick={chooseDirectory} disabled={isLoading || isPreparingProxy || exportJobId !== null}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l2 2h9v10.5a1.5 1.5 0 0 1-1.5 1.5h-14A1.5 1.5 0 0 1 3.5 19z" /><path d="M3.5 9h17" /></svg>
         </button>
-        <button class="square-button settings-button" type="button" aria-label={text('settings')} title={shortcutTitle(text('settings'), 'openSettings')} onclick={openSettingsDialog} disabled={!settingsReady}>
+        <button class="square-button settings-button" type="button" aria-label={text('settings')} title={shortcutTitle(text('settings'), settings.shortcuts.openSettings)} onclick={openSettingsDialog} disabled={!settingsReady}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.06.06-2.78 2.78-.06-.06A1.8 1.8 0 0 0 15 19.4a1.8 1.8 0 0 0-1.08 1.65V21h-3.84v-.08A1.8 1.8 0 0 0 9 19.4a1.8 1.8 0 0 0-1.98.36l-.06.06-2.78-2.78.06-.06A1.8 1.8 0 0 0 4.6 15a1.8 1.8 0 0 0-1.65-1.08H3v-3.84h.08A1.8 1.8 0 0 0 4.6 9a1.8 1.8 0 0 0-.36-1.98l-.06-.06 2.78-2.78.06.06A1.8 1.8 0 0 0 9 4.6a1.8 1.8 0 0 0 1.08-1.65V3h3.84v.08A1.8 1.8 0 0 0 15 4.6a1.8 1.8 0 0 0 1.98-.36l.06-.06 2.78 2.78-.06.06A1.8 1.8 0 0 0 19.4 9a1.8 1.8 0 0 0 1.65 1.08H21v3.84h-.08A1.8 1.8 0 0 0 19.4 15Z" /></svg>
         </button>
         {#if canOverwrite}
@@ -1611,19 +1635,19 @@
             </button>
             {#if showSaveMenu}
               <div class="save-menu" role="menu">
-                <button type="button" role="menuitem" title={shortcutTitle(text('copySave'), 'copySave')} onclick={saveCopy}>{text('copySave')}</button>
-                <button type="button" role="menuitem" title={shortcutTitle(text('save'), 'saveInPlace')} onclick={saveInPlace}>{text('save')}</button>
+                <button type="button" role="menuitem" title={shortcutTitle(text('copySave'), settings.shortcuts.copySave)} onclick={saveCopy}>{text('copySave')}</button>
+                <button type="button" role="menuitem" title={shortcutTitle(text('save'), settings.shortcuts.saveInPlace)} onclick={saveInPlace}>{text('save')}</button>
               </div>
             {/if}
           </div>
         {:else}
-          <button class="button primary" type="button" disabled={!exportEventsReady || !profileSupported || exportJobId !== null || isStartingExport} onclick={saveCopy} title={!exportEventsReady ? text('exportEventsUnavailable') : !profileSupported ? (timeTrimmed ? text('timeTrimMetadataUnavailable') : text('metadataUnavailable')) : shortcutTitle(text('copySave'), 'copySave')}>
+          <button class="button primary" type="button" disabled={!exportEventsReady || !profileSupported || exportJobId !== null || isStartingExport} onclick={saveCopy} title={!exportEventsReady ? text('exportEventsUnavailable') : !profileSupported ? (timeTrimmed ? text('timeTrimMetadataUnavailable') : text('metadataUnavailable')) : shortcutTitle(text('copySave'), settings.shortcuts.copySave)}>
             {text('copySave')}
           </button>
         {/if}
       </div>
     {:else}
-      <button class="square-button settings-button launcher-settings" type="button" aria-label={text('settings')} title={shortcutTitle(text('settings'), 'openSettings')} onclick={openSettingsDialog} disabled={!settingsReady}>
+      <button class="square-button settings-button launcher-settings" type="button" aria-label={text('settings')} title={shortcutTitle(text('settings'), settings.shortcuts.openSettings)} onclick={openSettingsDialog} disabled={!settingsReady}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.06.06-2.78 2.78-.06-.06A1.8 1.8 0 0 0 15 19.4a1.8 1.8 0 0 0-1.08 1.65V21h-3.84v-.08A1.8 1.8 0 0 0 9 19.4a1.8 1.8 0 0 0-1.98.36l-.06.06-2.78-2.78.06-.06A1.8 1.8 0 0 0 4.6 15a1.8 1.8 0 0 0-1.65-1.08H3v-3.84h.08A1.8 1.8 0 0 0 4.6 9a1.8 1.8 0 0 0-.36-1.98l-.06-.06 2.78-2.78.06.06A1.8 1.8 0 0 0 9 4.6a1.8 1.8 0 0 0 1.08-1.65V3h3.84v.08A1.8 1.8 0 0 0 15 4.6a1.8 1.8 0 0 0 1.98-.36l.06-.06 2.78 2.78-.06.06A1.8 1.8 0 0 0 19.4 9a1.8 1.8 0 0 0 1.65 1.08H21v3.84h-.08A1.8 1.8 0 0 0 19.4 15Z" /></svg>
       </button>
     {/if}
@@ -1634,7 +1658,7 @@
       <section class="stage-panel" aria-label={text('videoPreview')}>
         {#if playlist.length > 1}
           <div class="playlist-bar" title={directoryPath ?? ''}>
-            <button class="playlist-nav" type="button" aria-label={text('previousVideo')} title={shortcutTitle(text('previousVideo'), 'previousVideo')} disabled={playlistIndex === 0 || isLoading || exportJobId !== null} onclick={() => navigatePlaylist(-1)}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m10 3-5 5 5 5" /></svg></button>
+            <button class="playlist-nav" type="button" aria-label={text('previousVideo')} title={shortcutTitle(text('previousVideo'), settings.shortcuts.previousVideo)} disabled={playlistIndex === 0 || isLoading || exportJobId !== null} onclick={() => navigatePlaylist(-1)}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m10 3-5 5 5 5" /></svg></button>
             <label>
               <span>{text('chooseFromFolder')}</span>
               <select value={playlistIndex} onchange={selectPlaylistVideo} disabled={isLoading || exportJobId !== null}>
@@ -1644,11 +1668,11 @@
               </select>
             </label>
             <span class="playlist-count">{text('folderPosition', { current: playlistIndex + 1, total: playlist.length })}</span>
-            <button class="playlist-nav" type="button" aria-label={text('nextVideo')} title={shortcutTitle(text('nextVideo'), 'nextVideo')} disabled={playlistIndex === playlist.length - 1 || isLoading || exportJobId !== null} onclick={() => navigatePlaylist(1)}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg></button>
+            <button class="playlist-nav" type="button" aria-label={text('nextVideo')} title={shortcutTitle(text('nextVideo'), settings.shortcuts.nextVideo)} disabled={playlistIndex === playlist.length - 1 || isLoading || exportJobId !== null} onclick={() => navigatePlaylist(1)}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg></button>
           </div>
         {/if}
 
-        <div class="video-stage" use:observeStage title={shortcutTitle(isVideoFullscreen ? text('exitFullscreen') : text('enterFullscreen'), 'toggleFullscreen')}>
+        <div class="video-stage" use:observeStage title={shortcutTitle(isVideoFullscreen ? text('exitFullscreen') : text('enterFullscreen'), settings.shortcuts.toggleFullscreen)}>
           <div class="video-frame" style={frameStyle}>
             <video
               bind:this={videoElement}
@@ -1737,7 +1761,7 @@
     {#if showTransport}
     <footer class="transport">
       <div class="transport-playback">
-        <button class="icon-button" type="button" aria-label={isPlaying ? text('pause') : text('play')} title={shortcutTitle(isPlaying ? text('pause') : text('play'), 'playPause')} onclick={togglePlayback}>{isPlaying ? 'Ⅱ' : '▶'}</button>
+        <button class="icon-button" type="button" aria-label={isPlaying ? text('pause') : text('play')} title={shortcutTitle(isPlaying ? text('pause') : text('play'), settings.shortcuts.playPause)} onclick={togglePlayback}>{isPlaying ? 'Ⅱ' : '▶'}</button>
         <span class="time current">{formatTime(currentTime)}</span>
       </div>
 
@@ -1831,8 +1855,8 @@
       </div>
       <p class="empty-description">{text('emptyDescription')}</p>
       <div class="empty-actions">
-        <button class="button primary large" type="button" title={shortcutTitle(text('openVideo'), 'openVideo')} onclick={chooseVideo} disabled={isLoading}>{text('openVideo')}</button>
-        <button class="button secondary large" type="button" title={shortcutTitle(text('openFolder'), 'openFolder')} onclick={chooseDirectory} disabled={isLoading}>{text('openFolder')}</button>
+        <button class="button primary large" type="button" title={shortcutTitle(text('openVideo'), settings.shortcuts.openVideo)} onclick={chooseVideo} disabled={isLoading}>{text('openVideo')}</button>
+        <button class="button secondary large" type="button" title={shortcutTitle(text('openFolder'), settings.shortcuts.openFolder)} onclick={chooseDirectory} disabled={isLoading}>{text('openFolder')}</button>
       </div>
     </main>
   {/if}
@@ -1873,7 +1897,7 @@
               <h3>{text('settingsExport')}</h3>
               <div class="profile-settings">
                 {#each exportProfiles as profile}
-                  <button class:active={settingsDraft.export.profile === profile} type="button" onclick={() => setProfile(profile as ExportProfile)}>
+                  <button class:active={settingsDraft.export.profile === profile} type="button" title={shortcutTitle(profileName(profile as ExportProfile), settings.shortcuts[profileShortcutActions[profile as ExportProfile]])} onclick={() => setProfile(profile as ExportProfile)}>
                     <strong>{profileName(profile as ExportProfile)}</strong>
                     <small>{text(`${profile}Description` as TranslationKey)}</small>
                   </button>

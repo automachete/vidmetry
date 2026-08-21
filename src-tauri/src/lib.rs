@@ -4,6 +4,7 @@ mod cache;
 mod directory_watch;
 mod export;
 mod ffmpeg;
+mod folder_picker;
 mod media;
 mod reveal;
 mod selection;
@@ -92,6 +93,39 @@ fn inspect_selection(path: String) -> Result<selection::SelectionDescriptor, App
 }
 
 #[tauri::command]
+fn supported_video_extensions() -> Vec<&'static str> {
+    selection::VIDEO_EXTENSIONS.to_vec()
+}
+
+#[tauri::command]
+async fn pick_video_folder(
+    window: tauri::WebviewWindow,
+    title: String,
+    select_folder_label: String,
+    select_current_folder_label: String,
+    filter_name: String,
+    initial_directory: Option<String>,
+) -> Result<Option<String>, AppError> {
+    let owner = window.hwnd().map_err(|error| {
+        AppError::with_detail(ErrorCode::SelectedPathUnavailable, error.to_string())
+    })?;
+    let owner = owner.0 as isize;
+    tauri::async_runtime::spawn_blocking(move || {
+        folder_picker::pick(
+            owner,
+            &title,
+            &select_folder_label,
+            &select_current_folder_label,
+            &filter_name,
+            initial_directory.as_deref(),
+        )
+        .map_err(|detail| AppError::with_detail(ErrorCode::SelectedPathUnavailable, detail))
+    })
+    .await
+    .map_err(|error| AppError::with_detail(ErrorCode::SelectedPathUnavailable, error.to_string()))?
+}
+
+#[tauri::command]
 fn reveal_in_explorer(path: String) -> Result<(), AppError> {
     reveal::in_explorer(&path)
 }
@@ -115,6 +149,8 @@ pub fn run() {
             start_export,
             cancel_export,
             inspect_selection,
+            supported_video_extensions,
+            pick_video_folder,
             directory_watch::watch_directory,
             reveal_in_explorer,
             shell_integration::startup_selection,
