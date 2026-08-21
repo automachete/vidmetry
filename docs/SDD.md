@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| Document version | 1.6 |
+| Document version | 1.7 |
 | Product version | 0.4.8 |
 | Status | Implemented and verified |
 | Primary platform | Windows 11 x64 |
 | UI languages | Japanese and English |
-| Last updated | 2026-08-21 |
+| Last updated | 2026-08-22 |
 
 ## 1. Purpose
 
@@ -37,8 +37,8 @@ The following terms are distinct and must not be shortened to an unqualified “
 - Export with visible progress and cancellation.
 - Offer compatible MP4, mathematically lossless FFV1, and metadata-only lossless modes.
 - Configure export behavior once and start saving directly from the crop view.
-- Remember language and loop-playback preferences between videos and sessions.
-- Follow the Windows app mode and accent color without requiring a Vidmetry theme setting.
+- Remember export, language, appearance, shortcut, and loop-playback preferences between videos and sessions.
+- Follow the Windows app mode and accent color by default while allowing independent user overrides.
 - Keep all media processing local.
 - Remain responsive while probing, proxying, and exporting.
 
@@ -81,7 +81,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 - **FR-023** Playback-scrubber clicks and trim-boundary dragging use the video's full-duration coordinate system even after the selected range is narrowed. Playback-position clicks clamp to the selection; a dragged trim-boundary handle centers on the final dispatched pointer position. Coalesced samples may estimate velocity but cannot replace that final position. Focused trim-boundary handles move by one frame with an arrow key or ten with Shift.
 - **FR-024** An icon-only control toggles loop playback. The selected state is persisted and reused for subsequent videos and sessions.
 - **FR-025** Playback and loop boundaries follow the selected time range. Space toggles playback when the playback-position handle/full-width scrubber has focus. Left/right keys on that control seek the preview; left/right keys on a trim-boundary handle adjust its boundary by one frame or ten with Shift.
-- **FR-026** The UI follows the current Windows light/dark app mode and selected accent color. Theme change notifications apply the mode immediately, and the accent is refreshed at startup, on theme change, and when the app regains focus.
+- **FR-026** App mode and accent color independently default to Windows settings. The user can instead select Light or Dark and one of the reviewed Fluent accent colors. Changes apply immediately to WebView surfaces; mode choices also update the native window theme.
 - **FR-027** The trim selection border and start/end trim-boundary handles follow the Windows accent-color setting with a computed readable foreground.
 - **FR-028** The spatial crop inspector and time-trim footer can each be collapsed and restored with accessible icon-only controls.
 - **FR-029** F11 enters or exits a video-only window fullscreen preview. Escape exits fullscreen.
@@ -112,11 +112,12 @@ The following terms are distinct and must not be shortened to an unqualified “
 ### 3.5 Common settings and localization
 
 - **FR-050** An icon-only common-settings button is always available in the header.
-- **FR-051** Settings persist locally and cover save profile, applicable encoder options, audio, frame rate, file metadata, loop playback, and File Explorer integration.
+- **FR-051** Settings persist locally and cover save profile, applicable encoder options, audio, frame rate, file metadata, loop playback, appearance, shortcuts, and File Explorer integration. Every valid change is applied and saved immediately through an ordered queue; there is no Apply action.
 - **FR-052** Language mode is an exclusive choice between Windows language and manual selection. Manual selection supports Japanese and English; unsupported Windows languages fall back to English.
-- **FR-053** All product-owned UI and runtime-error text comes from the Japanese/English locale resources. Rust commands and events return a stable language-neutral error code plus optional diagnostic detail; the presentation layer resolves that code in the active UI language. Language controls are the final common-settings section.
+- **FR-053** All product-owned UI and runtime-error text comes from the Japanese/English locale resources. Rust commands and events return a stable language-neutral error code plus optional diagnostic detail; the presentation layer resolves that code in the active UI language. Language is the final item in the settings category navigation.
 - **FR-054** File Explorer directory integration is enabled on a fresh installation. Disabling it hides only Open with Vidmetry for directories and survives application updates without changing another application's file associations. The first restored NSIS update migrates the legacy preference into package-specific state. Video Open with entries remain available until the installed package is removed.
 - **FR-055** The desktop UI follows the Windows effective-pixel type ramp with 14/20 body text and 12/16 captions as its compact-text floor, 40-pixel primary control targets, and four-pixel layout increments. Its panes and responsive layout scale with a 1280×900 default and 960×720 minimum window. Accent color communicates actions and selection rather than repeating a nearby heading.
+- **FR-056** The preview provides configurable accelerators for Open video, Open folder, common settings, Compatible MP4, Lossless FFV1/MKV, and Metadata only. Defaults are Ctrl+O, Ctrl+Shift+O, Ctrl+Comma, and Alt+1/2/3. Tooltips disclose the relevant accelerators. Shortcut recording waits for physical key input, rejects Windows-key, duplicate, invalid, and reserved standard-action chords, supports Escape cancellation, and can reset all assignments.
 
 ## 4. Quality semantics
 
@@ -126,7 +127,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 | Lossless FFV1/MKV | Yes | Yes | Lossless after source decode, provided pixel format and color metadata are preserved | Moderate/low |
 | Metadata-only | Display-only | No | Original coded stream retained | Codec/player dependent |
 
-The Compatible profile defaults to H.264, automatic encoder selection, quality level 17, `medium`, `yuv420p`, source cadence, automatic audio, and metadata retention. Automatic encoder selection prefers `nvenc`, `qsv`, and `amf` before the `libx264` or `libx265` fallback. Compatible MP4 output is always finalized with fast start. These defaults are not a guarantee of visual transparency for every source or encoder.
+The Compatible profile defaults to H.264, automatic encoder selection, quality level 17, `medium`, source pixel format, source cadence, automatic audio, and metadata retention. Automatic encoder selection prefers `nvenc`, `qsv`, and `amf` before the `libx264` or `libx265` fallback. Compatible MP4 output is always finalized with fast start. These defaults are not a guarantee of visual transparency for every source or encoder.
 
 The Lossless profile must avoid an unconditional conversion to 8-bit `yuv420p`. The backend retains a compatible source pixel format and carries color primaries, transfer characteristics, matrix, and range where FFmpeg exposes them.
 
@@ -246,6 +247,8 @@ ExportSettings
 
 AppSettings
   languageMode/language
+  appearance: system/manual theme and accent choices
+  shortcuts: six canonical physical-key chords
   loopPlayback
   explorerIntegration
   export: ExportSettings
@@ -284,7 +287,7 @@ The main window uses three regions:
 2. A flexible, neutrally colored video stage containing optional directory navigation, the video, and crop overlay.
 3. A collapsible frame-strip footer with a playback-position handle, start/end trim-boundary handles, persistent loop, and mute, plus a collapsible spatial inspector with coordinates, dimensions, aspect ratio, and Reset.
 
-The first-run state is an accessible file/folder drop target. Export settings are edited only in the common-settings dialog and do not interrupt each save. CSS type-ramp and control-size tokens keep English and Japanese text, buttons, fields, pane controls, and status surfaces in one Windows-scaled hierarchy; the settings title is not repeated as decorative accent text. A strict Zod schema is the runtime and compile-time source for `AppSettings`; unknown, obsolete, partial, or out-of-range shapes are rejected. Valid settings are persisted in `settings.json` under Tauri's application-data directory by the official Store plugin. Windows mode/accent changes are projected through CSS variables; fixed app-icon artwork is strictly achromatic. MSIX registers supported-video Open with activation and a packaged COM directory command; NSIS creates equivalent current-user video and directory registrations. The application stores and applies only the directory command's visibility state, while video Open with registration remains installed. Shell-registration changes refresh the Windows Shell cache. Keyboard focus indicators are visible, icon-only actions have accessible labels, and errors appear inline.
+The first-run state is an accessible file/folder drop target. Common settings use one flat left-side category navigation with one detail page at a time rather than nested or cross-cutting tabs. Export settings do not interrupt each save, and all setting changes save immediately. CSS type-ramp and control-size tokens keep English and Japanese text, buttons, fields, pane controls, and status surfaces in one Windows-scaled hierarchy; the settings title is not repeated as decorative accent text. A strict Zod schema is the runtime and compile-time source for `AppSettings`; unknown, obsolete, partial, or out-of-range shapes are rejected. Valid settings are persisted in `settings.json` under Tauri's application-data directory by the official Store plugin. Windows or manual mode/accent choices are projected through CSS variables; fixed app-icon artwork is strictly achromatic. MSIX registers supported-video Open with activation and a packaged COM directory command; NSIS creates equivalent current-user video and directory registrations. The application stores and applies only the directory command's visibility state, while video Open with registration remains installed. Shell-registration changes refresh the Windows Shell cache. Keyboard focus indicators are visible, icon-only actions have accessible labels, accelerators appear in tooltips, and errors appear inline.
 
 ## 9. Preview strategy
 
@@ -338,12 +341,12 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 - Minimum size, clamping, modulus snapping, and aspect locks.
 - Time formatting and seek clamping.
 - Export-profile eligibility.
-- Strict settings-schema rejection, persistence, Explorer-integration toggling, OS/manual language resolution, output-extension and in-place eligibility.
+- Strict settings-schema rejection, ordered immediate persistence, Explorer-integration toggling, system/manual language and appearance resolution, shortcut capture/conflict detection, output-extension and in-place eligibility.
 
 ### 13.2 Component and UI regression tests
 
-- Testing Library covers launcher content, settings, save shortcuts, Space playback from the focused playback scrubber, directory playback carry and live refresh, same-path overwrite reload, immutable trim export requests, structured synchronous/asynchronous error localization, pane collapse, F11 state, Windows appearance projection, notice dismissal, and completed-output links. A source-boundary regression test rejects product-owned Japanese text outside the locale resource or inside the Rust backend.
-- Playwright exercises the same critical flows in Chromium, including settings-section order and encoder availability, a structured backend error in the selected UI language, regular/fullscreen directory playback carry, Explorer and copy-save directory additions, clicking the rendered playback-position handle before Space, real playback-state changes, full-duration click alignment after halving the selection, locked trim export ranges, computed theme/accent projection, requirement-specific alignment, collapsible panes, F11, and notification expiry.
+- Testing Library covers launcher content, immediate settings persistence, category navigation, appearance choices, shortcut capture/conflicts and dispatch, save shortcuts, Space playback from the focused playback scrubber, directory playback carry and live refresh, same-path overwrite reload, immutable trim export requests, structured synchronous/asynchronous error localization, pane collapse, F11 state, Windows appearance projection, notice dismissal, and completed-output links. A source-boundary regression test rejects product-owned Japanese text outside the locale resource or inside the Rust backend.
+- Playwright exercises the same critical flows in Chromium, including settings category navigation and encoder availability, immediate appearance/shortcut persistence, accelerator dispatch, English/Japanese settings layout across every category, a structured backend error in the selected UI language, regular/fullscreen directory playback carry, Explorer and copy-save directory additions, clicking the rendered playback-position handle before Space, real playback-state changes, full-duration click alignment after halving the selection, locked trim export ranges, computed theme/accent projection, requirement-specific alignment, collapsible panes, F11, and notification expiry.
 - Asset verification scans generated PNG/ICO pixels and source SVG colors for chromatic fixed artwork and rejects legacy green tints.
 - MSIX verification unpacks the package and checks its identity, classic-app activation, x64 payloads, all supported video associations, packaged COM directory command, locked sidecars, licenses, and absence of build-only files. An elevated live mode additionally signs, installs, activates COM and the app, and uninstalls an isolated development identity. NSIS verification performs an isolated current-user installation, checks its payload and equivalent video/directory menu registrations, preserves a disabled directory command across an update, launches the app, and verifies uninstall cleanup.
 - CI retains screenshots only as failure diagnostics. UI regressions are asserted through roles, accessible names, values, enabled states, computed styles, and geometry tied to explicit requirements rather than whole-screen pixel baselines.
@@ -383,6 +386,7 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - Japanese/English switching and settings restart persistence
 - loop persistence across video changes
 - Windows light/dark and several light/dark accent colors, including runtime changes
+- immediate settings writes, custom shortcut recording, conflicts, reset, and restart persistence
 - output cancellation and disk/permission errors
 
 ## 14. Acceptance criteria for 0.4.8
@@ -411,7 +415,9 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - **AC-022** In-place Save reloads dimensions, duration, frame count, and preview bytes from the replaced source generation rather than mixing cached generations.
 - **AC-023** Export uses the crop, trim range, and settings visible when Save begins; editor controls remain locked until the request finishes or fails.
 - **AC-024** Computed Chromium geometry verifies the Windows type ramp, 40-pixel controls, proportionally enlarged editor panes, default-size viewport, minimum-size reflow, and a single non-duplicated settings heading.
+- **AC-025** A settings change takes effect and is durable without Apply; one-level category navigation exposes export, playback, appearance, shortcuts, Explorer, and language without clipped or unintended wrapped text at the minimum window size.
+- **AC-026** Windows/manual mode and accent choices update immediately, while default and recorded preview accelerators open video/folder/settings and switch all three export profiles; duplicate and reserved assignments are rejected.
 
 ## 15. Verification status
 
-The 0.4.8 implementation satisfies AC-001 through AC-024 at automated or implementation-inspection level. Native picker interaction, live Windows personalization, Store-signed MSIX installation and Shell changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced package hashes are recorded in `docs/VERIFICATION.md`.
+The 0.4.8 implementation satisfies AC-001 through AC-026 at automated or implementation-inspection level. Native picker interaction, live Windows personalization, Store-signed MSIX installation and Shell changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced package hashes are recorded in `docs/VERIFICATION.md`.
