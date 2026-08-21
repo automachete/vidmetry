@@ -24,6 +24,7 @@ const windowState = vi.hoisted(() => ({
   theme: vi.fn().mockResolvedValue('dark'),
   onThemeChanged: vi.fn().mockResolvedValue(vi.fn()),
   setFullscreen: vi.fn().mockResolvedValue(undefined),
+  setTheme: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -157,6 +158,7 @@ describe('application shell', () => {
     windowState.theme.mockReset().mockResolvedValue('dark');
     windowState.onThemeChanged.mockReset().mockResolvedValue(vi.fn());
     windowState.setFullscreen.mockReset().mockResolvedValue(undefined);
+    windowState.setTheme.mockReset().mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -187,7 +189,7 @@ describe('application shell', () => {
     expect(await screen.findByRole('option', { name: '2. b.mp4' })).toBeTruthy();
   });
 
-  it('opens common settings with the language section last', async () => {
+  it('uses single-level settings navigation and saves export changes immediately', async () => {
     useEnglish();
     vi.mocked(invoke).mockImplementation(async (command) => {
       if (command === 'available_video_encoders') {
@@ -209,7 +211,18 @@ describe('application shell', () => {
     expect(within(settingsDialog).getByRole('heading', { name: 'Settings' })).toBeTruthy();
     expect(within(settingsDialog).getAllByText('Settings')).toHaveLength(1);
     expect(container.querySelector('.settings-dialog .section-label')).toBeNull();
-    expect(screen.getByText('Video export method')).toBeTruthy();
+    const settingsNavigation = within(settingsDialog).getByRole('navigation', {
+      name: 'Settings categories',
+    });
+    expect(within(settingsNavigation).getAllByRole('button').map((button) => button.textContent)).toEqual([
+      'Export',
+      'Playback',
+      'Appearance',
+      'Keyboard shortcuts',
+      'File Explorer',
+      'Language',
+    ]);
+    expect(screen.getByText('Compatible MP4')).toBeTruthy();
     expect(screen.queryByText('Export video')).toBeNull();
     expect(screen.queryByText('Optimize for web playback (faststart)')).toBeNull();
     const encoder = screen.getByRole('combobox', { name: 'Encoder' });
@@ -226,13 +239,11 @@ describe('application shell', () => {
       (within(encoder).getByRole('option', { name: 'amf' }) as HTMLOptionElement).disabled,
     ).toBe(false);
     expect(within(encoder).getByRole('option', { name: 'libx264' })).toBeTruthy();
-    const sections = container.querySelectorAll('.settings-scroll > .settings-section');
-    expect(sections.item(sections.length - 1).querySelector('h3')?.textContent).toBe(
-      'Display language',
-    );
     await fireEvent.change(encoder, { target: { value: 'amd' } });
-    await fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
     await waitFor(() => expect(storeState.value).toMatchObject({ export: { encoder: 'amd' } }));
+    await fireEvent.click(within(settingsNavigation).getByRole('button', { name: 'Language' }));
+    expect(screen.getByRole('combobox', { name: 'Display language' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Apply' })).toBeNull();
   });
 
   it('toggles File Explorer integration and persists it with common settings', async () => {
@@ -242,15 +253,99 @@ describe('application shell', () => {
     const settingsButton = screen.getByRole('button', { name: 'Settings' });
     await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
     await fireEvent.click(settingsButton);
+    await fireEvent.click(screen.getByRole('button', { name: 'File Explorer' }));
     await fireEvent.click(
       screen.getByRole('checkbox', { name: 'Show Open with Vidmetry for folders' }),
     );
-    await fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
 
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith('set_explorer_integration', { enabled: false }),
     );
-    expect(storeState.value).toMatchObject({ explorerIntegration: false });
+    await waitFor(() => expect(storeState.value).toMatchObject({ explorerIntegration: false }));
+  });
+
+  it('applies custom mode and Fluent accent choices as soon as they change', async () => {
+    useEnglish();
+    render(App);
+
+    const settingsButton = screen.getByRole('button', { name: 'Settings' });
+    await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(settingsButton);
+    await fireEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+
+    const appearanceGroups = document.querySelectorAll<HTMLElement>('.appearance-group');
+    await fireEvent.click(within(appearanceGroups[0]).getByRole('radio', { name: 'Customize' }));
+    await fireEvent.change(screen.getByRole('combobox', { name: 'App mode' }), {
+      target: { value: 'light' },
+    });
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe('light'));
+    await waitFor(() => expect(windowState.setTheme).toHaveBeenLastCalledWith('light'));
+
+    await fireEvent.click(within(appearanceGroups[1]).getByRole('radio', { name: 'Customize' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Open color palette' }));
+    await fireEvent.click(screen.getByRole('option', { name: 'Purple' }));
+    await waitFor(() =>
+      expect(storeState.value).toMatchObject({
+        appearance: { themeMode: 'manual', theme: 'light', accentMode: 'manual', accentColor: 'purple' },
+      }),
+    );
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#5C2E91');
+  });
+
+  it('records a shortcut, rejects a duplicate, and uses the saved shortcut on the launcher', async () => {
+    useEnglish();
+    vi.mocked(dialogOpen).mockResolvedValue(null);
+    render(App);
+
+    const settingsButton = screen.getByRole('button', { name: 'Settings' });
+    await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(settingsButton);
+    await fireEvent.click(screen.getByRole('button', { name: 'Keyboard shortcuts' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Change shortcut: Open video' }));
+    await fireEvent.keyDown(window, { code: 'KeyP', key: 'p', ctrlKey: true });
+    await waitFor(() =>
+      expect(storeState.value).toMatchObject({ shortcuts: { openVideo: 'Ctrl+KeyP' } }),
+    );
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Change shortcut: Open folder' }));
+    await fireEvent.keyDown(window, { code: 'KeyP', key: 'p', ctrlKey: true });
+    expect(screen.getByRole('alert').textContent).toContain('Already used by “Open video”.');
+
+    await fireEvent.keyDown(window, { code: 'Escape', key: 'Escape' });
+    await fireEvent.click(
+      within(screen.getByRole('dialog', { name: 'Settings' })).getAllByRole('button', {
+        name: 'Close',
+      })[1],
+    );
+    await fireEvent.keyDown(window, { code: 'KeyP', key: 'p', ctrlKey: true });
+    await waitFor(() => expect(dialogOpen).toHaveBeenCalledOnce());
+  });
+
+  it('opens Settings and folders with conventional shortcuts and switches export profiles', async () => {
+    useEnglish();
+    vi.mocked(dialogOpen).mockResolvedValue(videoPaths[0]);
+    mockSelection();
+    render(App);
+
+    const settingsButton = screen.getByRole('button', { name: 'Settings' });
+    await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.keyDown(window, { code: 'Comma', key: ',', ctrlKey: true });
+    const settingsDialog = screen.getByRole('dialog', { name: 'Settings' });
+    expect(settingsDialog).toBeTruthy();
+    await fireEvent.click(within(settingsDialog).getAllByRole('button', { name: 'Close' })[1]);
+
+    await fireEvent.keyDown(window, { code: 'KeyO', key: 'o', ctrlKey: true });
+    expect(await screen.findByText('a.mp4')).toBeTruthy();
+    await fireEvent.keyDown(window, { code: 'Digit2', key: '2', altKey: true });
+    await waitFor(() => expect(screen.getByText('Export: Lossless FFV1 / MKV')).toBeTruthy());
+    await fireEvent.keyDown(window, { code: 'Digit3', key: '3', altKey: true });
+    await waitFor(() => expect(screen.getByText('Export: Metadata only')).toBeTruthy());
+
+    vi.mocked(dialogOpen).mockClear().mockResolvedValue(null);
+    await fireEvent.keyDown(window, { code: 'KeyO', key: 'o', ctrlKey: true, shiftKey: true });
+    await waitFor(() =>
+      expect(dialogOpen).toHaveBeenCalledWith(expect.objectContaining({ directory: true })),
+    );
   });
 
   it('keeps settings open when File Explorer integration cannot be changed', async () => {
@@ -268,10 +363,10 @@ describe('application shell', () => {
     const settingsButton = screen.getByRole('button', { name: 'Settings' });
     await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
     await fireEvent.click(settingsButton);
+    await fireEvent.click(screen.getByRole('button', { name: 'File Explorer' }));
     await fireEvent.click(
       screen.getByRole('checkbox', { name: 'Show Open with Vidmetry for folders' }),
     );
-    await fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
 
     expect((await screen.findByRole('alert')).textContent).toContain(
       'File Explorer integration could not be changed. (access denied)',
@@ -287,8 +382,8 @@ describe('application shell', () => {
     const settingsButton = await screen.findByRole('button', { name: '共通設定' });
     await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
     await fireEvent.click(settingsButton);
+    await fireEvent.click(screen.getByRole('button', { name: '再生' }));
     await fireEvent.click(screen.getByRole('checkbox', { name: 'ループ再生を有効化' }));
-    await fireEvent.click(screen.getByRole('button', { name: '適用' }));
 
     await waitFor(() => expect(storeState.save).toHaveBeenCalledOnce());
     expect(storeState.value).toMatchObject({
@@ -484,8 +579,8 @@ describe('application shell', () => {
     const settingsButton = screen.getByRole('button', { name: 'Settings' });
     await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
     await fireEvent.click(settingsButton);
+    await fireEvent.click(screen.getByRole('button', { name: 'Playback' }));
     await fireEvent.click(screen.getByRole('checkbox', { name: 'Enable loop playback' }));
-    await fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
 
     expect((await screen.findByRole('alert')).textContent).toContain(
       'Could not save settings. (disk unavailable)',
@@ -703,7 +798,9 @@ describe('application shell', () => {
     render(App);
 
     await waitFor(() => expect(document.documentElement.dataset.theme).toBe('dark'));
-    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#FF8C00');
+    await waitFor(() =>
+      expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#FF8C00'),
+    );
   });
 
   it('dismisses the save notice when another control is used', async () => {

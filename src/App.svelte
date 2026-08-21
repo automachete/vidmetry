@@ -8,7 +8,17 @@
   import { warn as logWarning } from '@tauri-apps/plugin-log';
   import appIconUrl from '../assets/app-icon.svg';
 
-  import { applySystemAppearance, fallbackTheme, normalizeAccent, type AppTheme } from './lib/appearance';
+  import {
+    accentColorIds,
+    accentPalette,
+    applySystemAppearance,
+    fallbackTheme,
+    normalizeAccent,
+    resolveAppearance,
+    type AccentColorId,
+    type AppearanceMode,
+    type AppTheme,
+  } from './lib/appearance';
   import { isAppErrorPayload } from './lib/app-error';
 
   import {
@@ -58,6 +68,16 @@
     type LanguageMode,
   } from './lib/settings';
   import {
+    defaultShortcuts,
+    findShortcutConflict,
+    formatShortcutChord,
+    reservedShortcutChords,
+    shortcutChordFromEvent,
+    shortcutActionIds,
+    shortcutMatchesEvent,
+    type ShortcutActionId,
+  } from './lib/shortcuts';
+  import {
     frameToSeconds,
     fullTrimRange,
     isFullTrim,
@@ -81,6 +101,36 @@
     { value: 'south-west', label: 'cropHandleSouthWest' },
     { value: 'west', label: 'cropHandleWest' },
   ];
+
+  const settingsCategories = [
+    { value: 'export', label: 'settingsExport' },
+    { value: 'playback', label: 'settingsPlayback' },
+    { value: 'appearance', label: 'settingsAppearance' },
+    { value: 'shortcuts', label: 'settingsShortcuts' },
+    { value: 'explorer', label: 'settingsExplorer' },
+    { value: 'language', label: 'settingsLanguage' },
+  ] as const satisfies ReadonlyArray<{ value: string; label: TranslationKey }>;
+  type SettingsCategory = (typeof settingsCategories)[number]['value'];
+
+  const shortcutLabels: Record<ShortcutActionId, TranslationKey> = {
+    openVideo: 'shortcutOpenVideo',
+    openFolder: 'shortcutOpenFolder',
+    openSettings: 'shortcutOpenSettings',
+    profileCompatible: 'shortcutCompatible',
+    profileLossless: 'shortcutLossless',
+    profileMetadata: 'shortcutMetadata',
+  };
+
+  const accentLabels: Record<AccentColorId, TranslationKey> = {
+    blue: 'accentBlue',
+    teal: 'accentTeal',
+    green: 'accentGreen',
+    gold: 'accentGold',
+    orange: 'accentOrange',
+    red: 'accentRed',
+    magenta: 'accentMagenta',
+    purple: 'accentPurple',
+  };
 
   interface FrameGeometry {
     left: number;
@@ -174,6 +224,15 @@
   let settingsReady = false;
   let settings: AppSettings = cloneSettings(defaultSettings);
   let settingsDraft: AppSettings = cloneSettings(defaultSettings);
+  let persistedSettings: AppSettings = cloneSettings(defaultSettings);
+  let settingsSaveQueue: Promise<void> = Promise.resolve();
+  let settingsRevision = 0;
+  let settingsSaveState: 'idle' | 'saving' | 'saved' | 'error' = 'idle';
+  let shortcutRecording: ShortcutActionId | null = null;
+  let shortcutError = '';
+  let settingsCategory: SettingsCategory = 'export';
+  let showAccentPalette = false;
+  let appliedWindowThemeMode = '';
   let encoderAvailability: VideoEncoderAvailability = {
     h264: { nvidia: false, intel: false, amd: false },
     h265: { nvidia: false, intel: false, amd: false },
@@ -208,6 +267,12 @@
   $: text = (key: TranslationKey, values: Record<string, string | number> = {}) =>
     translate(language, key, values);
   $: if (typeof document !== 'undefined') document.documentElement.lang = language;
+  $: resolvedAppearance = resolveAppearance(settings.appearance, systemTheme, systemAccent);
+  $: if (typeof document !== 'undefined') {
+    applySystemAppearance(resolvedAppearance.theme, resolvedAppearance.accent);
+  }
+  $: requestedWindowTheme = settings.appearance.themeMode === 'system' ? null : settings.appearance.theme;
+  $: if (settingsReady) synchronizeWindowTheme(requestedWindowTheme);
   $: profileSupported =
     media !== null &&
     (settings.export.profile !== 'metadata' || (media.metadataCropSupported && !timeTrimmed));
@@ -240,6 +305,7 @@
       if (destroyed) return;
       settings = loaded;
       settingsDraft = cloneSettings(loaded);
+      persistedSettings = cloneSettings(loaded);
     } catch (error) {
       if (!destroyed) errorMessage = clientError('settingsLoadFailed', error);
     } finally {
@@ -377,12 +443,10 @@
       recordWarning('system theme query failed', error);
       systemTheme = fallbackTheme(prefersDarkMode());
     }
-    applySystemAppearance(systemTheme, systemAccent);
     await refreshSystemAccent();
     try {
       const unlisten = await appWindow.onThemeChanged((event) => {
         systemTheme = event.payload;
-        applySystemAppearance(systemTheme, systemAccent);
         void refreshSystemAccent();
       });
       if (destroyed) unlisten();
@@ -393,6 +457,15 @@
     }
   }
 
+  function synchronizeWindowTheme(theme: AppTheme | null) {
+    const key = theme ?? 'system';
+    if (key === appliedWindowThemeMode) return;
+    appliedWindowThemeMode = key;
+    void getCurrentWindow()
+      .setTheme(theme)
+      .catch((error) => recordWarning('window theme update failed', error));
+  }
+
   function prefersDarkMode(): boolean {
     return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches;
   }
@@ -400,10 +473,8 @@
   async function refreshSystemAccent() {
     try {
       systemAccent = normalizeAccent(await invoke<string>('system_accent_color'));
-      applySystemAppearance(systemTheme, systemAccent);
     } catch (error) {
       recordWarning('system accent query failed', error);
-      applySystemAppearance(systemTheme, systemAccent);
     }
   }
 
@@ -840,19 +911,18 @@
     if (videoElement) videoElement.muted = isMuted;
   }
 
-  async function toggleLoop() {
-    const next = { ...settings, loopPlayback: !settings.loopPlayback };
-    try {
-      await persistSettings(next);
-      settings = next;
-    } catch (error) {
-      errorMessage = clientError('settingsSaveFailed', error);
-    }
+  function toggleLoop() {
+    updateSettings({ ...settings, loopPlayback: !settings.loopPlayback });
   }
 
   function handleKeyboard(event: KeyboardEvent) {
     if (successPath) dismissSuccess();
     const target = event.target instanceof Element ? event.target : null;
+    const editingText = target?.matches('input, select, textarea, [contenteditable="true"]') ?? false;
+    if (shortcutRecording) {
+      captureShortcut(event);
+      return;
+    }
     if (event.code === 'Escape') {
       if (isVideoFullscreen) {
         event.preventDefault();
@@ -863,12 +933,53 @@
       if (!exportJobId) showSettings = false;
       return;
     }
+    if (
+      settingsReady &&
+      shortcutAllowedFromTarget(settings.shortcuts.openSettings, editingText) &&
+      shortcutMatchesEvent(settings.shortcuts.openSettings, event)
+    ) {
+      event.preventDefault();
+      if (!showSettings) openSettingsDialog();
+      return;
+    }
+    if (showSettings) return;
+    if (
+      shortcutAllowedFromTarget(settings.shortcuts.openVideo, editingText) &&
+      shortcutMatchesEvent(settings.shortcuts.openVideo, event)
+    ) {
+      event.preventDefault();
+      if (!isLoading && !isPreparingProxy && exportJobId === null) void chooseVideo();
+      return;
+    }
+    if (
+      shortcutAllowedFromTarget(settings.shortcuts.openFolder, editingText) &&
+      shortcutMatchesEvent(settings.shortcuts.openFolder, event)
+    ) {
+      event.preventDefault();
+      if (!isLoading && !isPreparingProxy && exportJobId === null) void chooseDirectory();
+      return;
+    }
     if (event.code === 'F11' && media && !showSettings) {
       event.preventDefault();
       void setVideoFullscreen(!isVideoFullscreen);
       return;
     }
-    if (showSettings || !media) return;
+    if (!media) return;
+    const profileShortcuts: Array<[ShortcutActionId, ExportProfile]> = [
+      ['profileCompatible', 'compatible'],
+      ['profileLossless', 'lossless'],
+      ['profileMetadata', 'metadata'],
+    ];
+    const selection = profileShortcuts.find(
+      ([action]) =>
+        shortcutAllowedFromTarget(settings.shortcuts[action], editingText) &&
+        shortcutMatchesEvent(settings.shortcuts[action], event),
+    );
+    if (selection) {
+      event.preventDefault();
+      setProfile(selection[1]);
+      return;
+    }
     if ((event.ctrlKey || event.metaKey) && event.code === 'KeyS') {
       event.preventDefault();
       if (event.shiftKey) {
@@ -899,6 +1010,10 @@
         Math.min(safeTrim.endFrame, Math.max(safeTrim.startFrame, currentFrame + direction * amount)),
       );
     }
+  }
+
+  function shortcutAllowedFromTarget(chord: string, editingText: boolean): boolean {
+    return !editingText || chord.includes('+');
   }
 
   async function setVideoFullscreen(fullscreen: boolean) {
@@ -1184,49 +1299,174 @@
 
   function openSettingsDialog() {
     settingsDraft = cloneSettings(settings);
+    if (settingsSaveState === 'saved') settingsSaveState = 'idle';
+    shortcutError = '';
     showSaveMenu = false;
     showSettings = true;
   }
 
   function closeSettingsDialog() {
-    settingsDraft = cloneSettings(settings);
+    shortcutRecording = null;
+    shortcutError = '';
+    showAccentPalette = false;
     showSettings = false;
   }
 
-  async function applySettings() {
-    let explorerIntegrationChanged = false;
-    let explorerIntegrationApplied = false;
+  function updateSettings(value: AppSettings) {
+    let next: AppSettings;
     try {
-      const next = parseSettings(settingsDraft);
-      explorerIntegrationChanged = next.explorerIntegration !== settings.explorerIntegration;
-      if (explorerIntegrationChanged) {
-        await invoke('set_explorer_integration', { enabled: next.explorerIntegration });
-        explorerIntegrationApplied = true;
-      }
-      await persistSettings(next);
-      settings = next;
-      showSettings = false;
+      next = parseSettings(value);
     } catch (error) {
-      if (explorerIntegrationApplied) {
-        try {
-          await invoke('set_explorer_integration', { enabled: settings.explorerIntegration });
-        } catch (rollbackError) {
-          recordWarning('Explorer integration rollback failed', rollbackError);
-        }
-      }
-      errorMessage = backendOrClientError('settingsSaveFailed', error);
+      errorMessage = clientError('settingsSaveFailed', error);
+      return;
     }
+
+    settings = next;
+    settingsDraft = cloneSettings(next);
+    settingsSaveState = 'saving';
+    const revision = ++settingsRevision;
+    const snapshot = cloneSettings(next);
+    settingsSaveQueue = settingsSaveQueue
+      .catch(() => undefined)
+      .then(async () => {
+        const explorerIntegrationChanged =
+          snapshot.explorerIntegration !== persistedSettings.explorerIntegration;
+        let explorerIntegrationApplied = false;
+        try {
+          if (explorerIntegrationChanged) {
+            await invoke('set_explorer_integration', { enabled: snapshot.explorerIntegration });
+            explorerIntegrationApplied = true;
+          }
+          await persistSettings(snapshot);
+          persistedSettings = cloneSettings(snapshot);
+          if (revision === settingsRevision) settingsSaveState = 'saved';
+        } catch (error) {
+          if (explorerIntegrationApplied) {
+            try {
+              await invoke('set_explorer_integration', {
+                enabled: persistedSettings.explorerIntegration,
+              });
+            } catch (rollbackError) {
+              recordWarning('Explorer integration rollback failed', rollbackError);
+            }
+          }
+          throw error;
+        }
+      })
+      .catch((error) => {
+        if (revision === settingsRevision) {
+          settings = cloneSettings(persistedSettings);
+          settingsDraft = cloneSettings(persistedSettings);
+          settingsSaveState = 'error';
+          errorMessage = backendOrClientError('settingsSaveFailed', error);
+        }
+      });
   }
 
   function updateDraft<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
-    settingsDraft = { ...settingsDraft, [key]: value };
+    updateSettings({ ...settingsDraft, [key]: value });
   }
 
   function updateExportDraft<K extends keyof AppSettings['export']>(
     key: K,
     value: AppSettings['export'][K],
   ) {
-    settingsDraft = { ...settingsDraft, export: { ...settingsDraft.export, [key]: value } };
+    updateSettings({
+      ...settingsDraft,
+      export: { ...settingsDraft.export, [key]: value },
+    });
+  }
+
+  function updateAppearanceDraft<K extends keyof AppSettings['appearance']>(
+    key: K,
+    value: AppSettings['appearance'][K],
+  ) {
+    updateSettings({
+      ...settingsDraft,
+      appearance: { ...settingsDraft.appearance, [key]: value },
+    });
+  }
+
+  function selectSettingsCategory(category: SettingsCategory) {
+    settingsCategory = category;
+    shortcutRecording = null;
+    shortcutError = '';
+    showAccentPalette = false;
+  }
+
+  function handleSettingsNavigation(event: KeyboardEvent, category: SettingsCategory) {
+    if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.code)) return;
+    event.preventDefault();
+    const currentIndex = settingsCategories.findIndex((item) => item.value === category);
+    const nextIndex =
+      event.code === 'Home'
+        ? 0
+        : event.code === 'End'
+          ? settingsCategories.length - 1
+          : (currentIndex + (event.code === 'ArrowDown' ? 1 : -1) + settingsCategories.length) %
+            settingsCategories.length;
+    const next = settingsCategories[nextIndex];
+    if (!next) return;
+    selectSettingsCategory(next.value);
+    void tick().then(() => {
+      document.querySelector<HTMLButtonElement>(`[data-settings-category="${next.value}"]`)?.focus();
+    });
+  }
+
+  function startShortcutRecording(action: ShortcutActionId) {
+    shortcutRecording = action;
+    shortcutError = '';
+  }
+
+  function captureShortcut(event: KeyboardEvent) {
+    if (!shortcutRecording) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.code === 'Escape') {
+      shortcutRecording = null;
+      shortcutError = '';
+      return;
+    }
+    const chord = shortcutChordFromEvent(event);
+    if (!chord) {
+      if (!['ControlLeft', 'ControlRight', 'AltLeft', 'AltRight', 'ShiftLeft', 'ShiftRight'].includes(event.code)) {
+        shortcutError = text('shortcutInvalid');
+      }
+      return;
+    }
+    if (reservedShortcutChords.has(chord)) {
+      shortcutError = text('shortcutReserved');
+      return;
+    }
+    const conflict = findShortcutConflict(shortcutRecording, chord, settingsDraft.shortcuts);
+    if (conflict) {
+      shortcutError = text('shortcutConflict', { action: text(shortcutLabels[conflict]) });
+      return;
+    }
+    updateSettings({
+      ...settingsDraft,
+      shortcuts: { ...settingsDraft.shortcuts, [shortcutRecording]: chord },
+    });
+    shortcutRecording = null;
+    shortcutError = '';
+  }
+
+  function resetShortcuts() {
+    shortcutRecording = null;
+    shortcutError = '';
+    updateSettings({ ...settingsDraft, shortcuts: { ...defaultShortcuts } });
+  }
+
+  function shortcutTitle(label: string, action: ShortcutActionId): string {
+    return `${label} (${formatShortcutChord(settings.shortcuts[action])})`;
+  }
+
+  function profileShortcutSummary(): string {
+    return [
+      `${text('compatible')}: ${formatShortcutChord(settings.shortcuts.profileCompatible)}`,
+      `${text('lossless')}: ${formatShortcutChord(settings.shortcuts.profileLossless)}`,
+      `${text('metadata')}: ${formatShortcutChord(settings.shortcuts.profileMetadata)}`,
+    ].join(' · ');
   }
 
   function encoderAvailable(codec: VideoCodec, encoder: VideoEncoder): boolean {
@@ -1238,11 +1478,10 @@
     const next = { ...settingsDraft.export, profile };
     if (profile === 'compatible') {
       if (next.audioMode === 'flac' || next.audioMode === 'pcm') next.audioMode = 'auto';
-      if (next.pixelFormat === 'source') next.pixelFormat = 'yuv420p';
     } else if (profile === 'lossless') {
       next.pixelFormat = 'source';
     }
-    settingsDraft = { ...settingsDraft, export: next };
+    updateSettings({ ...settingsDraft, export: next });
   }
 
   function profileName(profile: ExportProfile): string {
@@ -1306,17 +1545,17 @@
       <div class="source-summary" title={media.sourcePath}>
         <strong>{media.fileName}</strong>
         <span>{media.displayWidth} × {media.displayHeight} · {formatFrameRate(media.frameRate)} · {media.videoCodec.toUpperCase()}</span>
-        <small>{text('activeProfile', { profile: profileLabel })}</small>
+        <small title={profileShortcutSummary()}>{text('activeProfile', { profile: profileLabel })}</small>
       </div>
 
       <div class="header-actions">
-        <button class="square-button" type="button" aria-label={text('openAnother')} title={text('openAnother')} onclick={chooseVideo} disabled={isLoading || isPreparingProxy || exportJobId !== null}>
+        <button class="square-button" type="button" aria-label={text('openAnother')} title={shortcutTitle(text('openAnother'), 'openVideo')} onclick={chooseVideo} disabled={isLoading || isPreparingProxy || exportJobId !== null}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 3.5h8l4 4v5.2M5.5 3.5v17h7M13.5 3.5v4h4M16.5 16.5h5M19 14v5" /></svg>
         </button>
-        <button class="square-button" type="button" aria-label={text('openFolder')} title={text('openFolder')} onclick={chooseDirectory} disabled={isLoading || isPreparingProxy || exportJobId !== null}>
+        <button class="square-button" type="button" aria-label={text('openFolder')} title={shortcutTitle(text('openFolder'), 'openFolder')} onclick={chooseDirectory} disabled={isLoading || isPreparingProxy || exportJobId !== null}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l2 2h9v10.5a1.5 1.5 0 0 1-1.5 1.5h-14A1.5 1.5 0 0 1 3.5 19z" /><path d="M3.5 9h17" /></svg>
         </button>
-        <button class="square-button settings-button" type="button" aria-label={text('settings')} title={text('settings')} onclick={openSettingsDialog} disabled={!settingsReady}>
+        <button class="square-button settings-button" type="button" aria-label={text('settings')} title={shortcutTitle(text('settings'), 'openSettings')} onclick={openSettingsDialog} disabled={!settingsReady}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.06.06-2.78 2.78-.06-.06A1.8 1.8 0 0 0 15 19.4a1.8 1.8 0 0 0-1.08 1.65V21h-3.84v-.08A1.8 1.8 0 0 0 9 19.4a1.8 1.8 0 0 0-1.98.36l-.06.06-2.78-2.78.06-.06A1.8 1.8 0 0 0 4.6 15a1.8 1.8 0 0 0-1.65-1.08H3v-3.84h.08A1.8 1.8 0 0 0 4.6 9a1.8 1.8 0 0 0-.36-1.98l-.06-.06 2.78-2.78.06.06A1.8 1.8 0 0 0 9 4.6a1.8 1.8 0 0 0 1.08-1.65V3h3.84v.08A1.8 1.8 0 0 0 15 4.6a1.8 1.8 0 0 0 1.98-.36l.06-.06 2.78 2.78-.06.06A1.8 1.8 0 0 0 19.4 9a1.8 1.8 0 0 0 1.65 1.08H21v3.84h-.08A1.8 1.8 0 0 0 19.4 15Z" /></svg>
         </button>
         {#if canOverwrite}
@@ -1347,7 +1586,7 @@
         {/if}
       </div>
     {:else}
-      <button class="square-button settings-button launcher-settings" type="button" aria-label={text('settings')} title={text('settings')} onclick={openSettingsDialog} disabled={!settingsReady}>
+      <button class="square-button settings-button launcher-settings" type="button" aria-label={text('settings')} title={shortcutTitle(text('settings'), 'openSettings')} onclick={openSettingsDialog} disabled={!settingsReady}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.06.06-2.78 2.78-.06-.06A1.8 1.8 0 0 0 15 19.4a1.8 1.8 0 0 0-1.08 1.65V21h-3.84v-.08A1.8 1.8 0 0 0 9 19.4a1.8 1.8 0 0 0-1.98.36l-.06.06-2.78-2.78.06-.06A1.8 1.8 0 0 0 4.6 15a1.8 1.8 0 0 0-1.65-1.08H3v-3.84h.08A1.8 1.8 0 0 0 4.6 9a1.8 1.8 0 0 0-.36-1.98l-.06-.06 2.78-2.78.06.06A1.8 1.8 0 0 0 9 4.6a1.8 1.8 0 0 0 1.08-1.65V3h3.84v.08A1.8 1.8 0 0 0 15 4.6a1.8 1.8 0 0 0 1.98-.36l.06-.06 2.78 2.78-.06.06A1.8 1.8 0 0 0 19.4 9a1.8 1.8 0 0 0 1.65 1.08H21v3.84h-.08A1.8 1.8 0 0 0 19.4 15Z" /></svg>
       </button>
     {/if}
@@ -1555,8 +1794,8 @@
       </div>
       <p class="empty-description">{text('emptyDescription')}</p>
       <div class="empty-actions">
-        <button class="button primary large" type="button" onclick={chooseVideo} disabled={isLoading}>{text('openVideo')}</button>
-        <button class="button secondary large" type="button" onclick={chooseDirectory} disabled={isLoading}>{text('openFolder')}</button>
+        <button class="button primary large" type="button" title={shortcutTitle(text('openVideo'), 'openVideo')} onclick={chooseVideo} disabled={isLoading}>{text('openVideo')}</button>
+        <button class="button secondary large" type="button" title={shortcutTitle(text('openFolder'), 'openFolder')} onclick={chooseDirectory} disabled={isLoading}>{text('openFolder')}</button>
       </div>
     </main>
   {/if}
@@ -1573,87 +1812,156 @@
     <div class="modal-backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && closeSettingsDialog()}>
       <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div class="dialog-heading">
-          <div><h2 id="settings-title">{text('settingsTitle')}</h2><p>{text('settingsDescription')}</p></div>
+          <h2 id="settings-title">{text('settingsTitle')}</h2>
           <button class="dialog-close" type="button" aria-label={text('close')} onclick={closeSettingsDialog}>×</button>
         </div>
 
-        <div class="settings-scroll">
-          <section class="settings-section">
-            <h3>{text('saveMethod')}</h3>
-            <div class="profile-settings">
-              {#each exportProfiles as profile}
-                <button class:active={settingsDraft.export.profile === profile} type="button" onclick={() => setProfile(profile as ExportProfile)}>
-                  <strong>{profileName(profile as ExportProfile)}</strong>
-                  <small>{text(`${profile}Description` as TranslationKey)}</small>
+        <div class="settings-layout">
+          <nav class="settings-nav" aria-label={text('settingsCategories')}>
+            {#each settingsCategories as category}
+              <button
+                class:active={settingsCategory === category.value}
+                type="button"
+                data-settings-category={category.value}
+                aria-current={settingsCategory === category.value ? 'page' : undefined}
+                onclick={() => selectSettingsCategory(category.value)}
+                onkeydown={(event) => handleSettingsNavigation(event, category.value)}
+              >{text(category.label)}</button>
+            {/each}
+          </nav>
+
+          <div class="settings-page">
+          {#if settingsCategory === 'export'}
+            <section class="settings-section">
+              <h3>{text('settingsExport')}</h3>
+              <div class="profile-settings">
+                {#each exportProfiles as profile}
+                  <button class:active={settingsDraft.export.profile === profile} type="button" onclick={() => setProfile(profile as ExportProfile)}>
+                    <strong>{profileName(profile as ExportProfile)}</strong>
+                    <small>{text(`${profile}Description` as TranslationKey)}</small>
+                  </button>
+                {/each}
+              </div>
+            </section>
+
+            {#if settingsDraft.export.profile !== 'metadata'}
+              <section class="settings-section">
+                <h4>{text('encodingSettings')}</h4>
+                <div class="settings-grid">
+                  {#if settingsDraft.export.profile === 'compatible'}
+                    <label class="settings-field"><span>{text('videoCodec')}</span><select value={settingsDraft.export.videoCodec} onchange={(event) => updateExportDraft('videoCodec', (event.currentTarget as HTMLSelectElement).value as VideoCodec)}><option value="h264">H.264</option><option value="h265">H.265 / HEVC</option></select></label>
+                    <label class="settings-field"><span>{text('encoder')}</span><select value={settingsDraft.export.encoder} onchange={(event) => updateExportDraft('encoder', (event.currentTarget as HTMLSelectElement).value as VideoEncoder)}><option value="automatic">{text('automaticEncoder')}</option><option value="nvidia" disabled={!encoderAvailable(settingsDraft.export.videoCodec, 'nvidia')}>nvenc</option><option value="intel" disabled={!encoderAvailable(settingsDraft.export.videoCodec, 'intel')}>qsv</option><option value="amd" disabled={!encoderAvailable(settingsDraft.export.videoCodec, 'amd')}>amf</option><option value="software">{settingsDraft.export.videoCodec === 'h264' ? 'libx264' : 'libx265'}</option></select></label>
+                    <label class="settings-field"><span>{text('crf')}</span><input type="number" min="0" max="51" step="1" value={settingsDraft.export.crf} onchange={(event) => updateExportDraft('crf', Number((event.currentTarget as HTMLInputElement).value))} /><small>{text('crfHint')}</small></label>
+                    <label class="settings-field"><span>{text('preset')}</span><select value={settingsDraft.export.preset} onchange={(event) => updateExportDraft('preset', (event.currentTarget as HTMLSelectElement).value as EncoderPreset)}>{#each encoderPresets as preset}<option value={preset}>{preset}</option>{/each}</select></label>
+                  {/if}
+                  <label class="settings-field"><span>{text('pixelFormatSetting')}</span><select value={settingsDraft.export.pixelFormat} onchange={(event) => updateExportDraft('pixelFormat', (event.currentTarget as HTMLSelectElement).value as PixelFormat)}>{#each pixelFormats as format}<option value={format}>{format === 'source' ? text('sourcePixelFormat') : format}</option>{/each}</select></label>
+                </div>
+              </section>
+
+              <section class="settings-section">
+                <h4>{text('audioSettings')}</h4>
+                <div class="settings-grid">
+                  <label class="settings-field"><span>{text('audioMode')}</span><select value={settingsDraft.export.audioMode} onchange={(event) => updateExportDraft('audioMode', (event.currentTarget as HTMLSelectElement).value as AudioMode)}><option value="auto">{text('audioAuto')}</option><option value="copy">{text('audioCopy')}</option><option value="aac">{text('audioAac')}</option>{#if settingsDraft.export.profile === 'lossless'}<option value="flac">{text('audioFlac')}</option><option value="pcm">{text('audioPcm')}</option>{/if}<option value="none">{text('audioNone')}</option></select></label>
+                  <label class="settings-field"><span>{text('audioBitrate')}</span><div class="unit-input"><input type="number" min="32" max="1024" step="8" value={settingsDraft.export.audioBitrateKbps} disabled={settingsDraft.export.audioMode !== 'aac'} onchange={(event) => updateExportDraft('audioBitrateKbps', Number((event.currentTarget as HTMLInputElement).value))} /><em>kbps</em></div></label>
+                </div>
+              </section>
+
+              <section class="settings-section">
+                <h4>{text('timingSettings')}</h4>
+                <div class="settings-grid">
+                  <label class="settings-field"><span>{text('frameRateMode')}</span><select value={settingsDraft.export.frameRateMode} onchange={(event) => updateExportDraft('frameRateMode', (event.currentTarget as HTMLSelectElement).value as FrameRateMode)}><option value="passthrough">{text('fpsPassthrough')}</option><option value="constant">{text('fpsConstant')}</option></select></label>
+                  <label class="settings-field"><span>{text('constantFps')}</span><div class="unit-input"><input type="number" min="1" max="240" step="0.001" value={settingsDraft.export.constantFrameRate} disabled={settingsDraft.export.frameRateMode !== 'constant'} onchange={(event) => updateExportDraft('constantFrameRate', Number((event.currentTarget as HTMLInputElement).value))} /><em>fps</em></div></label>
+                </div>
+              </section>
+
+              <section class="settings-section">
+                <h4>{text('fileSettings')}</h4>
+                <div class="check-list">
+                  <label><input type="checkbox" checked={settingsDraft.export.preserveMetadata} onchange={(event) => updateExportDraft('preserveMetadata', (event.currentTarget as HTMLInputElement).checked)} />{text('preserveMetadata')}</label>
+                  {#if settingsDraft.export.profile === 'lossless'}<label><input type="checkbox" checked={settingsDraft.export.copySubtitles} onchange={(event) => updateExportDraft('copySubtitles', (event.currentTarget as HTMLInputElement).checked)} />{text('copySubtitles')}</label>{/if}
+                </div>
+              </section>
+            {:else}
+              <p class="metadata-warning">{text('metadataNote')}</p>
+            {/if}
+          {:else if settingsCategory === 'playback'}
+            <section class="settings-section">
+              <h3>{text('settingsPlayback')}</h3>
+              <div class="check-list"><label><input type="checkbox" checked={settingsDraft.loopPlayback} onchange={(event) => updateDraft('loopPlayback', (event.currentTarget as HTMLInputElement).checked)} />{text('enableLoop')}</label></div>
+            </section>
+          {:else if settingsCategory === 'appearance'}
+            <section class="settings-section">
+              <h3>{text('settingsAppearance')}</h3>
+              <div class="appearance-group">
+                <h4>{text('themeMode')}</h4>
+                <div class="radio-row">
+                  <label><input type="radio" name="theme-mode" checked={settingsDraft.appearance.themeMode === 'system'} onchange={() => updateAppearanceDraft('themeMode', 'system' as AppearanceMode)} />{text('appearanceSystem')}</label>
+                  <label><input type="radio" name="theme-mode" checked={settingsDraft.appearance.themeMode === 'manual'} onchange={() => updateAppearanceDraft('themeMode', 'manual' as AppearanceMode)} />{text('appearanceManual')}</label>
+                </div>
+                <label class="settings-field compact"><span>{text('themeChoice')}</span><select value={settingsDraft.appearance.theme} disabled={settingsDraft.appearance.themeMode !== 'manual'} onchange={(event) => updateAppearanceDraft('theme', (event.currentTarget as HTMLSelectElement).value as AppTheme)}><option value="light">{text('lightTheme')}</option><option value="dark">{text('darkTheme')}</option></select></label>
+              </div>
+              <div class="appearance-group">
+                <h4>{text('accentColor')}</h4>
+                <div class="radio-row">
+                  <label><input type="radio" name="accent-mode" checked={settingsDraft.appearance.accentMode === 'system'} onchange={() => updateAppearanceDraft('accentMode', 'system' as AppearanceMode)} />{text('appearanceSystem')}</label>
+                  <label><input type="radio" name="accent-mode" checked={settingsDraft.appearance.accentMode === 'manual'} onchange={() => updateAppearanceDraft('accentMode', 'manual' as AppearanceMode)} />{text('appearanceManual')}</label>
+                </div>
+                <button class="palette-trigger" type="button" aria-label={showAccentPalette ? text('collapseAccentColors') : text('chooseAccentColor')} aria-expanded={showAccentPalette} disabled={settingsDraft.appearance.accentMode !== 'manual'} title={showAccentPalette ? text('collapseAccentColors') : text('chooseAccentColor')} onclick={() => (showAccentPalette = !showAccentPalette)}>
+                  <span class="color-swatch" style={`background:${accentPalette[settingsDraft.appearance.accentColor][resolvedAppearance.theme]}`}></span>
+                  <span>{text(accentLabels[settingsDraft.appearance.accentColor])}</span>
+                  <span aria-hidden="true">{showAccentPalette ? '▴' : '▾'}</span>
                 </button>
-              {/each}
-            </div>
-          </section>
-
-          {#if settingsDraft.export.profile !== 'metadata'}
-            <section class="settings-section">
-              <h3>{text('encodingSettings')}</h3>
-              <div class="settings-grid">
-                {#if settingsDraft.export.profile === 'compatible'}
-                  <label class="settings-field"><span>{text('videoCodec')}</span><select value={settingsDraft.export.videoCodec} onchange={(event) => updateExportDraft('videoCodec', (event.currentTarget as HTMLSelectElement).value as VideoCodec)}><option value="h264">H.264</option><option value="h265">H.265 / HEVC</option></select></label>
-                  <label class="settings-field"><span>{text('encoder')}</span><select value={settingsDraft.export.encoder} onchange={(event) => updateExportDraft('encoder', (event.currentTarget as HTMLSelectElement).value as VideoEncoder)}><option value="automatic">{text('automaticEncoder')}</option><option value="nvidia" disabled={!encoderAvailable(settingsDraft.export.videoCodec, 'nvidia')}>nvenc</option><option value="intel" disabled={!encoderAvailable(settingsDraft.export.videoCodec, 'intel')}>qsv</option><option value="amd" disabled={!encoderAvailable(settingsDraft.export.videoCodec, 'amd')}>amf</option><option value="software">{settingsDraft.export.videoCodec === 'h264' ? 'libx264' : 'libx265'}</option></select></label>
-                  <label class="settings-field"><span>{text('crf')}</span><input type="number" min="0" max="51" step="1" value={settingsDraft.export.crf} onchange={(event) => updateExportDraft('crf', Number((event.currentTarget as HTMLInputElement).value))} /><small>{text('crfHint')}</small></label>
-                  <label class="settings-field"><span>{text('preset')}</span><select value={settingsDraft.export.preset} onchange={(event) => updateExportDraft('preset', (event.currentTarget as HTMLSelectElement).value as EncoderPreset)}>{#each encoderPresets as preset}<option value={preset}>{preset}</option>{/each}</select></label>
+                {#if showAccentPalette && settingsDraft.appearance.accentMode === 'manual'}
+                  <div class="accent-palette" role="listbox" aria-label={text('accentColorChoice')}>
+                    {#each accentColorIds as color}
+                      <button type="button" role="option" aria-selected={settingsDraft.appearance.accentColor === color} title={text(accentLabels[color])} onclick={() => updateAppearanceDraft('accentColor', color)}>
+                        <span class="color-swatch" style={`background:${accentPalette[color][resolvedAppearance.theme]}`}></span>
+                        <span>{text(accentLabels[color])}</span>
+                      </button>
+                    {/each}
+                  </div>
                 {/if}
-                <label class="settings-field"><span>{text('pixelFormatSetting')}</span><select value={settingsDraft.export.pixelFormat} onchange={(event) => updateExportDraft('pixelFormat', (event.currentTarget as HTMLSelectElement).value as PixelFormat)}>{#each pixelFormats as format}<option value={format}>{format === 'source' ? text('sourcePixelFormat') : format}</option>{/each}</select></label>
               </div>
             </section>
-
+          {:else if settingsCategory === 'shortcuts'}
             <section class="settings-section">
-              <h3>{text('audioSettings')}</h3>
-              <div class="settings-grid">
-                <label class="settings-field"><span>{text('audioMode')}</span><select value={settingsDraft.export.audioMode} onchange={(event) => updateExportDraft('audioMode', (event.currentTarget as HTMLSelectElement).value as AudioMode)}><option value="auto">{text('audioAuto')}</option><option value="copy">{text('audioCopy')}</option><option value="aac">{text('audioAac')}</option>{#if settingsDraft.export.profile === 'lossless'}<option value="flac">{text('audioFlac')}</option><option value="pcm">{text('audioPcm')}</option>{/if}<option value="none">{text('audioNone')}</option></select></label>
-                <label class="settings-field"><span>{text('audioBitrate')}</span><div class="unit-input"><input type="number" min="32" max="1024" step="8" value={settingsDraft.export.audioBitrateKbps} disabled={settingsDraft.export.audioMode !== 'aac'} onchange={(event) => updateExportDraft('audioBitrateKbps', Number((event.currentTarget as HTMLInputElement).value))} /><em>kbps</em></div></label>
+              <h3>{text('settingsShortcuts')}</h3>
+              <p class="shortcut-help">{text('shortcutHelp')}</p>
+              <div class="shortcut-list">
+                {#each shortcutActionIds as action}
+                  <div class="shortcut-row">
+                    <span>{text(shortcutLabels[action])}</span>
+                    <button class:recording={shortcutRecording === action} type="button" aria-label={`${text('recordShortcut')}: ${text(shortcutLabels[action])}`} aria-pressed={shortcutRecording === action} onclick={() => startShortcutRecording(action)}>
+                      <kbd>{shortcutRecording === action ? text('pressShortcut') : formatShortcutChord(settingsDraft.shortcuts[action])}</kbd>
+                    </button>
+                  </div>
+                {/each}
               </div>
+              {#if shortcutError}<p class="shortcut-error" role="alert">{shortcutError}</p>{/if}
+              <button class="button secondary reset-shortcuts" type="button" onclick={resetShortcuts}>{text('resetShortcuts')}</button>
             </section>
-
+          {:else if settingsCategory === 'explorer'}
             <section class="settings-section">
-              <h3>{text('timingSettings')}</h3>
-              <div class="settings-grid">
-                <label class="settings-field"><span>{text('frameRateMode')}</span><select value={settingsDraft.export.frameRateMode} onchange={(event) => updateExportDraft('frameRateMode', (event.currentTarget as HTMLSelectElement).value as FrameRateMode)}><option value="passthrough">{text('fpsPassthrough')}</option><option value="constant">{text('fpsConstant')}</option></select></label>
-                <label class="settings-field"><span>{text('constantFps')}</span><div class="unit-input"><input type="number" min="1" max="240" step="0.001" value={settingsDraft.export.constantFrameRate} disabled={settingsDraft.export.frameRateMode !== 'constant'} onchange={(event) => updateExportDraft('constantFrameRate', Number((event.currentTarget as HTMLInputElement).value))} /><em>fps</em></div></label>
-              </div>
-            </section>
-
-            <section class="settings-section">
-              <h3>{text('fileSettings')}</h3>
-              <div class="check-list">
-                <label><input type="checkbox" checked={settingsDraft.export.preserveMetadata} onchange={(event) => updateExportDraft('preserveMetadata', (event.currentTarget as HTMLInputElement).checked)} />{text('preserveMetadata')}</label>
-                {#if settingsDraft.export.profile === 'lossless'}<label><input type="checkbox" checked={settingsDraft.export.copySubtitles} onchange={(event) => updateExportDraft('copySubtitles', (event.currentTarget as HTMLInputElement).checked)} />{text('copySubtitles')}</label>{/if}
-              </div>
+              <h3>{text('explorerIntegration')}</h3>
+              <div class="check-list"><label><input type="checkbox" checked={settingsDraft.explorerIntegration} onchange={(event) => updateDraft('explorerIntegration', (event.currentTarget as HTMLInputElement).checked)} />{text('enableExplorerIntegration')}</label></div>
             </section>
           {:else}
-            <p class="metadata-warning">{text('metadataNote')}</p>
+            <section class="settings-section">
+              <h3>{text('language')}</h3>
+              <div class="radio-row">
+                <label><input type="radio" name="language-mode" checked={settingsDraft.languageMode === 'system'} onchange={() => updateDraft('languageMode', 'system' as LanguageMode)} />{text('languageSystem')}</label>
+                <label><input type="radio" name="language-mode" checked={settingsDraft.languageMode === 'manual'} onchange={() => updateDraft('languageMode', 'manual' as LanguageMode)} />{text('languageManual')}</label>
+              </div>
+              <label class="settings-field compact"><span>{text('language')}</span><select value={settingsDraft.language} disabled={settingsDraft.languageMode !== 'manual'} onchange={(event) => updateDraft('language', (event.currentTarget as HTMLSelectElement).value as Language)}><option value="ja">{text('japanese')}</option><option value="en">{text('english')}</option></select></label>
+            </section>
           {/if}
-
-          <section class="settings-section">
-            <h3>{text('play')}</h3>
-            <div class="check-list"><label><input type="checkbox" checked={settingsDraft.loopPlayback} onchange={(event) => updateDraft('loopPlayback', (event.currentTarget as HTMLInputElement).checked)} />{text('enableLoop')}</label></div>
-            <p class="settings-note">{text('loopRemember')}</p>
-          </section>
-
-          <section class="settings-section">
-            <h3>{text('explorerIntegration')}</h3>
-            <div class="check-list"><label><input type="checkbox" checked={settingsDraft.explorerIntegration} onchange={(event) => updateDraft('explorerIntegration', (event.currentTarget as HTMLInputElement).checked)} />{text('enableExplorerIntegration')}</label></div>
-            <p class="settings-note">{text('explorerIntegrationNote')}</p>
-          </section>
-
-          <section class="settings-section">
-            <h3>{text('language')}</h3>
-            <div class="radio-row">
-              <label><input type="radio" name="language-mode" checked={settingsDraft.languageMode === 'system'} onchange={() => updateDraft('languageMode', 'system' as LanguageMode)} />{text('languageSystem')}</label>
-              <label><input type="radio" name="language-mode" checked={settingsDraft.languageMode === 'manual'} onchange={() => updateDraft('languageMode', 'manual' as LanguageMode)} />{text('languageManual')}</label>
-            </div>
-            <label class="settings-field compact"><span>{text('language')}</span><select value={settingsDraft.language} disabled={settingsDraft.languageMode !== 'manual'} onchange={(event) => updateDraft('language', (event.currentTarget as HTMLSelectElement).value as Language)}><option value="ja">{text('japanese')}</option><option value="en">{text('english')}</option></select></label>
-          </section>
+          </div>
         </div>
 
-        <div class="dialog-actions"><button class="button secondary" type="button" onclick={closeSettingsDialog}>{text('close')}</button><button class="button primary" type="button" onclick={applySettings}>{text('apply')}</button></div>
+        <div class="dialog-actions">
+          <span class="settings-save-status" aria-live="polite">{settingsSaveState === 'saving' ? text('settingsSaving') : settingsSaveState === 'saved' ? text('settingsSaved') : ''}</span>
+          <button class="button primary" type="button" onclick={closeSettingsDialog}>{text('close')}</button>
+        </div>
       </div>
     </div>
   {/if}

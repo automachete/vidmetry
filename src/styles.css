@@ -1244,6 +1244,7 @@ select:focus-visible {
 
 .dialog-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 20px;
@@ -1251,7 +1252,7 @@ select:focus-visible {
 
 .settings-dialog {
   display: grid;
-  width: min(840px, 100%);
+  width: min(920px, 100%);
   max-height: min(820px, calc(100vh - 48px));
   grid-template-rows: auto minmax(0, 1fr) auto;
   padding: 24px;
@@ -1261,8 +1262,58 @@ select:focus-visible {
   box-shadow: 0 30px 100px rgb(0 0 0 / 65%);
 }
 
-.settings-scroll {
+.settings-layout {
+  display: grid;
   min-height: 0;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 24px;
+}
+
+.settings-nav {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  padding-right: 12px;
+  border-right: 1px solid var(--line);
+}
+
+.settings-nav button {
+  position: relative;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: #aeb5bf;
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--type-body);
+  line-height: var(--line-body);
+  text-align: left;
+}
+
+.settings-nav button:hover {
+  color: #f4f6f8;
+  background: #22262d;
+}
+
+.settings-nav button.active {
+  color: #fff;
+  background: var(--accent-soft);
+}
+
+.settings-nav button.active::before {
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 0;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+  content: '';
+}
+
+.settings-page {
+  min-width: 0;
   overflow-y: auto;
   padding-right: 8px;
 }
@@ -1277,8 +1328,16 @@ select:focus-visible {
 }
 
 .settings-section h3 {
-  margin: 0 0 12px;
+  margin: 0 0 18px;
   color: #dfe3e8;
+  font-size: var(--type-subtitle);
+  line-height: var(--line-subtitle);
+}
+
+.settings-section h4,
+.appearance-group h4 {
+  margin: 0 0 12px;
+  color: #c8ced6;
   font-size: var(--type-body);
   line-height: var(--line-body);
 }
@@ -1414,6 +1473,152 @@ select:focus-visible {
 
 .profile-settings small {
   color: #828b97;
+  font-size: var(--type-caption);
+  line-height: var(--line-caption);
+}
+
+.appearance-group {
+  display: grid;
+  gap: 12px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+
+.appearance-group:first-of-type {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.appearance-group .settings-field.compact {
+  margin-top: 0;
+}
+
+.palette-trigger {
+  display: grid;
+  width: min(280px, 100%);
+  min-height: var(--control-height);
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: #e4e7eb;
+  background: #20242b;
+  cursor: pointer;
+  font-size: var(--type-body);
+  line-height: var(--line-body);
+  text-align: left;
+}
+
+.palette-trigger:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.color-swatch {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgb(255 255 255 / 24%);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 15%);
+}
+
+.accent-palette {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #1c2026;
+}
+
+.accent-palette button {
+  display: flex;
+  min-width: 0;
+  min-height: 42px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #c8ced6;
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--type-caption);
+  line-height: var(--line-caption);
+  text-align: left;
+}
+
+.accent-palette button:hover,
+.accent-palette button[aria-selected='true'] {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
+.shortcut-help {
+  margin: -6px 0 14px;
+  color: #828b97;
+  font-size: var(--type-caption);
+  line-height: var(--line-caption);
+}
+
+.shortcut-list {
+  display: grid;
+  border-top: 1px solid var(--line);
+}
+
+.shortcut-row {
+  display: grid;
+  min-height: 54px;
+  grid-template-columns: minmax(0, 1fr) minmax(170px, auto);
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+  color: #c8ced6;
+  font-size: var(--type-body);
+  line-height: var(--line-body);
+}
+
+.shortcut-row button {
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: #e5e8ec;
+  background: #20242b;
+  cursor: pointer;
+}
+
+.shortcut-row button:hover,
+.shortcut-row button.recording {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
+.shortcut-row kbd {
+  font-family: 'Cascadia Mono', 'Consolas', monospace;
+  font-size: var(--type-caption);
+  line-height: var(--line-caption);
+}
+
+.shortcut-error {
+  margin: 12px 0 0;
+  color: #ffb0b0;
+  font-size: var(--type-caption);
+  line-height: var(--line-caption);
+}
+
+.reset-shortcuts {
+  margin-top: 16px;
+}
+
+.settings-save-status {
+  min-height: var(--line-caption);
+  margin-right: auto;
+  color: #818a96;
   font-size: var(--type-caption);
   line-height: var(--line-caption);
 }
@@ -1575,6 +1780,8 @@ select:focus-visible {
 :root[data-theme="light"] .unit-input em,
 :root[data-theme="light"] .metadata-warning,
 :root[data-theme="light"] .settings-note,
+:root[data-theme="light"] .shortcut-help,
+:root[data-theme="light"] .settings-save-status,
 :root[data-theme="light"] .inline-export span {
   color: #656a72;
 }
@@ -1585,7 +1792,9 @@ select:focus-visible {
 :root[data-theme="light"] .number-input,
 :root[data-theme="light"] .settings-field select,
 :root[data-theme="light"] .settings-field > input,
-:root[data-theme="light"] .unit-input {
+:root[data-theme="light"] .unit-input,
+:root[data-theme="light"] .palette-trigger,
+:root[data-theme="light"] .shortcut-row button {
   color: #222427;
   background: var(--input-bg);
 }
@@ -1605,7 +1814,10 @@ select:focus-visible {
 
 :root[data-theme="light"] .save-menu button,
 :root[data-theme="light"] .settings-section h3,
+:root[data-theme="light"] .settings-section h4,
+:root[data-theme="light"] .appearance-group h4,
 :root[data-theme="light"] .profile-settings button,
+:root[data-theme="light"] .shortcut-row,
 :root[data-theme="light"] .media-details dd,
 :root[data-theme="light"] .trim-readout strong,
 :root[data-theme="light"] .time.current {
@@ -1619,6 +1831,7 @@ select:focus-visible {
 :root[data-theme="light"] .check-list label,
 :root[data-theme="light"] .settings-field,
 :root[data-theme="light"] .profile-settings small,
+:root[data-theme="light"] .accent-palette button,
 :root[data-theme="light"] .empty-description,
 :root[data-theme="light"] .dialog-heading p {
   color: #5f646c;
@@ -1691,6 +1904,24 @@ select:focus-visible {
   background: #fff;
 }
 
+:root[data-theme="light"] .settings-nav button {
+  color: #4e535b;
+}
+
+:root[data-theme="light"] .settings-nav button:hover {
+  color: #17191c;
+  background: #ececec;
+}
+
+:root[data-theme="light"] .settings-nav button.active {
+  color: #17191c;
+  background: var(--accent-soft);
+}
+
+:root[data-theme="light"] .accent-palette {
+  background: #fff;
+}
+
 :root[data-theme="light"] .inline-export {
   background: rgb(250 250 250 / 98%);
   box-shadow: 0 16px 50px rgb(0 0 0 / 18%);
@@ -1760,6 +1991,10 @@ select:focus-visible {
 
   .profile-settings {
     grid-template-columns: 1fr;
+  }
+
+  .accent-palette {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .transport {
@@ -1835,5 +2070,38 @@ select:focus-visible {
   .settings-dialog {
     max-height: calc(100vh - 20px);
     padding: 16px;
+  }
+
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .settings-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 0 0 10px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .settings-nav button {
+    flex: 0 0 auto;
+  }
+
+  .settings-nav button.active::before {
+    top: auto;
+    right: 10px;
+    bottom: 0;
+    left: 10px;
+    width: auto;
+    height: 3px;
+  }
+
+  .shortcut-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+    padding: 10px 0;
   }
 }

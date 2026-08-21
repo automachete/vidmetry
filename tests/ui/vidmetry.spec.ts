@@ -76,6 +76,7 @@ async function installTauriMock(page: Page): Promise<void> {
         return null;
       }
       if (command === 'plugin:window|theme') return requestedTheme;
+      if (command === 'plugin:window|set_theme') return null;
       if (command === 'plugin:window|set_fullscreen') {
         (window as any).__vidmetryFullscreen = Boolean(args.value);
         return null;
@@ -168,6 +169,7 @@ async function installTauriMock(page: Page): Promise<void> {
       },
       __vidmetryPlayCount: 0,
       __vidmetryFullscreen: false,
+      __getStoredSettings: () => structuredClone(storedSettings),
       __setDirectoryVideos: (paths: string[]) => {
         directoryVideos = [...paths];
       },
@@ -222,7 +224,7 @@ test('Windows desktop type ramp and scaled panes stay balanced', async ({ page }
       };
       const candidates = Array.from(
         scope.querySelectorAll<HTMLElement>(
-          '.button, .square-button, .pane-button, .text-button, .empty-description, .dialog-heading h2, .dialog-heading p, .settings-section h3, .settings-field, .radio-row label, .check-list label, .profile-settings button, .settings-note, .metadata-warning, .inspector h2, .field, .output-size, .media-details div, .trim-readout > span, .trim-reset, .time',
+          '.button, .square-button, .pane-button, .text-button, .empty-description, .dialog-heading h2, .settings-nav button, .settings-section h3, .settings-section h4, .settings-field, .radio-row label, .check-list label, .profile-settings button, .palette-trigger, .shortcut-row, .metadata-warning, .inspector h2, .field, .output-size, .media-details div, .trim-readout > span, .trim-reset, .time',
         ),
       ).filter(visible);
       const clipped = candidates
@@ -234,7 +236,7 @@ test('Windows desktop type ramp and scaled panes stay balanced', async ({ page }
         .map((element) => `${element.tagName.toLowerCase()}.${element.className}: ${element.textContent?.trim()}`);
       const singleLine = Array.from(
         scope.querySelectorAll<HTMLElement>(
-          '.button, .empty-description, .dialog-heading h2, .settings-section h3, .settings-field > span, .profile-settings strong, .inspector h2, .text-button, .field > span, .section-label, .trim-readout > span, .trim-reset, .time',
+          '.button, .empty-description, .dialog-heading h2, .settings-nav button, .settings-section h3, .settings-section h4, .settings-field > span, .profile-settings strong, .inspector h2, .text-button, .field > span, .section-label, .trim-readout > span, .trim-reset, .time',
         ),
       )
         .filter(visible)
@@ -289,18 +291,18 @@ test('Windows desktop type ramp and scaled panes stay balanced', async ({ page }
     return {
       width: dialog.getBoundingClientRect().width,
       titleFontSize: style('h2').fontSize,
-      descriptionFontSize: style('.dialog-heading p').fontSize,
       sectionFontSize: style('.settings-section h3').fontSize,
+      navigationWidth: rect('.settings-nav').width,
       labelFontSize: style('.settings-field').fontSize,
       selectHeight: rect('.settings-field select').height,
       closeButtonSize: rect('.dialog-close').width,
       profileHeight: rect('.profile-settings button').height,
     };
   });
-  expect(dialogMetrics.width).toBe(840);
+  expect(dialogMetrics.width).toBe(920);
   expect(dialogMetrics.titleFontSize).toBe('20px');
-  expect(dialogMetrics.descriptionFontSize).toBe('14px');
-  expect(dialogMetrics.sectionFontSize).toBe('14px');
+  expect(dialogMetrics.sectionFontSize).toBe('20px');
+  expect(dialogMetrics.navigationWidth).toBe(190);
   expect(dialogMetrics.labelFontSize).toBe('12px');
   expect(dialogMetrics.selectHeight).toBe(40);
   expect(dialogMetrics.closeButtonSize).toBe(40);
@@ -338,6 +340,15 @@ test('Windows desktop type ramp and scaled panes stay balanced', async ({ page }
   const compactSettings = page.locator('.settings-dialog');
   await expect(compactSettings).toBeVisible();
   expect(await auditTextLayout(compactSettings)).toEqual({ clipped: [], singleLine: [] });
+
+  for (const category of ['Playback', 'Appearance', 'Keyboard shortcuts', 'File Explorer', 'Language']) {
+    await compactSettings.getByRole('button', { name: category }).click();
+    if (category === 'Appearance') {
+      await compactSettings.locator('.appearance-group').nth(1).getByRole('radio', { name: 'Customize' }).check();
+      await compactSettings.getByRole('button', { name: 'Open color palette' }).click();
+    }
+    expect(await auditTextLayout(compactSettings)).toEqual({ clipped: [], singleLine: [] });
+  }
 
   await compactSettings.locator('.settings-field.compact select').selectOption('ja');
   await expect(compactSettings.getByRole('heading', { name: '共通設定' })).toBeVisible();
@@ -389,21 +400,20 @@ test('directory navigation continues playback in regular and fullscreen preview'
   await expect.poll(() => page.evaluate(() => (window as any).__vidmetryPlayCount)).toBe(3);
 });
 
-test('settings expose encoder availability and place display language last', async ({ page }) => {
+test('settings use one-level category navigation and expose encoder availability', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings' }).click();
 
-  const headings = await page.locator('.settings-scroll > .settings-section > h3').allTextContents();
-  expect(headings).toEqual([
-    'Video export method',
-    'Video',
-    'Audio',
-    'Timing',
-    'File and metadata',
-    'Play',
-    'File Explorer integration',
-    'Display language',
+  const settingsNavigation = page.getByRole('navigation', { name: 'Settings categories' });
+  await expect(settingsNavigation.getByRole('button')).toHaveText([
+    'Export',
+    'Playback',
+    'Appearance',
+    'Keyboard shortcuts',
+    'File Explorer',
+    'Language',
   ]);
+  await expect(page.locator('.settings-page > .settings-section > h3')).toHaveText('Export');
   const encoder = page.getByRole('combobox', { name: 'Encoder' });
   await expect(encoder.locator('option[value="automatic"]')).toHaveText('Automatic');
   await expect(encoder.locator('option[value="nvidia"]')).toHaveText('nvenc');
@@ -421,8 +431,63 @@ test('settings expose encoder availability and place display language last', asy
   await expect(encoder.locator('option[value="software"]')).toHaveText('libx265');
   await expect(encoder.locator('option[value="amd"]')).toHaveAttribute('disabled', '');
   await codec.selectOption('h264');
-  await expect(page.getByRole('button', { name: 'Apply' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Apply' })).toHaveCount(0);
+  await settingsNavigation.getByRole('button', { name: 'Language' }).click();
+  await expect(page.getByRole('combobox', { name: 'Display language' })).toBeVisible();
   await expect(page.locator('.dialog-actions').getByRole('button', { name: 'Close' })).toBeVisible();
+});
+
+test('settings save appearance and recorded shortcuts immediately', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Open video' })).toHaveAttribute(
+    'title',
+    'Open video (Ctrl+O)',
+  );
+  await expect(page.getByRole('button', { name: 'Open folder' })).toHaveAttribute(
+    'title',
+    'Open folder (Ctrl+Shift+O)',
+  );
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  await expect(dialog.getByText('Configure export, playback, and File Explorer integration.')).toHaveCount(0);
+  await expect(dialog.getByText('The loop playback state is remembered automatically.')).toHaveCount(0);
+  await expect(dialog.getByText(/Vidmetry always appears in Open with/)).toHaveCount(0);
+
+  await dialog.getByRole('button', { name: 'Appearance' }).click();
+  const customize = dialog.getByRole('radio', { name: 'Customize' });
+  await customize.nth(0).check();
+  await dialog.getByRole('combobox', { name: 'App mode' }).selectOption('light');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await customize.nth(1).check();
+  await dialog.getByRole('button', { name: 'Open color palette' }).click();
+  await dialog.getByRole('option', { name: 'Purple' }).click();
+  await expect
+    .poll(() => page.locator('html').evaluate((element) => element.style.getPropertyValue('--accent')))
+    .toBe('#5C2E91');
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as any).__getStoredSettings().appearance),
+    )
+    .toEqual({ themeMode: 'manual', theme: 'light', accentMode: 'manual', accentColor: 'purple' });
+
+  await dialog.getByRole('button', { name: 'Keyboard shortcuts' }).click();
+  await dialog.getByRole('button', { name: 'Change shortcut: Open video' }).click();
+  await page.keyboard.press('Control+p');
+  await expect(dialog.getByRole('button', { name: 'Change shortcut: Open video' }).locator('kbd')).toHaveText(
+    'Ctrl+P',
+  );
+  await dialog.getByRole('button', { name: 'Change shortcut: Open folder' }).click();
+  await page.keyboard.press('Control+p');
+  await expect(dialog.getByRole('alert')).toContainText('Already used by “Open video”.');
+  await page.keyboard.press('Escape');
+  await dialog.locator('.dialog-actions').getByRole('button', { name: 'Close' }).click();
+
+  await page.keyboard.press('Control+p');
+  await expect(page.getByText('sample.mp4', { exact: true })).toBeVisible();
+  await page.keyboard.press('Alt+2');
+  await expect(page.getByText('Export: Lossless FFV1 / MKV')).toBeVisible();
+  await page.keyboard.press('Alt+3');
+  await expect(page.getByText('Export: Metadata only')).toBeVisible();
 });
 
 test('folder navigation, save options, success alignment, and Explorer selection work together', async ({
