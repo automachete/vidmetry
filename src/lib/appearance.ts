@@ -1,4 +1,28 @@
 export type AppTheme = 'light' | 'dark';
+export const appThemes = ['light', 'dark'] as const;
+export const appearanceModes = ['system', 'manual'] as const;
+export const accentColorIds = ['blue', 'teal', 'green', 'gold', 'orange', 'red', 'magenta', 'purple'] as const;
+
+export type AppearanceMode = (typeof appearanceModes)[number];
+export type AccentColorId = (typeof accentColorIds)[number];
+
+export interface AppearancePreferences {
+  themeMode: AppearanceMode;
+  theme: AppTheme;
+  accentMode: AppearanceMode;
+  accentColor: AccentColorId;
+}
+
+export const accentPalette: Record<AccentColorId, Record<AppTheme, string>> = {
+  blue: { light: '#0078D4', dark: '#3595DE' },
+  teal: { light: '#038387', dark: '#2AA0A4' },
+  green: { light: '#107C10', dark: '#359B35' },
+  gold: { light: '#937700', dark: '#C19C00' },
+  orange: { light: '#BC4B09', dark: '#F7630C' },
+  red: { light: '#D13438', dark: '#DC5E62' },
+  magenta: { light: '#BF0077', dark: '#CE3293' },
+  purple: { light: '#5C2E91', dark: '#9470BD' },
+};
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
@@ -8,6 +32,19 @@ export function normalizeAccent(value: unknown): string {
 
 export function fallbackTheme(prefersDark: boolean): AppTheme {
   return prefersDark ? 'dark' : 'light';
+}
+
+export function resolveAppearance(
+  preferences: AppearancePreferences,
+  systemTheme: AppTheme,
+  systemAccent: string,
+): { theme: AppTheme; accent: string } {
+  const theme = preferences.themeMode === 'system' ? systemTheme : preferences.theme;
+  const accent =
+    preferences.accentMode === 'system'
+      ? normalizeAccent(systemAccent)
+      : accentPalette[preferences.accentColor][theme];
+  return { theme, accent };
 }
 
 export function accentTextColor(accent: string): '#000000' | '#FFFFFF' {

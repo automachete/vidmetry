@@ -26,14 +26,16 @@ class MemoryStore implements SettingsStore {
 }
 
 describe('persistent settings', () => {
-  it('round-trips export, loop, Explorer, and language preferences through the durable store', async () => {
+  it('round-trips export, appearance, shortcuts, loop, Explorer, and language preferences through the durable store', async () => {
     const store = new MemoryStore();
     await persistSettings(
       {
         ...defaultSettings,
         languageMode: 'manual',
         language: 'en',
-        loopPlayback: true,
+        appearance: { ...defaultSettings.appearance, themeMode: 'manual', theme: 'light' },
+        shortcuts: { ...defaultSettings.shortcuts, openVideo: 'Alt+KeyO' },
+        loopPlayback: false,
         explorerIntegration: false,
         export: { ...defaultSettings.export, videoCodec: 'h265', encoder: 'nvidia', crf: 21 },
       },
@@ -42,7 +44,9 @@ describe('persistent settings', () => {
     await expect(loadSettings(store)).resolves.toMatchObject({
       languageMode: 'manual',
       language: 'en',
-      loopPlayback: true,
+      appearance: { themeMode: 'manual', theme: 'light' },
+      shortcuts: { openVideo: 'Alt+KeyO' },
+      loopPlayback: false,
       explorerIntegration: false,
       export: { videoCodec: 'h265', encoder: 'nvidia', crf: 21 },
     });
@@ -51,6 +55,8 @@ describe('persistent settings', () => {
 
   it('uses defaults when the durable store has no settings yet', async () => {
     await expect(loadSettings(new MemoryStore())).resolves.toEqual(defaultSettings);
+    expect(defaultSettings.loopPlayback).toBe(true);
+    expect(defaultSettings.export.pixelFormat).toBe('source');
   });
 
   it('rejects invalid persisted values instead of silently repairing them', async () => {
@@ -73,6 +79,8 @@ describe('persistent settings', () => {
     ).toThrow();
     const { explorerIntegration: _, ...withoutExplorerIntegration } = defaultSettings;
     expect(() => parseSettings(withoutExplorerIntegration)).toThrow();
+    const { shortcuts: __, ...withoutShortcuts } = defaultSettings;
+    expect(() => parseSettings(withoutShortcuts)).toThrow();
     expect(() => parseSettings({ languageMode: 'system' })).toThrow();
   });
 

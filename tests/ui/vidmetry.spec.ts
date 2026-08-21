@@ -3,7 +3,21 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 const settings = {
   languageMode: 'manual',
   language: 'en',
-  loopPlayback: false,
+  appearance: {
+    themeMode: 'system',
+    theme: 'dark',
+    accentMode: 'system',
+    accentColor: 'blue',
+  },
+  shortcuts: {
+    openVideo: 'Ctrl+KeyO',
+    openFolder: 'Ctrl+Shift+KeyO',
+    openSettings: 'Ctrl+Comma',
+    profileCompatible: 'Alt+Digit1',
+    profileLossless: 'Alt+Digit2',
+    profileMetadata: 'Alt+Digit3',
+  },
+  loopPlayback: true,
   explorerIntegration: true,
   export: {
     profile: 'compatible',
@@ -11,7 +25,7 @@ const settings = {
     encoder: 'automatic',
     crf: 17,
     preset: 'medium',
-    pixelFormat: 'yuv420p',
+    pixelFormat: 'source',
     audioMode: 'auto',
     audioBitrateKbps: 192,
     frameRateMode: 'passthrough',

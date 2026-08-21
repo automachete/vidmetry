@@ -11,6 +11,8 @@ import {
   videoEncoders,
   type ExportSettings,
 } from './export';
+import { accentColorIds, appearanceModes, appThemes } from './appearance';
+import { defaultShortcuts, isShortcutChord } from './shortcuts';
 
 const exportSettingsSchema: z.ZodType<ExportSettings> = z.strictObject({
   profile: z.enum(exportProfiles),
@@ -27,9 +29,29 @@ const exportSettingsSchema: z.ZodType<ExportSettings> = z.strictObject({
   copySubtitles: z.boolean(),
 });
 
+const shortcutChordSchema = z.string().refine(isShortcutChord);
+
+const appearanceSettingsSchema = z.strictObject({
+  themeMode: z.enum(appearanceModes),
+  theme: z.enum(appThemes),
+  accentMode: z.enum(appearanceModes),
+  accentColor: z.enum(accentColorIds),
+});
+
+const shortcutSettingsSchema = z.strictObject({
+  openVideo: shortcutChordSchema,
+  openFolder: shortcutChordSchema,
+  openSettings: shortcutChordSchema,
+  profileCompatible: shortcutChordSchema,
+  profileLossless: shortcutChordSchema,
+  profileMetadata: shortcutChordSchema,
+});
+
 export const appSettingsSchema = z.strictObject({
   languageMode: z.enum(['system', 'manual']),
   language: z.enum(['ja', 'en']),
+  appearance: appearanceSettingsSchema,
+  shortcuts: shortcutSettingsSchema,
   loopPlayback: z.boolean(),
   explorerIntegration: z.boolean(),
   export: exportSettingsSchema,
@@ -52,7 +74,14 @@ let settingsStorePromise: Promise<SettingsStore> | undefined;
 export const defaultSettings: AppSettings = appSettingsSchema.parse({
   languageMode: 'system',
   language: 'ja',
-  loopPlayback: false,
+  appearance: {
+    themeMode: 'system',
+    theme: 'dark',
+    accentMode: 'system',
+    accentColor: 'blue',
+  },
+  shortcuts: defaultShortcuts,
+  loopPlayback: true,
   explorerIntegration: true,
   export: {
     profile: 'compatible',
@@ -60,7 +89,7 @@ export const defaultSettings: AppSettings = appSettingsSchema.parse({
     encoder: 'automatic',
     crf: 17,
     preset: 'medium',
-    pixelFormat: 'yuv420p',
+    pixelFormat: 'source',
     audioMode: 'auto',
     audioBitrateKbps: 192,
     frameRateMode: 'passthrough',

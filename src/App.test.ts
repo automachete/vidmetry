@@ -280,7 +280,7 @@ describe('application shell', () => {
     expect(storeState.save).not.toHaveBeenCalled();
   });
 
-  it('applies Japanese UI and persists loop playback', async () => {
+  it('applies Japanese UI and persists disabling loop playback', async () => {
     storeState.value = { ...defaultSettings, languageMode: 'manual', language: 'ja' };
     render(App);
 
@@ -294,7 +294,7 @@ describe('application shell', () => {
     expect(storeState.value).toMatchObject({
       languageMode: 'manual',
       language: 'ja',
-      loopPlayback: true,
+      loopPlayback: false,
     });
   });
 
@@ -723,7 +723,7 @@ describe('application shell', () => {
     });
     expect(await screen.findByRole('status')).toBeTruthy();
 
-    await fireEvent.pointerDown(screen.getByRole('button', { name: 'Enable loop playback' }));
+    await fireEvent.pointerDown(screen.getByRole('button', { name: 'Disable loop playback' }));
     expect(screen.queryByRole('status')).toBeNull();
   });
 });

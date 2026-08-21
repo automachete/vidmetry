@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { accentTextColor, applySystemAppearance, fallbackTheme, normalizeAccent } from './appearance';
+import {
+  accentTextColor,
+  applySystemAppearance,
+  fallbackTheme,
+  normalizeAccent,
+  resolveAppearance,
+} from './appearance';
 
 describe('Windows appearance projection', () => {
   it('normalizes valid colors and falls back safely', () => {
@@ -20,5 +26,22 @@ describe('Windows appearance projection', () => {
     expect(root.style.getPropertyValue('--accent')).toBe('#FF8C00');
     expect(root.style.getPropertyValue('--accent-contrast')).toBe('#000000');
     expect(fallbackTheme(true)).toBe('dark');
+  });
+
+  it('resolves independent system and manual mode preferences', () => {
+    expect(
+      resolveAppearance(
+        { themeMode: 'manual', theme: 'light', accentMode: 'manual', accentColor: 'purple' },
+        'dark',
+        '#FF8C00',
+      ),
+    ).toEqual({ theme: 'light', accent: '#5C2E91' });
+    expect(
+      resolveAppearance(
+        { themeMode: 'system', theme: 'dark', accentMode: 'manual', accentColor: 'purple' },
+        'dark',
+        '#FF8C00',
+      ),
+    ).toEqual({ theme: 'dark', accent: '#9470BD' });
   });
 });
