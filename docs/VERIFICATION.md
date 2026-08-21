@@ -1,6 +1,6 @@
-# Vidmetry 0.4.7 Verification Record
+# Vidmetry 0.4.8 Verification Record
 
-Verification date: 2026-08-18
+Verification date: 2026-08-21
 Platform: Windows x64  
 Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 
@@ -17,7 +17,8 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 | `npm run check` | Pass — 0 errors, 0 warnings |
 | `npm run test:assets` | Pass — SVG, generated PNG/ICO pixels, and legacy tint list |
 | `npm run test:shell` | Pass — MSIX and NSIS cover all 16 supported video extensions and selected directories; MSI bundling remains absent |
-| `npm run test:nsis -- --LiveInstall` | Pass — isolated current-user install, x64/NSIS-marker/license/sidecar payloads, 16 persistent video Open with entries, folder-only setting preservation across update, legacy-state migration, app launch, and uninstall cleanup |
+| `npm run test:nsis` | Pass — package filename and version contract |
+| `npm run test:nsis -- --LiveInstall` | Not run locally — the existing current-user Vidmetry 0.4.7 installation was preserved; the clean Release runner performs this test before publication |
 | `npm run test:msix` | Pass — unpacked manifest, classic-app activation, all 16 file associations, packaged COM directory command, x64 PE and unmarked Tauri payload, locked FFmpeg sidecars, license/source payloads, and build-file exclusions |
 | `npm run test:runtime` | Pass — pinned Node/npm/Rust, immutable FFmpeg manifest, sidecar hashes/notices, and full-SHA GitHub Actions references |
 | `npm test` | Pass — 59 tests across 10 files |
@@ -74,12 +75,12 @@ A 60-frame trim near the end of a 5-minute 640×360 CFR H.264 source averaged 0.
 
 ## Local release artifacts
 
-These artifacts were generated from the verified 0.4.7 source tree. The MSIX uses the isolated `Vidmetry.Dev` / `CN=Vidmetry Development` identity; the Partner Center identity changes the final Store-submission package hash. The NSIS is the unsigned direct-download package. Build outputs are intentionally not committed.
+These artifacts were generated from the verified 0.4.8 source tree. The unsigned MSIX uses the Partner Center `automachete.Vidmetry` / `CN=253F7C9B-963E-4633-A199-6AD8D2D25034` identity. The NSIS is the unsigned direct-download package. Build outputs are intentionally not committed.
 
 | Artifact | Size | SHA-256 |
 |---|---:|---|
-| `Vidmetry_0.4.7_x64-setup.exe` | 81.48 MiB | `4AA137CED03B2A7AC2A1ACDE5D78EB8462F497FA3418A7A3097FE826C611BF73` |
-| `Vidmetry_0.4.7.0_x64.msix` | 114.36 MiB | `5DA2F46CF4C47EA16853CD97081ED5ECF46B3EE9B195E25F4225A885AE92E172` |
+| `Vidmetry_0.4.8_x64-setup.exe` | 81.49 MiB | `D93D76D91D8FA6A01B325B2FE12E88750E1D583220E905E86355D17839EB965E` |
+| `Vidmetry_0.4.8.0_x64.msix` | 114.36 MiB | `2DF62482ABFE5F1AE2950BA09BF0C55441CF81BEAD01E1365BCD02AFC9E79EEF` |
 
 ## Remaining manual acceptance
 
@@ -87,4 +88,4 @@ These artifacts were generated from the verified 0.4.7 source tree. The MSIX use
 - Cover 4K HEVC 10-bit, rotated phone MOV, VFR, multi-audio MKV, Unicode paths, and low-disk/permission failures.
 - Confirm metadata-only rendering in each target player because support is deliberately player-dependent.
 - Confirm Explorer selection and live folder additions, post-overwrite preview state, Windows personalization changes, pane controls, F11/Escape, and velocity-sensitive pointer feel in the packaged WebView with real personal media.
-- Install the Store-signed MSIX on a disposable Windows user profile and confirm video Open with entries, the selected-folder Open with Vidmetry command, directory-command toggle latency, update preservation, and uninstall cleanup in the live Shell. The MSIX automated `--LiveInstall` path requires an elevated PowerShell session and was not run in this non-elevated workspace; the NSIS current-user live path passed automatically.
+- Install the Store-signed MSIX on a disposable Windows user profile and confirm video Open with entries, the selected-folder Open with Vidmetry command, directory-command toggle latency, update preservation, and uninstall cleanup in the live Shell. The MSIX automated `--LiveInstall` path requires an elevated PowerShell session and was not run in this non-elevated workspace. The NSIS current-user live path was not rerun because the existing Vidmetry 0.4.7 installation was preserved; the clean Release runner performs it before publication.

@@ -3,11 +3,11 @@
 | Field | Value |
 |---|---|
 | Document version | 1.5 |
-| Product version | 0.4.7 |
+| Product version | 0.4.8 |
 | Status | Implemented and verified |
 | Primary platform | Windows 11 x64 |
 | UI languages | Japanese and English |
-| Last updated | 2026-08-18 |
+| Last updated | 2026-08-21 |
 
 ## 1. Purpose
 
@@ -42,7 +42,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 - Keep all media processing local.
 - Remain responsive while probing, proxying, and exporting.
 
-### 2.2 Non-goals for 0.4.7
+### 2.2 Non-goals for 0.4.8
 
 - Multi-clip timelines, internal cuts, transitions, filters, captions, or independent audio editing.
 - Animated crop/keyframes.
@@ -384,7 +384,7 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 - Windows light/dark and several light/dark accent colors, including runtime changes
 - output cancellation and disk/permission errors
 
-## 14. Acceptance criteria for 0.4.7
+## 14. Acceptance criteria for 0.4.8
 
 - **AC-001** A user can open a video, drag every spatial-crop handle, scrub, play, and reset without leaving the main window.
 - **AC-002** Pixel readouts match the crop shown and remain in bounds after resize.
@@ -412,4 +412,4 @@ Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit outp
 
 ## 15. Verification status
 
-The 0.4.7 implementation satisfies AC-001 through AC-023 at automated or implementation-inspection level. Native picker interaction, live Windows personalization, Store-signed MSIX installation and Shell changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced package hashes are recorded in `docs/VERIFICATION.md`.
+The 0.4.8 implementation satisfies AC-001 through AC-023 at automated or implementation-inspection level. Native picker interaction, live Windows personalization, Store-signed MSIX installation and Shell changes in the packaged WebView, and the wider codec/device matrix remain manual acceptance items. Exact commands, fixture results, tool versions, and produced package hashes are recorded in `docs/VERIFICATION.md`.

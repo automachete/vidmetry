@@ -4,7 +4,7 @@
 
 ## 事前確認
 
-1. Partner Centerで製品名を予約し、GitHub ActionsのRepository variablesに`MSIX_IDENTITY_NAME`、`MSIX_PUBLISHER`、`MSIX_PUBLISHER_DISPLAY_NAME`を登録します。値はPartner Centerの製品IDに表示されるPackage/Identityと完全に一致させます。`microsoft-store-release` Environmentには`@automachete`の承認を必須にし、Store用MSIXジョブは承認後だけ実行します。
+1. Partner Centerで製品名を予約し、GitHub ActionsのRepository variablesに`MSIX_IDENTITY_NAME`、`MSIX_PUBLISHER`、`MSIX_PUBLISHER_DISPLAY_NAME`を登録します。値はPartner Centerの製品IDに表示されるPackage/Identityと完全に一致させます。`release-tags` Rulesetは`v*`タグの作成・更新・削除を`@automachete`だけに制限し、`microsoft-store-release` Environmentは`v*`タグからのStore用MSIXジョブだけを承認なしで実行します。
 2. `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`のバージョンを一致させます。
 3. [VERIFICATION.md](VERIFICATION.md)を対象バージョンのローカル検証結果と生成物に合わせて更新します。
 4. `npm run verify`、UI/Rust/統合テスト、ライセンス監査、単一アプリビルドからのMSIX構造検証とNSISのライブインストール検証を完了します。
@@ -16,11 +16,11 @@
 tagger identityやmessageを保存しない、バージョンと同じ軽量tagを作成してプッシュします。privacy guardは注釈付きtagを拒否します。
 
 ```powershell
-git tag v0.4.7
-git push origin v0.4.7
+git tag v0.4.8
+git push origin v0.4.8
 ```
 
-`vX.Y.Z`タグによりReleaseワークフローが起動します。タグと各バージョンファイルが一致しない場合は公開されません。ハイフンを含むタグ（例: `v0.4.7-beta.1`）はプレリリースとして扱われます。
+`vX.Y.Z`タグによりReleaseワークフローが起動します。タグと各バージョンファイルが一致しない場合は公開されません。ハイフンを含むタグ（例: `v0.4.8-beta.1`）はプレリリースとして扱われます。
 
 ワークフローは固定済みFFmpeg対応ソースのSHA-256、依存関係とライセンス、テスト、MPL依存ソース、予約済みIDを持つx64 MSIX、直接配布用x64 NSISを検証します。MSIX、NSIS、FFmpeg対応ソースの圧縮ファイル、SHA-256の4資産が下書きReleaseに揃い、リポジトリの公開状態を再確認した場合だけReleaseを公開します。失敗した下書きは公開しません。NSISは未署名のためSmartScreenの警告が表示される場合があり、自動更新は行いません。
 
