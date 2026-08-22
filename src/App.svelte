@@ -536,7 +536,7 @@
       const selected = await invoke<string | null>('pick_video_folder', {
         title: translate(windowsLanguage, 'chooseFolderVideo'),
         selectFolderLabel: translate(windowsLanguage, 'selectFolderButton'),
-        filterName: translate(windowsLanguage, 'selectVideoFilter'),
+        cancelLabel: translate(windowsLanguage, 'cancel'),
         initialDirectory: directoryPath ?? parentDirectory(media?.sourcePath),
       });
       if (typeof selected === 'string') await loadSelection(selected);

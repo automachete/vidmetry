@@ -390,7 +390,7 @@ describe('application shell', () => {
       expect(invoke).toHaveBeenCalledWith('pick_video_folder', {
         title: 'フォルダーの選択',
         selectFolderLabel: 'フォルダーの選択',
-        filterName: '動画',
+        cancelLabel: 'キャンセル',
         initialDirectory: 'C:\\clips',
       }),
     );

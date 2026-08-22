@@ -726,7 +726,7 @@ test('folder navigation, save options, success alignment, and Explorer selection
       args: {
         title: 'Select folder',
         selectFolderLabel: 'Select folder',
-        filterName: 'Video',
+        cancelLabel: 'Cancel',
         initialDirectory: null,
       },
     },

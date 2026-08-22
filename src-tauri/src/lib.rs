@@ -107,7 +107,7 @@ async fn pick_video_folder(
     window: tauri::WebviewWindow,
     title: String,
     select_folder_label: String,
-    filter_name: String,
+    cancel_label: String,
     initial_directory: Option<String>,
 ) -> Result<Option<String>, AppError> {
     let owner = window.hwnd().map_err(|error| {
@@ -119,7 +119,7 @@ async fn pick_video_folder(
             owner,
             &title,
             &select_folder_label,
-            &filter_name,
+            &cancel_label,
             initial_directory.as_deref(),
         )
         .map_err(|detail| AppError::with_detail(ErrorCode::SelectedPathUnavailable, detail))
