@@ -97,6 +97,7 @@ const supportedVideoExtensions = [
   'webm',
   'wmv',
 ];
+let mockWindowsUiLanguage: 'ja' | 'en' = 'en';
 
 function mediaDescriptor(sourcePath: string) {
   return {
@@ -140,6 +141,7 @@ function mockSelection(
     if (command === 'supported_video_extensions') {
       return supportedVideoExtensions as never;
     }
+    if (command === 'windows_ui_language') return mockWindowsUiLanguage as never;
     if (command === 'pick_video_folder') return 'C:\\clips' as never;
     if (command === 'inspect_selection') {
       return {
@@ -170,6 +172,7 @@ describe('application shell', () => {
     storeState.save.mockReset().mockResolvedValue(undefined);
     eventState.handlers.clear();
     eventState.failOn = undefined;
+    mockWindowsUiLanguage = 'en';
     vi.stubGlobal('ResizeObserver', ResizeObserverStub);
     vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => undefined);
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
@@ -360,8 +363,9 @@ describe('application shell', () => {
     await waitFor(() => expect(HTMLMediaElement.prototype.play).toHaveBeenCalledOnce());
   });
 
-  it('opens Settings and folders with conventional shortcuts and switches export profiles', async () => {
+  it('opens Settings and folders with conventional shortcuts, uses the Windows dialog language, and switches export profiles', async () => {
     useEnglish();
+    mockWindowsUiLanguage = 'ja';
     vi.mocked(dialogOpen).mockResolvedValue(videoPaths[0]);
     mockSelection();
     render(App);
@@ -384,10 +388,9 @@ describe('application shell', () => {
     await fireEvent.keyDown(window, { code: 'KeyO', key: 'o', ctrlKey: true, shiftKey: true });
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith('pick_video_folder', {
-        title: 'Select folder',
-        selectFolderLabel: 'Select folder',
-        selectCurrentFolderLabel: 'Select this folder',
-        filterName: 'Video',
+        title: 'フォルダーの選択',
+        selectFolderLabel: 'フォルダーの選択',
+        filterName: '動画',
         initialDirectory: 'C:\\clips',
       }),
     );
@@ -562,6 +565,7 @@ describe('application shell', () => {
   it('localizes structured backend errors in English mode', async () => {
     useEnglish();
     vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === 'windows_ui_language') return 'en' as never;
       if (command === 'pick_video_folder') return 'C:\\blocked' as never;
       throw { code: 'folder_read_failed', detail: 'access denied' };
     });

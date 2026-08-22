@@ -55,7 +55,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 
 ### 3.1 Import and inspection
 
-- **FR-001** The user can select or drop one local video or a directory. The Windows folder dialog retains its Explorer-style navigation while displaying supported video files alongside folders and provides an explicit action for selecting the folder currently being viewed. Directory discovery is non-recursive and includes supported video extensions only.
+- **FR-001** The user can select or drop one local video or a directory. The Windows folder dialog retains its Explorer-style navigation while displaying supported video files alongside folders and provides one working action in the standard confirmation position for selecting the folder currently being viewed. Dialog-owned Japanese/English labels follow the supported locale matching the Windows UI language independently of the application's display language. Directory discovery is non-recursive and includes supported video extensions only.
 - **FR-002** The backend probes the primary video stream and reports container, video/audio codecs, coded dimensions, display rotation, sample aspect ratio, pixel format, bit depth, frame-rate rationals, duration, and color metadata when present.
 - **FR-003** Direct WebView playback is attempted first. On playback failure the user can generate, or the app can automatically generate, a temporary H.264 proxy from the original.
 - **FR-004** A newly opened video starts with the crop rectangle covering the complete displayed frame.
@@ -262,7 +262,8 @@ Crop rectangles use the displayed orientation. The backend owns the conversion t
 |---|---|---|
 | `inspect_selection(path)` | UI → Rust | Resolve a selected file or sorted directory playlist |
 | `supported_video_extensions()` | UI → Rust | Return the single supported-extension list used by native file filters |
-| `pick_video_folder(title, labels, filterName, initialDirectory?)` | UI → Rust | Show the Explorer-style Windows dialog with supported videos visible and return the folder currently selected |
+| `windows_ui_language()` | UI → Rust | Resolve the supported locale matching the Windows UI language for native-dialog labels |
+| `pick_video_folder(title, selectFolderLabel, filterName, initialDirectory?)` | UI → Rust | Show the Explorer-style Windows dialog with supported videos visible and return the folder currently selected |
 | `watch_directory(path?)` | UI → Rust | Replace or stop the non-recursive watcher for the active directory |
 | `probe_video(path)` | UI → Rust | Return `MediaDescriptor` from ffprobe JSON |
 | `create_preview(path)` | UI → Rust | Create/reuse local proxy and return its path |

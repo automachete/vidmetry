@@ -92,6 +92,7 @@ async function installTauriMock(page: Page): Promise<void> {
         return null;
       }
       if (command === 'system_accent_color') return '#FF8C00';
+      if (command === 'windows_ui_language') return 'en';
       if (command === 'supported_video_extensions') {
         return [
           '3gp',
@@ -725,7 +726,6 @@ test('folder navigation, save options, success alignment, and Explorer selection
       args: {
         title: 'Select folder',
         selectFolderLabel: 'Select folder',
-        selectCurrentFolderLabel: 'Select this folder',
         filterName: 'Video',
         initialDirectory: null,
       },

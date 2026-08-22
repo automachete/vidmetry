@@ -27,7 +27,7 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 | `npm run build` | Pass — Vite production build |
 | `npm run tauri build -- --no-bundle` | Pass — optimized Windows application build |
 | `cargo fmt --check --manifest-path src-tauri\Cargo.toml` | Pass |
-| `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 38 Rust unit tests, including the complete supported-video filter used by the Explorer-style folder dialog |
+| `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 39 Rust unit tests, including the complete supported-video filter and Windows UI-language selection used by the Explorer-style folder dialog |
 | `cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings` | Pass |
 | `scripts/test-integration.ps1` | Pass — H.264/H.265 selected available hardware encoders; FFV1 used parallel slices; late input seek preserved all 60 frame hashes and decoded audio samples |
 | `npm audit --audit-level=high` | Pass — 0 vulnerabilities |
@@ -45,7 +45,7 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 | Export-state regression | Pass — an in-place replacement reloads changed geometry, duration, frame count, and a fresh media URL; export snapshots the exact trim range and disables its controls before asynchronous saving |
 | Pointer alignment regression | Pass — after selecting frames `[60, 180)` of a 240-frame video, a physical timeline click and an off-center handle drag remain aligned within half-frame rendering tolerance |
 | Release executable smoke launch | Pass — remained running until test shutdown; extracted executable icon contains only achromatic pixels |
-| Native folder-dialog smoke | Pass — the optimized executable retained the Explorer-style dialog, exposed all 19 MP4 files in a representative folder through the complete supported-video filter, and returned the current folder through the prominent selection action |
+| Native folder-dialog smoke | Pass — on a Japanese Windows UI with Vidmetry set to English, the optimized executable localized the title, complete supported-video filter, and single folder action to Japanese; exposed all 19 MP4 files in a representative folder; placed that action at the exact standard confirmation rectangle while hiding the nonfunctional file-open action; and returned the current folder when pressed |
 
 The MSVC linker emits a localized informational message while producing the Rust `cdylib` import library. It is surfaced by Cargo as `linker_messages` but is not a compiler or Clippy diagnostic.
 

@@ -532,11 +532,11 @@
 
   async function chooseDirectory() {
     try {
+      const windowsLanguage = await invoke<Language>('windows_ui_language');
       const selected = await invoke<string | null>('pick_video_folder', {
-        title: text('chooseFolderVideo'),
-        selectFolderLabel: text('selectFolderButton'),
-        selectCurrentFolderLabel: text('selectCurrentFolderButton'),
-        filterName: text('selectVideoFilter'),
+        title: translate(windowsLanguage, 'chooseFolderVideo'),
+        selectFolderLabel: translate(windowsLanguage, 'selectFolderButton'),
+        filterName: translate(windowsLanguage, 'selectVideoFilter'),
         initialDirectory: directoryPath ?? parentDirectory(media?.sourcePath),
       });
       if (typeof selected === 'string') await loadSelection(selected);

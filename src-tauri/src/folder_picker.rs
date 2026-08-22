@@ -1,29 +1,47 @@
 #[cfg(windows)]
 mod windows_picker {
-    use std::sync::{Arc, Mutex};
+    use std::{
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicBool, Ordering},
+        },
+        thread,
+        time::Duration,
+    };
 
     use windows::{
         Win32::{
-            Foundation::{ERROR_CANCELLED, HWND},
+            Foundation::{ERROR_CANCELLED, HWND, POINT, RECT},
+            Globalization::GetUserDefaultUILanguage,
+            Graphics::Gdi::MapWindowPoints,
             System::Com::{
                 CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
                 CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize,
             },
-            UI::Shell::{
-                Common::COMDLG_FILTERSPEC, FDE_OVERWRITE_RESPONSE, FDE_SHAREVIOLATION_RESPONSE,
-                FDEOR_DEFAULT, FDESVR_DEFAULT, FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM,
-                FOS_PATHMUSTEXIST, FileOpenDialog, IFileDialog, IFileDialogControlEvents,
-                IFileDialogControlEvents_Impl, IFileDialogCustomize, IFileDialogEvents,
-                IFileDialogEvents_Impl, IFileOpenDialog, IShellItem, SHCreateItemFromParsingName,
-                SIGDN_FILESYSPATH,
+            UI::{
+                Shell::{
+                    Common::COMDLG_FILTERSPEC, FDE_OVERWRITE_RESPONSE, FDE_SHAREVIOLATION_RESPONSE,
+                    FDEOR_DEFAULT, FDESVR_DEFAULT, FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM,
+                    FOS_PATHMUSTEXIST, FileOpenDialog, IFileDialog, IFileDialogControlEvents,
+                    IFileDialogControlEvents_Impl, IFileDialogCustomize, IFileDialogEvents,
+                    IFileDialogEvents_Impl, IFileOpenDialog, IShellItem,
+                    SHCreateItemFromParsingName, SIGDN_FILESYSPATH,
+                },
+                WindowsAndMessaging::{
+                    FindWindowExW, GetDlgItem, GetLastActivePopup, GetWindowRect, SW_HIDE,
+                    SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW, SetWindowPos,
+                    ShowWindowAsync,
+                },
             },
         },
-        core::{HRESULT, Interface, PCWSTR, Ref, Result as WindowsResult, implement},
+        core::{HRESULT, Interface, PCWSTR, Ref, Result as WindowsResult, implement, w},
     };
 
     use crate::selection::VIDEO_EXTENSIONS;
 
+    const STANDARD_OK_BUTTON_ID: i32 = 1;
     const SELECT_FOLDER_BUTTON_ID: u32 = 0x4001;
+    const JAPANESE_PRIMARY_LANGUAGE_ID: u16 = 0x11;
 
     struct ComApartment;
 
@@ -133,11 +151,82 @@ mod windows_picker {
         }
     }
 
+    fn replace_standard_button(
+        dialog_window: HWND,
+        folder_button_label: &[u16],
+    ) -> WindowsResult<()> {
+        let standard_button = unsafe { GetDlgItem(Some(dialog_window), STANDARD_OK_BUTTON_ID)? };
+        let folder_button = unsafe {
+            FindWindowExW(
+                Some(dialog_window),
+                None,
+                w!("Button"),
+                PCWSTR(folder_button_label.as_ptr()),
+            )?
+        };
+        let mut standard_rect = RECT::default();
+        unsafe { GetWindowRect(standard_button, &mut standard_rect)? };
+        let mut corners = [
+            POINT {
+                x: standard_rect.left,
+                y: standard_rect.top,
+            },
+            POINT {
+                x: standard_rect.right,
+                y: standard_rect.bottom,
+            },
+        ];
+        unsafe {
+            MapWindowPoints(None, Some(dialog_window), &mut corners);
+            let _ = ShowWindowAsync(standard_button, SW_HIDE);
+            SetWindowPos(
+                folder_button,
+                None,
+                corners[0].x,
+                corners[0].y,
+                corners[1].x - corners[0].x,
+                corners[1].y - corners[0].y,
+                SWP_ASYNCWINDOWPOS | SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn replace_button_when_dialog_is_ready(
+        owner: isize,
+        folder_button_label: Vec<u16>,
+    ) -> Arc<AtomicBool> {
+        let stopped = Arc::new(AtomicBool::new(false));
+        let worker_stopped = Arc::clone(&stopped);
+        thread::spawn(move || {
+            let owner_window = HWND(owner as *mut _);
+            for _ in 0..200 {
+                if worker_stopped.load(Ordering::Acquire) {
+                    return;
+                }
+                let dialog_window = unsafe { GetLastActivePopup(owner_window) };
+                if dialog_window != owner_window
+                    && replace_standard_button(dialog_window, &folder_button_label).is_ok()
+                {
+                    for _ in 0..12 {
+                        thread::sleep(Duration::from_millis(25));
+                        if worker_stopped.load(Ordering::Acquire) {
+                            return;
+                        }
+                        let _ = replace_standard_button(dialog_window, &folder_button_label);
+                    }
+                    return;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        });
+        stopped
+    }
+
     pub(super) fn pick(
         owner: isize,
         title: &str,
         select_folder_label: &str,
-        select_current_folder_label: &str,
         filter_name: &str,
         initial_directory: Option<&str>,
     ) -> Result<Option<String>, String> {
@@ -152,7 +241,6 @@ mod windows_picker {
         let dialog: IFileDialog = dialog.cast().map_err(windows_error)?;
         let title = wide_string(title);
         let select_folder_label = wide_string(select_folder_label);
-        let select_current_folder_label = wide_string(select_current_folder_label);
         unsafe {
             let options = dialog.GetOptions().map_err(windows_error)?;
             dialog
@@ -160,9 +248,6 @@ mod windows_picker {
                 .map_err(windows_error)?;
             dialog
                 .SetTitle(PCWSTR(title.as_ptr()))
-                .map_err(windows_error)?;
-            dialog
-                .SetOkButtonLabel(PCWSTR(select_folder_label.as_ptr()))
                 .map_err(windows_error)?;
         }
 
@@ -187,11 +272,8 @@ mod windows_picker {
             customize
                 .AddPushButton(
                     SELECT_FOLDER_BUTTON_ID,
-                    PCWSTR(select_current_folder_label.as_ptr()),
+                    PCWSTR(select_folder_label.as_ptr()),
                 )
-                .map_err(windows_error)?;
-            customize
-                .MakeProminent(SELECT_FOLDER_BUTTON_ID)
                 .map_err(windows_error)?;
         }
 
@@ -202,7 +284,10 @@ mod windows_picker {
         }
         .into();
         let cookie = unsafe { dialog.Advise(&events).map_err(windows_error)? };
+        let replacement_worker_stopped =
+            replace_button_when_dialog_is_ready(owner, select_folder_label);
         let shown = unsafe { dialog.Show(Some(HWND(owner as *mut _))) };
+        replacement_worker_stopped.store(true, Ordering::Release);
         unsafe { dialog.Unadvise(cookie).map_err(windows_error)? };
 
         if let Err(error) = shown {
@@ -225,6 +310,18 @@ mod windows_picker {
                 .collect::<Vec<_>>()
                 .join(";"),
         )
+    }
+
+    fn ui_language(language_id: u16) -> &'static str {
+        if language_id & 0x03ff == JAPANESE_PRIMARY_LANGUAGE_ID {
+            "ja"
+        } else {
+            "en"
+        }
+    }
+
+    pub(super) fn windows_ui_language() -> &'static str {
+        ui_language(unsafe { GetUserDefaultUILanguage() })
     }
 
     fn shell_item_path(item: &IShellItem) -> WindowsResult<String> {
@@ -254,6 +351,12 @@ mod windows_picker {
                 assert!(filter.contains(&format!("*.{extension}")));
             }
         }
+
+        #[test]
+        fn folder_dialog_uses_windows_ui_language() {
+            assert_eq!(ui_language(0x0411), "ja");
+            assert_eq!(ui_language(0x0409), "en");
+        }
     }
 }
 
@@ -262,7 +365,6 @@ pub fn pick(
     owner: isize,
     title: &str,
     select_folder_label: &str,
-    select_current_folder_label: &str,
     filter_name: &str,
     initial_directory: Option<&str>,
 ) -> Result<Option<String>, String> {
@@ -270,8 +372,12 @@ pub fn pick(
         owner,
         title,
         select_folder_label,
-        select_current_folder_label,
         filter_name,
         initial_directory,
     )
+}
+
+#[cfg(windows)]
+pub fn windows_ui_language() -> &'static str {
+    windows_picker::windows_ui_language()
 }

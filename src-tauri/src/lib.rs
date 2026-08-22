@@ -98,11 +98,15 @@ fn supported_video_extensions() -> Vec<&'static str> {
 }
 
 #[tauri::command]
+fn windows_ui_language() -> &'static str {
+    folder_picker::windows_ui_language()
+}
+
+#[tauri::command]
 async fn pick_video_folder(
     window: tauri::WebviewWindow,
     title: String,
     select_folder_label: String,
-    select_current_folder_label: String,
     filter_name: String,
     initial_directory: Option<String>,
 ) -> Result<Option<String>, AppError> {
@@ -115,7 +119,6 @@ async fn pick_video_folder(
             owner,
             &title,
             &select_folder_label,
-            &select_current_folder_label,
             &filter_name,
             initial_directory.as_deref(),
         )
@@ -150,6 +153,7 @@ pub fn run() {
             cancel_export,
             inspect_selection,
             supported_video_extensions,
+            windows_ui_language,
             pick_video_folder,
             directory_watch::watch_directory,
             reveal_in_explorer,
