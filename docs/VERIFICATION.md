@@ -27,7 +27,7 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 | `npm run build` | Pass — Vite production build |
 | `npm run tauri build -- --no-bundle` | Pass — optimized Windows application build |
 | `cargo fmt --check --manifest-path src-tauri\Cargo.toml` | Pass |
-| `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 39 Rust unit tests, including the complete supported-video filter and Windows UI-language selection used by the native Explorer folder picker |
+| `cargo test --manifest-path src-tauri\Cargo.toml` | Pass — 40 Rust unit tests, including the complete supported-video filter and Windows UI language/color-mode selection used by the native Explorer folder picker |
 | `cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings` | Pass |
 | `scripts/test-integration.ps1` | Pass — H.264/H.265 selected available hardware encoders; FFV1 used parallel slices; late input seek preserved all 60 frame hashes and decoded audio samples |
 | `npm audit --audit-level=high` | Pass — 0 vulnerabilities |
@@ -45,7 +45,7 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 | Export-state regression | Pass — an in-place replacement reloads changed geometry, duration, frame count, and a fresh media URL; export snapshots the exact trim range and disables its controls before asynchronous saving |
 | Pointer alignment regression | Pass — after selecting frames `[60, 180)` of a 240-frame video, a physical timeline click and an off-center handle drag remain aligned within half-frame rendering tolerance |
 | Release executable smoke launch | Pass — remained running until test shutdown; extracted executable icon contains only achromatic pixels |
-| Native folder-picker smoke | Pass — on a Japanese Windows UI, the `IExplorerBrowser` host rendered localized Shell navigation and thumbnails; showed folders and supported MP4/MKV files while excluding an unsupported TXT file; kept video double-clicks inside the picker; exposed one folder action in the standard confirmation position; and returned the current folder when pressed |
+| Native folder-picker smoke | Pass — on a Japanese Windows UI in Dark mode, the `IExplorerBrowser` host rendered localized Shell navigation and thumbnails; its title bar, navigation row, path field, and confirmation row used the same Dark mode; folders and supported MP4/MKV files were shown while an unsupported TXT file was excluded; video double-clicks stayed inside the picker; and the current folder was returned from the single confirmation action |
 
 The MSVC linker emits a localized informational message while producing the Rust `cdylib` import library. It is surfaced by Cargo as `linker_messages` but is not a compiler or Clippy diagnostic.
 

@@ -6,15 +6,25 @@ use std::{
 };
 
 use windows::{
+    Foundation::TypedEventHandler,
+    UI::{
+        Color,
+        ViewManagement::{UIColorType, UISettings},
+    },
     Win32::{
         Foundation::{
-            ERROR_CANCELLED, ERROR_CLASS_ALREADY_EXISTS, GetLastError, HINSTANCE, HWND, LPARAM,
-            LRESULT, RECT, S_FALSE, WPARAM,
+            COLORREF, ERROR_CANCELLED, ERROR_CLASS_ALREADY_EXISTS, GetLastError, HINSTANCE, HWND,
+            LPARAM, LRESULT, RECT, S_FALSE, WPARAM,
         },
         Globalization::GetUserDefaultUILanguage,
+        Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute},
         Graphics::Gdi::{
-            COLOR_WINDOW, CreateFontIndirectW, DeleteObject, GetMonitorInfoW, HBRUSH, HFONT,
-            MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow, UpdateWindow,
+            BeginPaint, CreateFontIndirectW, CreateSolidBrush, DT_CENTER, DT_END_ELLIPSIS,
+            DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawFocusRect, DrawTextW,
+            EndPaint, FillRect, FrameRect, GetMonitorInfoW, HBRUSH, HDC, HFONT, InvalidateRect,
+            MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow, OPAQUE, PAINTSTRUCT,
+            RDW_FRAME, RDW_INVALIDATE, RDW_UPDATENOW, RedrawWindow, SelectObject, SetBkColor,
+            SetBkMode, SetTextColor, TRANSPARENT, UpdateWindow,
         },
         System::{
             Com::{
@@ -23,8 +33,10 @@ use windows::{
                 IServiceProvider_Impl,
             },
             SystemServices::{SFGAO_FILESYSTEM, SFGAO_FOLDER},
+            WinRT::{RO_INIT_SINGLETHREADED, RoInitialize, RoUninitialize},
         },
         UI::{
+            Controls::{DRAWITEMSTRUCT, ODS_DISABLED, ODS_FOCUS, ODS_HOTLIGHT, ODS_SELECTED},
             HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow},
             Input::KeyboardAndMouse::{EnableWindow, VK_ESCAPE},
             Shell::{
@@ -36,24 +48,26 @@ use windows::{
                 SHCreateItemWithParent, SIGDN_FILESYSPATH,
             },
             WindowsAndMessaging::{
-                CREATESTRUCTW, CS_DBLCLKS, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW,
-                DestroyWindow, DispatchMessageW, GWLP_USERDATA, GetClientRect, GetMessageW,
-                GetWindowLongPtrW, GetWindowRect, HMENU, IDC_ARROW, IsDialogMessageW, LoadCursorW,
-                MINMAXINFO, MSG, MoveWindow, NONCLIENTMETRICSW, PostMessageW, PostQuitMessage,
-                RegisterClassW, SPI_GETNONCLIENTMETRICS, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER,
+                BS_OWNERDRAW, CREATESTRUCTW, CS_DBLCLKS, CW_USEDEFAULT, CreateWindowExW,
+                DefWindowProcW, DestroyWindow, DispatchMessageW, ES_READONLY, GWLP_USERDATA,
+                GetClientRect, GetMessageW, GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW,
+                GetWindowTextW, HMENU, IDC_ARROW, IsDialogMessageW, LoadCursorW, MINMAXINFO, MSG,
+                MoveWindow, NONCLIENTMETRICSW, PostMessageW, PostQuitMessage, RegisterClassW,
+                SPI_GETNONCLIENTMETRICS, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER,
                 SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SendMessageW, SetForegroundWindow,
                 SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, SystemParametersInfoW,
                 TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_CLOSE, WM_COMMAND,
-                WM_DESTROY, WM_DPICHANGED, WM_GETMINMAXINFO, WM_KEYDOWN, WM_NCCREATE, WM_SETFONT,
-                WM_SIZE, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN, WS_EX_CLIENTEDGE,
-                WS_EX_CONTROLPARENT, WS_EX_DLGMODALFRAME, WS_MAXIMIZEBOX, WS_OVERLAPPED,
-                WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE,
+                WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_DRAWITEM,
+                WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_NCCREATE, WM_PAINT, WM_SETFONT,
+                WM_SETTINGCHANGE, WM_SIZE, WM_THEMECHANGED, WNDCLASSW, WS_CAPTION, WS_CHILD,
+                WS_CLIPCHILDREN, WS_EX_CONTROLPARENT, WS_EX_DLGMODALFRAME, WS_MAXIMIZEBOX,
+                WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE,
             },
         },
     },
     core::{
-        ComObject, Error as WindowsError, HRESULT, Interface, PCWSTR, Ref, Result as WindowsResult,
-        implement, w,
+        ComObject, Error as WindowsError, HRESULT, IInspectable, Interface, PCWSTR, Ref,
+        Result as WindowsResult, implement, w,
     },
 };
 
@@ -69,6 +83,7 @@ const ID_SELECT: i32 = 1003;
 const ID_CANCEL: i32 = 1004;
 
 const WM_NAVIGATION_COMPLETE: u32 = WM_APP + 1;
+const WM_COLOR_MODE_CHANGED: u32 = WM_APP + 2;
 
 const JAPANESE_PRIMARY_LANGUAGE_ID: u16 = 0x11;
 const BASE_DPI: i32 = 96;
@@ -86,11 +101,145 @@ const E_POINTER: HRESULT = HRESULT(0x80004003_u32 as i32);
 const E_NOINTERFACE: HRESULT = HRESULT(0x80004002_u32 as i32);
 const E_NOTIMPL: HRESULT = HRESULT(0x80004001_u32 as i32);
 
+#[derive(Clone, Copy)]
+struct ThemePalette {
+    dark: bool,
+    background: COLORREF,
+    surface: COLORREF,
+    hover: COLORREF,
+    pressed: COLORREF,
+    border: COLORREF,
+    text: COLORREF,
+    disabled_text: COLORREF,
+    accent: COLORREF,
+}
+
+impl ThemePalette {
+    fn fallback_light() -> Self {
+        Self::from_colors(
+            Color {
+                A: 255,
+                R: 0,
+                G: 0,
+                B: 0,
+            },
+            Color {
+                A: 255,
+                R: 255,
+                G: 255,
+                B: 255,
+            },
+            Color {
+                A: 255,
+                R: 0,
+                G: 120,
+                B: 212,
+            },
+        )
+    }
+
+    fn from_settings(settings: &UISettings) -> WindowsResult<Self> {
+        Ok(Self::from_colors(
+            settings.GetColorValue(UIColorType::Foreground)?,
+            settings.GetColorValue(UIColorType::Background)?,
+            settings.GetColorValue(UIColorType::Accent)?,
+        ))
+    }
+
+    fn from_colors(foreground: Color, background: Color, accent: Color) -> Self {
+        let dark = is_color_light(foreground);
+        let background_weight = if dark { 10 } else { 5 };
+        let surface_weight = if dark { 15 } else { 0 };
+        let hover_weight = if dark { 20 } else { 5 };
+        let pressed_weight = if dark { 25 } else { 10 };
+        Self {
+            dark,
+            background: colorref(blend(background, foreground, background_weight)),
+            surface: colorref(blend(background, foreground, surface_weight)),
+            hover: colorref(blend(background, foreground, hover_weight)),
+            pressed: colorref(blend(background, foreground, pressed_weight)),
+            border: colorref(blend(background, foreground, 35)),
+            text: colorref(foreground),
+            disabled_text: colorref(blend(background, foreground, 50)),
+            accent: colorref(accent),
+        }
+    }
+}
+
+struct ThemeBrushes {
+    background: HBRUSH,
+    surface: HBRUSH,
+    hover: HBRUSH,
+    pressed: HBRUSH,
+    border: HBRUSH,
+    accent: HBRUSH,
+}
+
+impl ThemeBrushes {
+    fn new(palette: ThemePalette) -> Self {
+        unsafe {
+            Self {
+                background: CreateSolidBrush(palette.background),
+                surface: CreateSolidBrush(palette.surface),
+                hover: CreateSolidBrush(palette.hover),
+                pressed: CreateSolidBrush(palette.pressed),
+                border: CreateSolidBrush(palette.border),
+                accent: CreateSolidBrush(palette.accent),
+            }
+        }
+    }
+}
+
+impl Drop for ThemeBrushes {
+    fn drop(&mut self) {
+        for brush in [
+            self.background,
+            self.surface,
+            self.hover,
+            self.pressed,
+            self.border,
+            self.accent,
+        ] {
+            let _ = unsafe { DeleteObject(brush.into()) };
+        }
+    }
+}
+
+fn is_color_light(color: Color) -> bool {
+    (5 * u32::from(color.G)) + (2 * u32::from(color.R)) + u32::from(color.B) > 8 * 128
+}
+
+fn blend(background: Color, foreground: Color, foreground_percent: u16) -> Color {
+    let mix = |background: u8, foreground: u8| {
+        (((u16::from(background) * (100 - foreground_percent))
+            + (u16::from(foreground) * foreground_percent))
+            / 100) as u8
+    };
+    Color {
+        A: 255,
+        R: mix(background.R, foreground.R),
+        G: mix(background.G, foreground.G),
+        B: mix(background.B, foreground.B),
+    }
+}
+
+fn colorref(color: Color) -> COLORREF {
+    COLORREF(u32::from(color.R) | (u32::from(color.G) << 8) | (u32::from(color.B) << 16))
+}
+
 struct ComApartment;
 
 impl Drop for ComApartment {
     fn drop(&mut self) {
         unsafe { CoUninitialize() };
+    }
+}
+
+struct WinRtApartment;
+
+impl Drop for WinRtApartment {
+    fn drop(&mut self) {
+        unsafe { RoUninitialize() };
     }
 }
 
@@ -255,6 +404,10 @@ struct PickerWindow {
     browser_cookie: Option<u32>,
     site: Option<ComObject<ExplorerSite>>,
     font: Option<HFONT>,
+    ui_settings: Option<UISettings>,
+    color_values_changed_token: Option<i64>,
+    palette: ThemePalette,
+    brushes: ThemeBrushes,
     selected_path: Option<String>,
     select_folder_label: Vec<u16>,
     cancel_label: Vec<u16>,
@@ -262,6 +415,7 @@ struct PickerWindow {
 
 impl PickerWindow {
     fn new(select_folder_label: &str, cancel_label: &str) -> Self {
+        let palette = ThemePalette::fallback_light();
         Self {
             window: HWND::default(),
             back_button: HWND::default(),
@@ -273,6 +427,10 @@ impl PickerWindow {
             browser_cookie: None,
             site: None,
             font: None,
+            ui_settings: None,
+            color_values_changed_token: None,
+            palette,
+            brushes: ThemeBrushes::new(palette),
             selected_path: None,
             select_folder_label: wide_string(select_folder_label),
             cancel_label: wide_string(cancel_label),
@@ -280,6 +438,7 @@ impl PickerWindow {
     }
 
     fn initialize(&mut self, initial_directory: Option<&str>) -> WindowsResult<()> {
+        self.initialize_color_mode_tracking();
         self.create_controls()?;
 
         let browser: IExplorerBrowser =
@@ -317,12 +476,194 @@ impl PickerWindow {
         Ok(())
     }
 
+    fn initialize_color_mode_tracking(&mut self) {
+        let Ok(settings) = UISettings::new() else {
+            self.apply_color_mode(ThemePalette::fallback_light());
+            return;
+        };
+        let window = self.window.0 as isize;
+        let handler = TypedEventHandler::<UISettings, IInspectable>::new(move |_, _| {
+            let window = HWND(window as *mut c_void);
+            let _ =
+                unsafe { PostMessageW(Some(window), WM_COLOR_MODE_CHANGED, WPARAM(0), LPARAM(0)) };
+            Ok(())
+        });
+        self.color_values_changed_token = settings.ColorValuesChanged(&handler).ok();
+        self.ui_settings = Some(settings);
+        self.refresh_color_mode();
+    }
+
+    fn refresh_color_mode(&mut self) {
+        let palette = self
+            .ui_settings
+            .as_ref()
+            .and_then(|settings| ThemePalette::from_settings(settings).ok())
+            .unwrap_or_else(ThemePalette::fallback_light);
+        self.apply_color_mode(palette);
+    }
+
+    fn apply_color_mode(&mut self, palette: ThemePalette) {
+        self.palette = palette;
+        self.brushes = ThemeBrushes::new(palette);
+
+        let dark_mode = windows::core::BOOL::from(palette.dark);
+        let _ = unsafe {
+            DwmSetWindowAttribute(
+                self.window,
+                DWMWA_USE_IMMERSIVE_DARK_MODE,
+                (&dark_mode as *const windows::core::BOOL).cast(),
+                std::mem::size_of_val(&dark_mode) as u32,
+            )
+        };
+        let _ = unsafe {
+            RedrawWindow(
+                Some(self.window),
+                None,
+                None,
+                RDW_FRAME | RDW_INVALIDATE | RDW_UPDATENOW,
+            )
+        };
+        for control in [
+            self.back_button,
+            self.up_button,
+            self.path_box,
+            self.select_button,
+            self.cancel_button,
+        ] {
+            if !control.0.is_null() {
+                let _ = unsafe { InvalidateRect(Some(control), None, true) };
+            }
+        }
+    }
+
+    fn paint(&self) {
+        let mut paint = PAINTSTRUCT::default();
+        let dc = unsafe { BeginPaint(self.window, &mut paint) };
+        self.paint_background(dc);
+        let _ = unsafe { EndPaint(self.window, &paint) };
+    }
+
+    fn paint_background(&self, dc: HDC) {
+        let mut client = RECT::default();
+        if unsafe { GetClientRect(self.window, &mut client) }.is_err() {
+            return;
+        }
+        unsafe {
+            FillRect(dc, &client, self.brushes.background);
+            if !self.path_box.0.is_null() {
+                FrameRect(dc, &self.path_frame_rect(), self.brushes.border);
+            }
+        }
+    }
+
+    fn path_frame_rect(&self) -> RECT {
+        let dpi = unsafe { GetDpiForWindow(self.window) } as i32;
+        let scale = |value| value * dpi / BASE_DPI;
+        let margin = scale(MARGIN);
+        let gap = scale(CONTROL_GAP);
+        let small_width = scale(SMALL_BUTTON_WIDTH);
+        let path_left = margin + (small_width + gap) * 2;
+        let mut client = RECT::default();
+        let _ = unsafe { GetClientRect(self.window, &mut client) };
+        RECT {
+            left: path_left,
+            top: margin,
+            right: client.right - margin,
+            bottom: margin + scale(CONTROL_HEIGHT),
+        }
+    }
+
+    fn draw_button(&self, draw: &DRAWITEMSTRUCT) -> bool {
+        if ![
+            self.back_button,
+            self.up_button,
+            self.select_button,
+            self.cancel_button,
+        ]
+        .contains(&draw.hwndItem)
+        {
+            return false;
+        }
+
+        let has_state = |state: u32| draw.itemState.0 & state != 0;
+        let brush = if has_state(ODS_SELECTED.0) {
+            self.brushes.pressed
+        } else if has_state(ODS_HOTLIGHT.0) {
+            self.brushes.hover
+        } else {
+            self.brushes.surface
+        };
+        let focused = has_state(ODS_FOCUS.0);
+        let border = if focused || draw.hwndItem == self.select_button {
+            self.brushes.accent
+        } else {
+            self.brushes.border
+        };
+
+        unsafe {
+            FillRect(draw.hDC, &draw.rcItem, brush);
+            FrameRect(draw.hDC, &draw.rcItem, border);
+            SetBkMode(draw.hDC, TRANSPARENT);
+            SetTextColor(
+                draw.hDC,
+                if has_state(ODS_DISABLED.0) {
+                    self.palette.disabled_text
+                } else {
+                    self.palette.text
+                },
+            );
+        }
+        let previous_font = self
+            .font
+            .map(|font| unsafe { SelectObject(draw.hDC, font.into()) });
+
+        let length = unsafe { GetWindowTextLengthW(draw.hwndItem) }.max(0) as usize;
+        let mut text = vec![0_u16; length + 1];
+        let copied = unsafe { GetWindowTextW(draw.hwndItem, &mut text) }.max(0) as usize;
+        text.truncate(copied);
+        let mut text_rect = draw.rcItem;
+        if has_state(ODS_SELECTED.0) {
+            text_rect.left += 1;
+            text_rect.top += 1;
+        }
+        unsafe {
+            DrawTextW(
+                draw.hDC,
+                &mut text,
+                &mut text_rect,
+                DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS,
+            );
+        }
+        if let Some(previous_font) = previous_font {
+            let _ = unsafe { SelectObject(draw.hDC, previous_font) };
+        }
+        if focused {
+            let mut focus = draw.rcItem;
+            let inset = (unsafe { GetDpiForWindow(self.window) } as i32 / BASE_DPI).max(1) * 3;
+            focus.left += inset;
+            focus.top += inset;
+            focus.right -= inset;
+            focus.bottom -= inset;
+            let _ = unsafe { DrawFocusRect(draw.hDC, &focus) };
+        }
+        true
+    }
+
+    fn path_box_color(&self, dc: HDC) -> LRESULT {
+        unsafe {
+            SetBkMode(dc, OPAQUE);
+            SetBkColor(dc, self.palette.surface);
+            SetTextColor(dc, self.palette.text);
+        }
+        LRESULT(self.brushes.surface.0 as isize)
+    }
+
     fn create_controls(&mut self) -> WindowsResult<()> {
         let instance = module_instance()?;
         self.back_button = create_control(
             BUTTON_CLASS,
             w!("\u{2190}"),
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(BS_OWNERDRAW as u32),
             WINDOW_EX_STYLE(0),
             self.window,
             ID_BACK,
@@ -331,7 +672,7 @@ impl PickerWindow {
         self.up_button = create_control(
             BUTTON_CLASS,
             w!("\u{2191}"),
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(BS_OWNERDRAW as u32),
             WINDOW_EX_STYLE(0),
             self.window,
             ID_UP,
@@ -340,8 +681,8 @@ impl PickerWindow {
         self.path_box = create_control(
             EDIT_CLASS,
             w!(""),
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(0x0800),
-            WS_EX_CLIENTEDGE,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(ES_READONLY as u32),
+            WINDOW_EX_STYLE(0),
             self.window,
             0,
             instance,
@@ -349,7 +690,7 @@ impl PickerWindow {
         self.select_button = create_control(
             BUTTON_CLASS,
             PCWSTR(self.select_folder_label.as_ptr()),
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(0x0001),
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(BS_OWNERDRAW as u32),
             WINDOW_EX_STYLE(0),
             self.window,
             ID_SELECT,
@@ -358,7 +699,7 @@ impl PickerWindow {
         self.cancel_button = create_control(
             BUTTON_CLASS,
             PCWSTR(self.cancel_label.as_ptr()),
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(BS_OWNERDRAW as u32),
             WINDOW_EX_STYLE(0),
             self.window,
             ID_CANCEL,
@@ -430,13 +771,15 @@ impl PickerWindow {
             )
         };
         let path_left = margin + (small_width + gap) * 2;
+        let path_width = (width - margin - path_left).max(1);
+        let path_border = scale(1).max(1);
         let _ = unsafe {
             MoveWindow(
                 self.path_box,
-                path_left,
-                top,
-                (width - margin - path_left).max(1),
-                control_height,
+                path_left + path_border,
+                top + path_border,
+                (path_width - path_border * 2).max(1),
+                (control_height - path_border * 2).max(1),
                 true,
             )
         };
@@ -508,6 +851,11 @@ impl PickerWindow {
     }
 
     fn destroy_browser(&mut self) {
+        if let Some(settings) = self.ui_settings.take()
+            && let Some(token) = self.color_values_changed_token.take()
+        {
+            let _ = settings.RemoveColorValuesChanged(token);
+        }
         if let Some(browser) = self.browser.take() {
             let _ = unsafe { IUnknown_SetSite(&browser, None) };
             if let Some(cookie) = self.browser_cookie.take() {
@@ -546,6 +894,29 @@ unsafe extern "system" fn window_proc(
     let state = unsafe { &mut *state };
 
     match message {
+        WM_PAINT => {
+            state.paint();
+            LRESULT(0)
+        }
+        WM_ERASEBKGND => {
+            state.paint_background(HDC(wparam.0 as *mut c_void));
+            LRESULT(1)
+        }
+        WM_DRAWITEM => {
+            let draw = unsafe { (lparam.0 as *const DRAWITEMSTRUCT).as_ref() };
+            if draw.is_some_and(|draw| state.draw_button(draw)) {
+                LRESULT(1)
+            } else {
+                unsafe { DefWindowProcW(window, message, wparam, lparam) }
+            }
+        }
+        WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => {
+            if HWND(lparam.0 as *mut c_void) == state.path_box {
+                state.path_box_color(HDC(wparam.0 as *mut c_void))
+            } else {
+                unsafe { DefWindowProcW(window, message, wparam, lparam) }
+            }
+        }
         WM_SIZE => {
             state.layout();
             LRESULT(0)
@@ -564,6 +935,10 @@ unsafe extern "system" fn window_proc(
         }
         WM_NAVIGATION_COMPLETE => {
             state.update_current_folder();
+            LRESULT(0)
+        }
+        WM_COLOR_MODE_CHANGED | WM_SETTINGCHANGE | WM_THEMECHANGED => {
+            state.refresh_color_mode();
             LRESULT(0)
         }
         WM_GETMINMAXINFO => {
@@ -613,6 +988,8 @@ pub(super) fn pick(
         unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) };
     initialization.ok().map_err(windows_error)?;
     let _com_apartment = ComApartment;
+    unsafe { RoInitialize(RO_INIT_SINGLETHREADED) }.map_err(windows_error)?;
+    let _winrt_apartment = WinRtApartment;
 
     register_window_class().map_err(windows_error)?;
     let owner = HWND(owner as *mut c_void);
@@ -660,7 +1037,7 @@ fn register_window_class() -> WindowsResult<()> {
         lpfnWndProc: Some(window_proc),
         hInstance: instance,
         hCursor: unsafe { LoadCursorW(None, IDC_ARROW)? },
-        hbrBackground: HBRUSH((COLOR_WINDOW.0 as usize + 1) as *mut c_void),
+        hbrBackground: HBRUSH::default(),
         lpszClassName: WINDOW_CLASS,
         ..Default::default()
     };
@@ -879,5 +1256,47 @@ mod tests {
     fn folder_dialog_uses_windows_ui_language() {
         assert_eq!(ui_language(0x0411), "ja");
         assert_eq!(ui_language(0x0409), "en");
+    }
+
+    #[test]
+    fn color_mode_uses_the_windows_foreground_brightness_rule() {
+        assert!(is_color_light(Color {
+            A: 255,
+            R: 255,
+            G: 255,
+            B: 255,
+        }));
+        assert!(!is_color_light(Color {
+            A: 255,
+            R: 0,
+            G: 0,
+            B: 0,
+        }));
+
+        let dark = ThemePalette::from_colors(
+            Color {
+                A: 255,
+                R: 255,
+                G: 255,
+                B: 255,
+            },
+            Color {
+                A: 255,
+                R: 0,
+                G: 0,
+                B: 0,
+            },
+            Color {
+                A: 255,
+                R: 0,
+                G: 120,
+                B: 212,
+            },
+        );
+        let light = ThemePalette::fallback_light();
+        assert!(dark.dark);
+        assert!(!light.dark);
+        assert_eq!(dark.background, COLORREF(0x0019_1919));
+        assert_eq!(light.background, COLORREF(0x00f2_f2f2));
     }
 }
