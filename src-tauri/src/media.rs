@@ -34,14 +34,14 @@ pub struct ColorDescriptor {
     pub range: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct ProbeDocument {
     #[serde(default)]
     pub streams: Vec<ProbeStream>,
     pub format: Option<ProbeFormat>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct ProbeFormat {
     pub duration: Option<String>,
 }
@@ -57,6 +57,7 @@ pub(crate) struct ProbeStream {
     pub r_frame_rate: Option<String>,
     pub nb_frames: Option<String>,
     pub nb_read_frames: Option<String>,
+    pub nb_read_packets: Option<String>,
     pub pix_fmt: Option<String>,
     pub bits_per_raw_sample: Option<String>,
     pub color_primaries: Option<String>,
@@ -70,6 +71,7 @@ pub(crate) struct ProbeStream {
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct ProbeTags {
+    #[serde(alias = "ROTATE")]
     pub rotate: Option<String>,
 }
 

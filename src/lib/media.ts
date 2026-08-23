@@ -17,6 +17,12 @@ export interface MediaDescriptor {
   metadataCropSupported: boolean;
 }
 
+export function requiresCompatiblePreview(media: MediaDescriptor): boolean {
+  const source = media.sourcePath.toLocaleLowerCase('en-US');
+  const codec = media.videoCodec.toLocaleLowerCase('en-US');
+  return source.endsWith('.mkv') || codec === 'ffv1';
+}
+
 export function formatFrameRate(value: string): string {
   const [numeratorText, denominatorText] = value.split('/');
   const numerator = Number(numeratorText);

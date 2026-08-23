@@ -14,6 +14,14 @@ use crate::{
 use tauri::{AppHandle, Manager};
 use tauri_plugin_shell::ShellExt;
 
+const PROBE_ENTRIES: &str = "stream=codec_type,codec_name,width,height,duration,avg_frame_rate,r_frame_rate,nb_frames,nb_read_frames,pix_fmt,bits_per_raw_sample,color_primaries,color_transfer,color_space,color_range:stream_tags=rotate:stream_side_data=rotation:format=duration";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VideoCountMode {
+    Packets,
+    Frames,
+}
+
 #[derive(Debug)]
 pub enum MediaError {
     InvalidSource(String),
@@ -131,12 +139,38 @@ pub async fn probe(
 }
 
 async fn probe_uncached(app: &AppHandle, source: &Path) -> Result<MediaDescriptor, MediaError> {
-    let initial = run_probe(app, source, false).await?;
-    match descriptor_from_probe(source, initial) {
+    let mut initial = run_probe(app, source).await?;
+    match descriptor_from_probe(source, initial.clone()) {
         Err(MediaError::MissingVideoFrameCount) => {
-            descriptor_from_probe(source, run_probe(app, source, true).await?)
+            let mode = video_count_mode(&initial);
+            let frame_count = match run_video_count(app, source, mode).await {
+                Err(MediaError::MissingVideoFrameCount) if mode == VideoCountMode::Packets => {
+                    run_video_count(app, source, VideoCountMode::Frames).await?
+                }
+                result => result?,
+            };
+            let video = initial
+                .streams
+                .iter_mut()
+                .find(|stream| stream.codec_type.as_deref() == Some("video"))
+                .ok_or(MediaError::MissingVideo)?;
+            video.nb_read_frames = Some(frame_count.to_string());
+            descriptor_from_probe(source, initial)
         }
         result => result,
+    }
+}
+
+fn video_count_mode(document: &ProbeDocument) -> VideoCountMode {
+    let codec = document
+        .streams
+        .iter()
+        .find(|stream| stream.codec_type.as_deref() == Some("video"))
+        .and_then(|stream| stream.codec_name.as_deref());
+    if codec == Some("ffv1") {
+        VideoCountMode::Packets
+    } else {
+        VideoCountMode::Frames
     }
 }
 
@@ -157,23 +191,64 @@ fn source_fingerprint(source: &Path) -> Result<Option<SourceFingerprint>, MediaE
     }))
 }
 
-async fn run_probe(
-    app: &AppHandle,
-    source: &Path,
-    count_frames: bool,
-) -> Result<ProbeDocument, MediaError> {
+async fn run_probe(app: &AppHandle, source: &Path) -> Result<ProbeDocument, MediaError> {
     let source_text = source.to_string_lossy().into_owned();
-    let mut arguments = vec!["-v".to_owned(), "error".to_owned()];
-    if count_frames {
-        arguments.push("-count_frames".to_owned());
-    }
-    arguments.extend([
-        "-show_streams".to_owned(),
-        "-show_format".to_owned(),
+    let arguments = [
+        "-v".to_owned(),
+        "error".to_owned(),
+        "-show_entries".to_owned(),
+        PROBE_ENTRIES.to_owned(),
         "-of".to_owned(),
         "json".to_owned(),
         source_text,
-    ]);
+    ];
+    run_ffprobe(app, arguments).await
+}
+
+async fn run_video_count(
+    app: &AppHandle,
+    source: &Path,
+    mode: VideoCountMode,
+) -> Result<u64, MediaError> {
+    let count_argument = match mode {
+        VideoCountMode::Packets => "-count_packets",
+        VideoCountMode::Frames => "-count_frames",
+    };
+    let count_field = match mode {
+        VideoCountMode::Packets => "nb_read_packets",
+        VideoCountMode::Frames => "nb_read_frames",
+    };
+    let document = run_ffprobe(
+        app,
+        [
+            "-v".to_owned(),
+            "error".to_owned(),
+            "-select_streams".to_owned(),
+            "v:0".to_owned(),
+            count_argument.to_owned(),
+            "-show_entries".to_owned(),
+            format!("stream={count_field}"),
+            "-of".to_owned(),
+            "json".to_owned(),
+            source.to_string_lossy().into_owned(),
+        ],
+    )
+    .await?;
+    let video = document.streams.first().ok_or(MediaError::MissingVideo)?;
+    let value = match mode {
+        VideoCountMode::Packets => video.nb_read_packets.as_deref(),
+        VideoCountMode::Frames => video.nb_read_frames.as_deref(),
+    };
+    value
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .ok_or(MediaError::MissingVideoFrameCount)
+}
+
+async fn run_ffprobe<const N: usize>(
+    app: &AppHandle,
+    arguments: [String; N],
+) -> Result<ProbeDocument, MediaError> {
     let output = app
         .shell()
         .sidecar("ffprobe")
@@ -581,6 +656,7 @@ mod tests {
             r_frame_rate: Some("30000/1001".into()),
             nb_frames: Some("314".into()),
             nb_read_frames: Some("315".into()),
+            nb_read_packets: None,
             pix_fmt: Some("yuv420p".into()),
             bits_per_raw_sample: Some("8".into()),
             color_primaries: Some("bt709".into()),
@@ -668,6 +744,26 @@ mod tests {
         assert!(cache.get(Path::new("other.mp4"), &fingerprint).is_none());
         cache.invalidate(source);
         assert!(cache.get(source, &fingerprint).is_none());
+    }
+
+    #[test]
+    fn counts_ffv1_packets_without_decoding_every_frame() {
+        let mut ffv1 = video_stream();
+        ffv1.codec_name = Some("ffv1".into());
+        assert_eq!(
+            video_count_mode(&ProbeDocument {
+                streams: vec![ffv1],
+                format: None,
+            }),
+            VideoCountMode::Packets
+        );
+        assert_eq!(
+            video_count_mode(&ProbeDocument {
+                streams: vec![video_stream()],
+                format: None,
+            }),
+            VideoCountMode::Frames
+        );
     }
 
     #[test]

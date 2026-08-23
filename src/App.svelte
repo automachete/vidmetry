@@ -55,7 +55,12 @@
     type VideoEncoderAvailability,
   } from './lib/export';
   import { localizeAppError, translate, type TranslationKey } from './lib/i18n';
-  import { formatFrameRate, formatTime, type MediaDescriptor } from './lib/media';
+  import {
+    formatFrameRate,
+    formatTime,
+    requiresCompatiblePreview,
+    type MediaDescriptor,
+  } from './lib/media';
   import {
     cloneSettings,
     defaultSettings,
@@ -428,7 +433,7 @@
           exportJobId = null;
           exportProgress = 0;
           inPlaceExportPath = null;
-          if (shouldRestore) restoreSourcePreview();
+          if (shouldRestore) void restoreSourcePreview();
           if (!event.payload.cancelled) {
             errorMessage = `${text('exportFailed')}${readableError(event.payload.error)}`;
           }
@@ -771,7 +776,6 @@
       );
       crop = fullFrame({ width: descriptor.displayWidth, height: descriptor.displayHeight });
       aspect = 'free';
-      videoSrc = freshMediaSource(descriptor.sourcePath);
       if (!keepPlaylist) {
         playlist = [descriptor.sourcePath];
         playlistIndex = 0;
@@ -782,8 +786,16 @@
         );
         if (found >= 0) playlistIndex = found;
       }
-      await tick();
-      videoElement?.load();
+      if (requiresCompatiblePreview(descriptor)) {
+        videoSrc = '';
+        await tick();
+        videoElement?.load();
+        if (!(await prepareCompatiblePreview(descriptor))) return false;
+      } else {
+        videoSrc = freshMediaSource(descriptor.sourcePath);
+        await tick();
+        videoElement?.load();
+      }
       void loadTimelineStrip(descriptor);
       return true;
     } catch (error) {
@@ -840,21 +852,29 @@
     return `${source}${separator}vidmetryRevision=${videoSourceRevision}`;
   }
 
-  async function handleVideoError() {
-    if (!media || usingProxy || isPreparingProxy || isLoading || !videoSrc) return;
+  async function prepareCompatiblePreview(descriptor: MediaDescriptor): Promise<boolean> {
+    if (isPreparingProxy) return false;
     isPreparingProxy = true;
     errorMessage = '';
     try {
-      const proxyPath = await invoke<string>('create_preview', { path: media.sourcePath });
+      const proxyPath = await invoke<string>('create_preview', { path: descriptor.sourcePath });
+      if (media?.sourcePath !== descriptor.sourcePath) return false;
       usingProxy = true;
       videoSrc = freshMediaSource(proxyPath);
       await tick();
       videoElement?.load();
+      return true;
     } catch (error) {
       errorMessage = `${text('previewFailed')}${readableError(error)}`;
+      return false;
     } finally {
       isPreparingProxy = false;
     }
+  }
+
+  async function handleVideoError() {
+    if (!media || usingProxy || isPreparingProxy || !videoSrc) return;
+    await prepareCompatiblePreview(media);
   }
 
   async function togglePlayback() {
@@ -1341,7 +1361,7 @@
       exportOutTime = 0;
       exportJobId = await invoke<string>('start_export', { request });
     } catch (error) {
-      if (inPlace) restoreSourcePreview();
+      if (inPlace) void restoreSourcePreview();
       inPlaceExportPath = null;
       errorMessage = `${text('exportStartError')}${readableError(error)}`;
     } finally {
@@ -1397,11 +1417,19 @@
     }
   }
 
-  function restoreSourcePreview() {
+  async function restoreSourcePreview() {
     if (!media) return;
     usingProxy = false;
-    videoSrc = freshMediaSource(media.sourcePath);
-    void tick().then(() => videoElement?.load());
+    if (requiresCompatiblePreview(media)) {
+      videoSrc = '';
+      await tick();
+      videoElement?.load();
+      await prepareCompatiblePreview(media);
+    } else {
+      videoSrc = freshMediaSource(media.sourcePath);
+      await tick();
+      videoElement?.load();
+    }
   }
 
   function openSettingsDialog() {
@@ -1751,12 +1779,10 @@
           {#if isLoading || isPreparingProxy}
             <div class="stage-status" role="status">
               <span class="spinner"></span>
-              <strong>{isPreparingProxy ? text('preparingProxy') : text('analyzing')}</strong>
-              {#if isPreparingProxy}<small>{text('sourceUnchanged')}</small>{/if}
+              <strong>{text('analyzing')}</strong>
             </div>
           {/if}
         </div>
-        {#if usingProxy}<p class="proxy-note">{text('proxyPreview')}</p>{/if}
       </section>
 
       {#if showInspector}

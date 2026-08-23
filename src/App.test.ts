@@ -167,6 +167,8 @@ function mockSelection(
       probeInvocation += 1;
       return (descriptorForProbe?.(path, probeInvocation) ?? mediaDescriptor(path)) as never;
     }
+    if (command === 'create_preview') return 'C:\\cache\\preview.mp4' as never;
+    if (command === 'create_timeline_strip') return 'C:\\cache\\timeline.jpg' as never;
     if (command === 'system_accent_color') return '#FF8C00' as never;
     if (command === 'startup_selection') return startupPath as never;
     if (command === 'watch_directory') return undefined as never;
@@ -226,6 +228,24 @@ describe('application shell', () => {
     render(App);
 
     expect(await screen.findByRole('option', { name: '2. b.mp4' })).toBeTruthy();
+  });
+
+  it('prepares a compatible preview before loading an MKV source', async () => {
+    useEnglish();
+    const path = 'C:\\clips\\lossless.mkv';
+    vi.mocked(dialogOpen).mockResolvedValue(path);
+    mockSelection([path], undefined, null, (sourcePath) => ({
+      ...mediaDescriptor(sourcePath),
+      videoCodec: 'ffv1',
+    }));
+    render(App);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Open video' }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('create_preview', { path }));
+    const video = document.querySelector('video') as HTMLVideoElement;
+    await waitFor(() => expect(video.getAttribute('src')).toContain('preview.mp4'));
+    expect(screen.queryByText(/compatible preview proxy/i)).toBeNull();
   });
 
   it('uses single-level settings navigation and saves export changes immediately', async () => {

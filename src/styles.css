@@ -599,22 +599,6 @@ select:focus-visible {
   }
 }
 
-.proxy-note {
-  position: absolute;
-  bottom: 2px;
-  left: 50%;
-  z-index: 10;
-  margin: 0;
-  padding: 4px 8px;
-  border-radius: 6px;
-  color: #aeb6c2;
-  background: rgb(19 22 27 / 88%);
-  font-size: var(--type-caption);
-  line-height: var(--line-caption);
-  transform: translateX(-50%);
-  white-space: nowrap;
-}
-
 .inspector {
   min-height: 0;
   overflow-y: auto;
@@ -1947,8 +1931,7 @@ select:focus-visible {
 .video-fullscreen .playlist-bar,
 .video-fullscreen .inspector,
 .video-fullscreen .pane-restore,
-.video-fullscreen .transport,
-.video-fullscreen .proxy-note,
+  .video-fullscreen .transport,
 .video-fullscreen .crop-layer {
   display: none;
 }
