@@ -2124,7 +2124,7 @@ mod tests {
     #[test]
     fn folder_paths_are_exposed_as_clickable_breadcrumb_targets() {
         assert_eq!(
-            breadcrumb_segments(r"C:\Users\dwarf\Videos"),
+            breadcrumb_segments(r"C:\Users\Example\Videos"),
             vec![
                 BreadcrumbSegment {
                     label: String::from(r"C:\"),
@@ -2135,12 +2135,12 @@ mod tests {
                     path: String::from(r"C:\Users"),
                 },
                 BreadcrumbSegment {
-                    label: String::from("dwarf"),
-                    path: String::from(r"C:\Users\dwarf"),
+                    label: String::from("Example"),
+                    path: String::from(r"C:\Users\Example"),
                 },
                 BreadcrumbSegment {
                     label: String::from("Videos"),
-                    path: String::from(r"C:\Users\dwarf\Videos"),
+                    path: String::from(r"C:\Users\Example\Videos"),
                 },
             ]
         );
