@@ -109,7 +109,9 @@ async fn pick_video_folder(
     select_folder_label: String,
     cancel_label: String,
     initial_directory: Option<String>,
-) -> Result<Option<String>, AppError> {
+    initial_view_mode: Option<i32>,
+    initial_icon_size: Option<i32>,
+) -> Result<Option<folder_picker::FolderPickerSelection>, AppError> {
     let owner = window.hwnd().map_err(|error| {
         AppError::with_detail(ErrorCode::SelectedPathUnavailable, error.to_string())
     })?;
@@ -121,6 +123,8 @@ async fn pick_video_folder(
             &select_folder_label,
             &cancel_label,
             initial_directory.as_deref(),
+            initial_view_mode,
+            initial_icon_size,
         )
         .map_err(|detail| AppError::with_detail(ErrorCode::SelectedPathUnavailable, detail))
     })

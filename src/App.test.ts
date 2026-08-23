@@ -142,7 +142,9 @@ function mockSelection(
       return supportedVideoExtensions as never;
     }
     if (command === 'windows_ui_language') return mockWindowsUiLanguage as never;
-    if (command === 'pick_video_folder') return 'C:\\clips' as never;
+    if (command === 'pick_video_folder') {
+      return { path: 'C:\\clips', viewMode: 5, iconSize: 96 } as never;
+    }
     if (command === 'inspect_selection') {
       return {
         kind: paths.length > 1 ? 'directory' : 'file',
@@ -392,8 +394,62 @@ describe('application shell', () => {
         selectFolderLabel: 'フォルダーの選択',
         cancelLabel: 'キャンセル',
         initialDirectory: 'C:\\clips',
+        initialViewMode: 5,
+        initialIconSize: 96,
       }),
     );
+  });
+
+  it('restores and updates the last confirmed folder and Explorer view across app sessions', async () => {
+    storeState.value = {
+      ...defaultSettings,
+      languageMode: 'manual',
+      language: 'en',
+      folderPicker: { lastPath: 'D:\\Remembered', viewMode: 4, iconSize: 24 },
+    };
+    mockSelection();
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === 'available_video_encoders') {
+        return {
+          h264: { nvidia: true, intel: false, amd: true },
+          h265: { nvidia: true, intel: false, amd: false },
+        } as never;
+      }
+      if (command === 'system_accent_color') return '#FF8C00' as never;
+      if (command === 'startup_selection') return null as never;
+      if (command === 'windows_ui_language') return 'en' as never;
+      if (command === 'pick_video_folder') {
+        expect(args).toMatchObject({
+          initialDirectory: 'D:\\Remembered',
+          initialViewMode: 4,
+          initialIconSize: 24,
+        });
+        return { path: 'E:\\Selected', viewMode: 1, iconSize: 144 } as never;
+      }
+      if (command === 'inspect_selection') {
+        return {
+          kind: 'directory',
+          rootPath: 'E:\\Selected',
+          videoPaths: ['E:\\Selected\\a.mp4'],
+        } as never;
+      }
+      if (command === 'probe_video') return mediaDescriptor('E:\\Selected\\a.mp4') as never;
+      if (command === 'watch_directory') return undefined as never;
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    render(App);
+
+    const settingsButton = screen.getByRole('button', { name: 'Settings' });
+    await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
+    const openFolder = screen.getByRole('button', { name: 'Open folder' });
+    await fireEvent.click(openFolder);
+
+    await waitFor(() =>
+      expect(storeState.value).toMatchObject({
+        folderPicker: { lastPath: 'E:\\Selected', viewMode: 1, iconSize: 144 },
+      }),
+    );
+    expect(storeState.save).toHaveBeenCalled();
   });
 
   it('keeps settings open when File Explorer integration cannot be changed', async () => {
@@ -449,7 +505,9 @@ describe('application shell', () => {
     const { container } = render(App);
 
     await fireEvent.click(screen.getByRole('button', { name: 'Open folder' }));
-    expect(invoke).toHaveBeenCalledWith('inspect_selection', { path: 'C:\\clips' });
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('inspect_selection', { path: 'C:\\clips' }),
+    );
     expect(await screen.findByRole('option', { name: '2. b.mp4' })).toBeTruthy();
     await waitFor(() =>
       expect((screen.getByRole('button', { name: 'Next video' }) as HTMLButtonElement).disabled).toBe(
@@ -566,7 +624,9 @@ describe('application shell', () => {
     useEnglish();
     vi.mocked(invoke).mockImplementation(async (command) => {
       if (command === 'windows_ui_language') return 'en' as never;
-      if (command === 'pick_video_folder') return 'C:\\blocked' as never;
+      if (command === 'pick_video_folder') {
+        return { path: 'C:\\blocked', viewMode: 5, iconSize: 96 } as never;
+      }
       throw { code: 'folder_read_failed', detail: 'access denied' };
     });
     render(App);

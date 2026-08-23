@@ -26,7 +26,7 @@ class MemoryStore implements SettingsStore {
 }
 
 describe('persistent settings', () => {
-  it('round-trips export, appearance, shortcuts, loop, Explorer, and language preferences through the durable store', async () => {
+  it('round-trips export, appearance, shortcuts, folder-picker, loop, Explorer, and language preferences through the durable store', async () => {
     const store = new MemoryStore();
     await persistSettings(
       {
@@ -37,6 +37,7 @@ describe('persistent settings', () => {
         shortcuts: { ...defaultSettings.shortcuts, openVideo: 'Alt+KeyO' },
         loopPlayback: false,
         explorerIntegration: false,
+        folderPicker: { lastPath: 'D:\\Videos', viewMode: 4, iconSize: 24 },
         export: { ...defaultSettings.export, videoCodec: 'h265', encoder: 'nvidia', crf: 21 },
       },
       store,
@@ -48,6 +49,7 @@ describe('persistent settings', () => {
       shortcuts: { openVideo: 'Alt+KeyO' },
       loopPlayback: false,
       explorerIntegration: false,
+      folderPicker: { lastPath: 'D:\\Videos', viewMode: 4, iconSize: 24 },
       export: { videoCodec: 'h265', encoder: 'nvidia', crf: 21 },
     });
     expect(store.saveCount).toBe(1);
@@ -81,6 +83,11 @@ describe('persistent settings', () => {
     expect(() => parseSettings(withoutExplorerIntegration)).toThrow();
     const { shortcuts: __, ...withoutShortcuts } = defaultSettings;
     expect(() => parseSettings(withoutShortcuts)).toThrow();
+    const { folderPicker: ___, ...withoutFolderPicker } = defaultSettings;
+    expect(() => parseSettings(withoutFolderPicker)).toThrow();
+    expect(() =>
+      parseSettings({ ...defaultSettings, folderPicker: { lastPath: 'D:\\', viewMode: 9, iconSize: 96 } }),
+    ).toThrow();
     expect(() => parseSettings({ languageMode: 'system' })).toThrow();
   });
 

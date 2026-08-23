@@ -19,12 +19,13 @@ use windows::{
         Globalization::GetUserDefaultUILanguage,
         Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute},
         Graphics::Gdi::{
-            BeginPaint, CreateFontIndirectW, CreateSolidBrush, DT_CENTER, DT_END_ELLIPSIS,
-            DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawFocusRect, DrawTextW,
-            EndPaint, FillRect, FrameRect, GetMonitorInfoW, HBRUSH, HDC, HFONT, InvalidateRect,
-            MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow, OPAQUE, PAINTSTRUCT,
-            RDW_FRAME, RDW_INVALIDATE, RDW_UPDATENOW, RedrawWindow, SelectObject, SetBkColor,
-            SetBkMode, SetTextColor, TRANSPARENT, UpdateWindow,
+            BeginPaint, CreateFontIndirectW, CreatePen, CreateSolidBrush, DT_CENTER,
+            DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_PATH_ELLIPSIS, DT_SINGLELINE, DT_VCENTER,
+            DeleteObject, DrawFocusRect, DrawTextW, EndPaint, FillRect, FrameRect, GetMonitorInfoW,
+            HBRUSH, HDC, HFONT, InvalidateRect, LineTo, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+            MonitorFromWindow, MoveToEx, OPAQUE, PAINTSTRUCT, PS_SOLID, RDW_FRAME, RDW_INVALIDATE,
+            RDW_UPDATENOW, RedrawWindow, SelectObject, SetBkColor, SetBkMode, SetTextColor,
+            TRANSPARENT, UpdateWindow,
         },
         System::{
             Com::{
@@ -32,7 +33,7 @@ use windows::{
                 CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, IServiceProvider,
                 IServiceProvider_Impl,
             },
-            SystemServices::{SFGAO_FILESYSTEM, SFGAO_FOLDER},
+            SystemServices::{SFGAO_FILESYSTEM, SFGAO_FOLDER, SS_OWNERDRAW},
             WinRT::{RO_INIT_SINGLETHREADED, RoInitialize, RoUninitialize},
         },
         UI::{
@@ -40,28 +41,32 @@ use windows::{
             HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow},
             Input::KeyboardAndMouse::{EnableWindow, VK_ESCAPE},
             Shell::{
-                EBO_SHOWFRAMES, ExplorerBrowser, FOLDERSETTINGS, FVM_THUMBNAIL, FWF_AUTOARRANGE,
+                EBO_NOBORDER, EBO_SHOWFRAMES, EP_AdvQueryPane, EP_Commands, EP_Commands_Organize,
+                EP_Commands_View, EP_DetailsPane, EP_NavPane, EP_PreviewPane, EP_QueryPane,
+                EP_Ribbon, EP_StatusBar, EPS_DEFAULT_OFF, EPS_DEFAULT_ON, EPS_FORCE,
+                ExplorerBrowser, FOLDERSETTINGS, FOLDERVIEWMODE, FVM_THUMBNAIL, FWF_AUTOARRANGE,
                 FWF_FULLROWSELECT, FWF_NOWEBVIEW, ICommDlgBrowser, ICommDlgBrowser_Impl,
                 ICommDlgBrowser2, ICommDlgBrowser2_Impl, IExplorerBrowser, IExplorerBrowserEvents,
-                IExplorerBrowserEvents_Impl, IFolderView2, IShellFolder, IShellItem, IShellView,
-                IUnknown_SetSite, SBSP_NAVIGATEBACK, SBSP_PARENT, SHCreateItemFromParsingName,
+                IExplorerBrowserEvents_Impl, IExplorerPaneVisibility, IExplorerPaneVisibility_Impl,
+                IFolderView2, IShellFolder, IShellItem, IShellView, IUnknown_SetSite,
+                SBSP_NAVIGATEBACK, SBSP_NAVIGATEFORWARD, SBSP_PARENT, SHCreateItemFromParsingName,
                 SHCreateItemWithParent, SIGDN_FILESYSPATH,
             },
             WindowsAndMessaging::{
                 BS_OWNERDRAW, CREATESTRUCTW, CS_DBLCLKS, CW_USEDEFAULT, CreateWindowExW,
-                DefWindowProcW, DestroyWindow, DispatchMessageW, ES_READONLY, GWLP_USERDATA,
-                GetClientRect, GetMessageW, GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW,
+                DefWindowProcW, DestroyWindow, DispatchMessageW, GWLP_USERDATA, GetClientRect,
+                GetMessageW, GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW,
                 GetWindowTextW, HMENU, IDC_ARROW, IsDialogMessageW, LoadCursorW, MINMAXINFO, MSG,
                 MoveWindow, NONCLIENTMETRICSW, PostMessageW, PostQuitMessage, RegisterClassW,
                 SPI_GETNONCLIENTMETRICS, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER,
                 SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SendMessageW, SetForegroundWindow,
                 SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, SystemParametersInfoW,
                 TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_CLOSE, WM_COMMAND,
-                WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_DRAWITEM,
-                WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_NCCREATE, WM_PAINT, WM_SETFONT,
-                WM_SETTINGCHANGE, WM_SIZE, WM_THEMECHANGED, WNDCLASSW, WS_CAPTION, WS_CHILD,
-                WS_CLIPCHILDREN, WS_EX_CONTROLPARENT, WS_EX_DLGMODALFRAME, WS_MAXIMIZEBOX,
-                WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE,
+                WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_DRAWITEM, WM_ERASEBKGND,
+                WM_GETMINMAXINFO, WM_KEYDOWN, WM_NCCREATE, WM_PAINT, WM_SETFONT, WM_SETTINGCHANGE,
+                WM_SIZE, WM_THEMECHANGED, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN,
+                WS_EX_CONTROLPARENT, WS_EX_DLGMODALFRAME, WS_MAXIMIZEBOX, WS_OVERLAPPED,
+                WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE,
             },
         },
     },
@@ -71,16 +76,18 @@ use windows::{
     },
 };
 
-use crate::selection::VIDEO_EXTENSIONS;
+use crate::{folder_picker::FolderPickerSelection, selection::VIDEO_EXTENSIONS};
 
 const WINDOW_CLASS: PCWSTR = w!("VidmetryExplorerFolderPicker");
 const BUTTON_CLASS: PCWSTR = w!("BUTTON");
-const EDIT_CLASS: PCWSTR = w!("EDIT");
+const STATIC_CLASS: PCWSTR = w!("STATIC");
 
 const ID_BACK: i32 = 1001;
 const ID_UP: i32 = 1002;
 const ID_SELECT: i32 = 1003;
 const ID_CANCEL: i32 = 1004;
+const ID_FORWARD: i32 = 1005;
+const ID_PATH: i32 = 1006;
 
 const WM_NAVIGATION_COMPLETE: u32 = WM_APP + 1;
 const WM_COLOR_MODE_CHANGED: u32 = WM_APP + 2;
@@ -92,10 +99,10 @@ const INITIAL_HEIGHT: i32 = 700;
 const MINIMUM_WIDTH: i32 = 720;
 const MINIMUM_HEIGHT: i32 = 500;
 const MARGIN: i32 = 12;
-const CONTROL_HEIGHT: i32 = 32;
-const SMALL_BUTTON_WIDTH: i32 = 42;
+const CONTROL_HEIGHT: i32 = 36;
+const SMALL_BUTTON_WIDTH: i32 = 36;
 const ACTION_BUTTON_WIDTH: i32 = 112;
-const CONTROL_GAP: i32 = 8;
+const CONTROL_GAP: i32 = 4;
 
 const E_POINTER: HRESULT = HRESULT(0x80004003_u32 as i32);
 const E_NOINTERFACE: HRESULT = HRESULT(0x80004002_u32 as i32);
@@ -243,7 +250,12 @@ impl Drop for WinRtApartment {
     }
 }
 
-#[implement(IServiceProvider, ICommDlgBrowser2, IExplorerBrowserEvents)]
+#[implement(
+    IServiceProvider,
+    ICommDlgBrowser2,
+    IExplorerBrowserEvents,
+    IExplorerPaneVisibility
+)]
 struct ExplorerSite {
     self_interface: Mutex<Option<windows::core::IUnknown>>,
     window: HWND,
@@ -283,7 +295,8 @@ impl IServiceProvider_Impl for ExplorerSite_Impl {
             return Err(WindowsError::from_hresult(E_POINTER));
         }
         unsafe { *object = null_mut() };
-        if unsafe { *guid_service } != ICommDlgBrowser::IID {
+        let service = unsafe { *guid_service };
+        if service != ICommDlgBrowser::IID && service != IExplorerPaneVisibility::IID {
             return Err(WindowsError::from_hresult(E_NOINTERFACE));
         }
 
@@ -295,6 +308,30 @@ impl IServiceProvider_Impl for ExplorerSite_Impl {
             (Interface::vtable(identity).QueryInterface)(Interface::as_raw(identity), riid, object)
                 .ok()
         }
+    }
+}
+
+impl IExplorerPaneVisibility_Impl for ExplorerSite_Impl {
+    fn GetPaneState(&self, pane: *const windows::core::GUID) -> WindowsResult<u32> {
+        if pane.is_null() {
+            return Err(WindowsError::from_hresult(E_POINTER));
+        }
+        let pane = unsafe { *pane };
+        let state = if pane == EP_NavPane || pane == EP_Commands_View || pane == EP_StatusBar {
+            EPS_DEFAULT_ON.0 | EPS_FORCE.0
+        } else if pane == EP_Commands
+            || pane == EP_Commands_Organize
+            || pane == EP_DetailsPane
+            || pane == EP_PreviewPane
+            || pane == EP_QueryPane
+            || pane == EP_AdvQueryPane
+            || pane == EP_Ribbon
+        {
+            EPS_DEFAULT_OFF.0 | EPS_FORCE.0
+        } else {
+            EPS_DEFAULT_OFF.0
+        };
+        Ok(state as u32)
     }
 }
 
@@ -396,6 +433,7 @@ impl IExplorerBrowserEvents_Impl for ExplorerSite_Impl {
 struct PickerWindow {
     window: HWND,
     back_button: HWND,
+    forward_button: HWND,
     up_button: HWND,
     path_box: HWND,
     select_button: HWND,
@@ -408,7 +446,9 @@ struct PickerWindow {
     color_values_changed_token: Option<i64>,
     palette: ThemePalette,
     brushes: ThemeBrushes,
-    selected_path: Option<String>,
+    selected: Option<FolderPickerSelection>,
+    initial_view: Option<(FOLDERVIEWMODE, i32)>,
+    initial_view_applied: bool,
     select_folder_label: Vec<u16>,
     cancel_label: Vec<u16>,
 }
@@ -419,6 +459,7 @@ impl PickerWindow {
         Self {
             window: HWND::default(),
             back_button: HWND::default(),
+            forward_button: HWND::default(),
             up_button: HWND::default(),
             path_box: HWND::default(),
             select_button: HWND::default(),
@@ -431,15 +472,24 @@ impl PickerWindow {
             color_values_changed_token: None,
             palette,
             brushes: ThemeBrushes::new(palette),
-            selected_path: None,
+            selected: None,
+            initial_view: None,
+            initial_view_applied: false,
             select_folder_label: wide_string(select_folder_label),
             cancel_label: wide_string(cancel_label),
         }
     }
 
-    fn initialize(&mut self, initial_directory: Option<&str>) -> WindowsResult<()> {
+    fn initialize(
+        &mut self,
+        initial_directory: Option<&str>,
+        initial_view_mode: Option<i32>,
+        initial_icon_size: Option<i32>,
+    ) -> WindowsResult<()> {
         self.initialize_color_mode_tracking();
         self.create_controls()?;
+        self.initial_view = valid_view_settings(initial_view_mode, initial_icon_size)
+            .map(|(mode, size)| (FOLDERVIEWMODE(mode), size));
 
         let browser: IExplorerBrowser =
             unsafe { CoCreateInstance(&ExplorerBrowser, None, CLSCTX_INPROC_SERVER)? };
@@ -454,7 +504,7 @@ impl PickerWindow {
         let browser_rect = self.browser_rect();
         unsafe {
             browser.Initialize(self.window, &browser_rect, Some(&settings))?;
-            browser.SetOptions(EBO_SHOWFRAMES)?;
+            browser.SetOptions(EBO_SHOWFRAMES | EBO_NOBORDER)?;
         }
         let events: IExplorerBrowserEvents = site.to_interface();
         let cookie = unsafe { browser.Advise(&events) }?;
@@ -525,6 +575,7 @@ impl PickerWindow {
         };
         for control in [
             self.back_button,
+            self.forward_button,
             self.up_button,
             self.path_box,
             self.select_button,
@@ -550,32 +601,16 @@ impl PickerWindow {
         }
         unsafe {
             FillRect(dc, &client, self.brushes.background);
-            if !self.path_box.0.is_null() {
-                FrameRect(dc, &self.path_frame_rect(), self.brushes.border);
-            }
         }
     }
 
-    fn path_frame_rect(&self) -> RECT {
-        let dpi = unsafe { GetDpiForWindow(self.window) } as i32;
-        let scale = |value| value * dpi / BASE_DPI;
-        let margin = scale(MARGIN);
-        let gap = scale(CONTROL_GAP);
-        let small_width = scale(SMALL_BUTTON_WIDTH);
-        let path_left = margin + (small_width + gap) * 2;
-        let mut client = RECT::default();
-        let _ = unsafe { GetClientRect(self.window, &mut client) };
-        RECT {
-            left: path_left,
-            top: margin,
-            right: client.right - margin,
-            bottom: margin + scale(CONTROL_HEIGHT),
+    fn draw_control(&self, draw: &DRAWITEMSTRUCT) -> bool {
+        if draw.hwndItem == self.path_box {
+            return self.draw_path(draw);
         }
-    }
-
-    fn draw_button(&self, draw: &DRAWITEMSTRUCT) -> bool {
         if ![
             self.back_button,
+            self.forward_button,
             self.up_button,
             self.select_button,
             self.cancel_button,
@@ -586,10 +621,14 @@ impl PickerWindow {
         }
 
         let has_state = |state: u32| draw.itemState.0 & state != 0;
+        let is_navigation =
+            [self.back_button, self.forward_button, self.up_button].contains(&draw.hwndItem);
         let brush = if has_state(ODS_SELECTED.0) {
             self.brushes.pressed
         } else if has_state(ODS_HOTLIGHT.0) {
             self.brushes.hover
+        } else if is_navigation {
+            self.brushes.background
         } else {
             self.brushes.surface
         };
@@ -602,7 +641,9 @@ impl PickerWindow {
 
         unsafe {
             FillRect(draw.hDC, &draw.rcItem, brush);
-            FrameRect(draw.hDC, &draw.rcItem, border);
+            if !is_navigation {
+                FrameRect(draw.hDC, &draw.rcItem, border);
+            }
             SetBkMode(draw.hDC, TRANSPARENT);
             SetTextColor(
                 draw.hDC,
@@ -612,6 +653,19 @@ impl PickerWindow {
                     self.palette.text
                 },
             );
+        }
+        if is_navigation {
+            self.draw_navigation_icon(draw);
+            if focused {
+                let mut focus = draw.rcItem;
+                let inset = (unsafe { GetDpiForWindow(self.window) } as i32 / BASE_DPI).max(1) * 3;
+                focus.left += inset;
+                focus.top += inset;
+                focus.right -= inset;
+                focus.bottom -= inset;
+                let _ = unsafe { DrawFocusRect(draw.hDC, &focus) };
+            }
+            return true;
         }
         let previous_font = self
             .font
@@ -649,6 +703,79 @@ impl PickerWindow {
         true
     }
 
+    fn draw_navigation_icon(&self, draw: &DRAWITEMSTRUCT) {
+        let dpi = unsafe { GetDpiForWindow(self.window) } as i32;
+        let radius = (5 * dpi / BASE_DPI).max(5);
+        let line_width = (2 * dpi / BASE_DPI).max(1);
+        let mut center_x = (draw.rcItem.left + draw.rcItem.right) / 2;
+        let mut center_y = (draw.rcItem.top + draw.rcItem.bottom) / 2;
+        if draw.itemState.0 & ODS_SELECTED.0 != 0 {
+            center_x += 1;
+            center_y += 1;
+        }
+        let pen = unsafe { CreatePen(PS_SOLID, line_width, self.palette.text) };
+        if pen.is_invalid() {
+            return;
+        }
+        let previous_pen = unsafe { SelectObject(draw.hDC, pen.into()) };
+        unsafe {
+            if draw.hwndItem == self.back_button {
+                let _ = MoveToEx(draw.hDC, center_x + radius, center_y, None);
+                let _ = LineTo(draw.hDC, center_x - radius, center_y);
+                let _ = LineTo(draw.hDC, center_x, center_y - radius);
+                let _ = MoveToEx(draw.hDC, center_x - radius, center_y, None);
+                let _ = LineTo(draw.hDC, center_x, center_y + radius);
+            } else if draw.hwndItem == self.forward_button {
+                let _ = MoveToEx(draw.hDC, center_x - radius, center_y, None);
+                let _ = LineTo(draw.hDC, center_x + radius, center_y);
+                let _ = LineTo(draw.hDC, center_x, center_y - radius);
+                let _ = MoveToEx(draw.hDC, center_x + radius, center_y, None);
+                let _ = LineTo(draw.hDC, center_x, center_y + radius);
+            } else {
+                let _ = MoveToEx(draw.hDC, center_x, center_y + radius, None);
+                let _ = LineTo(draw.hDC, center_x, center_y - radius);
+                let _ = LineTo(draw.hDC, center_x - radius, center_y);
+                let _ = MoveToEx(draw.hDC, center_x, center_y - radius, None);
+                let _ = LineTo(draw.hDC, center_x + radius, center_y);
+            }
+            let _ = SelectObject(draw.hDC, previous_pen);
+            let _ = DeleteObject(pen.into());
+        }
+    }
+
+    fn draw_path(&self, draw: &DRAWITEMSTRUCT) -> bool {
+        unsafe {
+            FillRect(draw.hDC, &draw.rcItem, self.brushes.surface);
+            FrameRect(draw.hDC, &draw.rcItem, self.brushes.border);
+            SetBkMode(draw.hDC, TRANSPARENT);
+            SetTextColor(draw.hDC, self.palette.text);
+        }
+        let previous_font = self
+            .font
+            .map(|font| unsafe { SelectObject(draw.hDC, font.into()) });
+        let length = unsafe { GetWindowTextLengthW(draw.hwndItem) }.max(0) as usize;
+        let mut text = vec![0_u16; length + 1];
+        let copied = unsafe { GetWindowTextW(draw.hwndItem, &mut text) }.max(0) as usize;
+        text.truncate(copied);
+        let dpi = unsafe { GetDpiForWindow(self.window) } as i32;
+        let horizontal_padding = (12 * dpi / BASE_DPI).max(8);
+        let mut text_rect = draw.rcItem;
+        text_rect.left += horizontal_padding;
+        text_rect.right -= horizontal_padding;
+        unsafe {
+            DrawTextW(
+                draw.hDC,
+                &mut text,
+                &mut text_rect,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_PATH_ELLIPSIS,
+            );
+        }
+        if let Some(previous_font) = previous_font {
+            let _ = unsafe { SelectObject(draw.hDC, previous_font) };
+        }
+        true
+    }
+
     fn path_box_color(&self, dc: HDC) -> LRESULT {
         unsafe {
             SetBkMode(dc, OPAQUE);
@@ -669,6 +796,15 @@ impl PickerWindow {
             ID_BACK,
             instance,
         )?;
+        self.forward_button = create_control(
+            BUTTON_CLASS,
+            w!("\u{2192}"),
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(BS_OWNERDRAW as u32),
+            WINDOW_EX_STYLE(0),
+            self.window,
+            ID_FORWARD,
+            instance,
+        )?;
         self.up_button = create_control(
             BUTTON_CLASS,
             w!("\u{2191}"),
@@ -679,12 +815,12 @@ impl PickerWindow {
             instance,
         )?;
         self.path_box = create_control(
-            EDIT_CLASS,
+            STATIC_CLASS,
             w!(""),
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(ES_READONLY as u32),
+            WS_CHILD | WS_VISIBLE | WINDOW_STYLE(SS_OWNERDRAW.0),
             WINDOW_EX_STYLE(0),
             self.window,
-            0,
+            ID_PATH,
             instance,
         )?;
         self.select_button = create_control(
@@ -710,6 +846,7 @@ impl PickerWindow {
         if let Some(font) = self.font {
             for control in [
                 self.back_button,
+                self.forward_button,
                 self.up_button,
                 self.path_box,
                 self.select_button,
@@ -762,7 +899,7 @@ impl PickerWindow {
         };
         let _ = unsafe {
             MoveWindow(
-                self.up_button,
+                self.forward_button,
                 margin + small_width + gap,
                 top,
                 small_width,
@@ -770,16 +907,25 @@ impl PickerWindow {
                 true,
             )
         };
-        let path_left = margin + (small_width + gap) * 2;
+        let _ = unsafe {
+            MoveWindow(
+                self.up_button,
+                margin + (small_width + gap) * 2,
+                top,
+                small_width,
+                control_height,
+                true,
+            )
+        };
+        let path_left = margin + (small_width + gap) * 3;
         let path_width = (width - margin - path_left).max(1);
-        let path_border = scale(1).max(1);
         let _ = unsafe {
             MoveWindow(
                 self.path_box,
-                path_left + path_border,
-                top + path_border,
-                (path_width - path_border * 2).max(1),
-                (control_height - path_border * 2).max(1),
+                path_left,
+                top,
+                path_width,
+                control_height,
                 true,
             )
         };
@@ -829,11 +975,39 @@ impl PickerWindow {
         }
     }
 
-    fn update_current_folder(&self) {
+    fn update_current_folder(&mut self) {
+        self.apply_initial_view();
         let path = self.current_folder_path();
         let label = wide_string(path.as_deref().unwrap_or(""));
         let _ = unsafe { SetWindowTextW(self.path_box, PCWSTR(label.as_ptr())) };
+        let _ = unsafe {
+            RedrawWindow(
+                Some(self.path_box),
+                None,
+                None,
+                RDW_INVALIDATE | RDW_UPDATENOW,
+            )
+        };
         let _ = unsafe { EnableWindow(self.select_button, path.is_some()) };
+    }
+
+    fn apply_initial_view(&mut self) {
+        if self.initial_view_applied {
+            return;
+        }
+        let Some((view_mode, icon_size)) = self.initial_view else {
+            self.initial_view_applied = true;
+            return;
+        };
+        let Some(browser) = &self.browser else {
+            return;
+        };
+        let Ok(view) = (unsafe { browser.GetCurrentView::<IFolderView2>() }) else {
+            return;
+        };
+        if unsafe { view.SetViewModeAndIconSize(view_mode, icon_size) }.is_ok() {
+            self.initial_view_applied = true;
+        }
     }
 
     fn current_folder_path(&self) -> Option<String> {
@@ -843,9 +1017,26 @@ impl PickerWindow {
         shell_item_path(&item).ok()
     }
 
+    fn current_view_settings(&self) -> Option<(i32, i32)> {
+        let browser = self.browser.as_ref()?;
+        let view: IFolderView2 = unsafe { browser.GetCurrentView() }.ok()?;
+        let mut view_mode = FOLDERVIEWMODE::default();
+        let mut icon_size = 0;
+        unsafe { view.GetViewModeAndIconSize(&mut view_mode, &mut icon_size) }.ok()?;
+        valid_view_settings(Some(view_mode.0), Some(icon_size))
+    }
+
     fn accept(&mut self) {
         if let Some(path) = self.current_folder_path() {
-            self.selected_path = Some(path);
+            let (view_mode, icon_size) = self
+                .current_view_settings()
+                .or_else(|| self.initial_view.map(|(mode, size)| (mode.0, size)))
+                .unwrap_or((FVM_THUMBNAIL.0, 96));
+            self.selected = Some(FolderPickerSelection {
+                path,
+                view_mode,
+                icon_size,
+            });
             let _ = unsafe { DestroyWindow(self.window) };
         }
     }
@@ -904,13 +1095,13 @@ unsafe extern "system" fn window_proc(
         }
         WM_DRAWITEM => {
             let draw = unsafe { (lparam.0 as *const DRAWITEMSTRUCT).as_ref() };
-            if draw.is_some_and(|draw| state.draw_button(draw)) {
+            if draw.is_some_and(|draw| state.draw_control(draw)) {
                 LRESULT(1)
             } else {
                 unsafe { DefWindowProcW(window, message, wparam, lparam) }
             }
         }
-        WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => {
+        WM_CTLCOLORSTATIC => {
             if HWND(lparam.0 as *mut c_void) == state.path_box {
                 state.path_box_color(HDC(wparam.0 as *mut c_void))
             } else {
@@ -924,6 +1115,7 @@ unsafe extern "system" fn window_proc(
         WM_COMMAND => {
             match (wparam.0 & 0xffff) as i32 {
                 ID_BACK => state.navigate(SBSP_NAVIGATEBACK),
+                ID_FORWARD => state.navigate(SBSP_NAVIGATEFORWARD),
                 ID_UP => state.navigate(SBSP_PARENT),
                 ID_SELECT => state.accept(),
                 ID_CANCEL => {
@@ -983,7 +1175,9 @@ pub(super) fn pick(
     select_folder_label: &str,
     cancel_label: &str,
     initial_directory: Option<&str>,
-) -> Result<Option<String>, String> {
+    initial_view_mode: Option<i32>,
+    initial_icon_size: Option<i32>,
+) -> Result<Option<FolderPickerSelection>, String> {
     let initialization =
         unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) };
     initialization.ok().map_err(windows_error)?;
@@ -996,7 +1190,7 @@ pub(super) fn pick(
     let mut picker = Box::new(PickerWindow::new(select_folder_label, cancel_label));
     let window = create_picker_window(owner, title, picker.as_mut()).map_err(windows_error)?;
 
-    if let Err(error) = picker.initialize(initial_directory) {
+    if let Err(error) = picker.initialize(initial_directory, initial_view_mode, initial_icon_size) {
         let _ = unsafe { DestroyWindow(window) };
         return Err(windows_error(error));
     }
@@ -1027,7 +1221,7 @@ pub(super) fn pick(
 
     let _ = unsafe { EnableWindow(owner, true) };
     let _ = unsafe { SetForegroundWindow(owner) };
-    Ok(picker.selected_path.clone())
+    Ok(picker.selected.clone())
 }
 
 fn register_window_class() -> WindowsResult<()> {
@@ -1212,6 +1406,13 @@ fn default_initial_directory() -> String {
     std::env::var("USERPROFILE").unwrap_or_else(|_| String::from("C:\\"))
 }
 
+fn valid_view_settings(view_mode: Option<i32>, icon_size: Option<i32>) -> Option<(i32, i32)> {
+    let view_mode = view_mode?;
+    let icon_size = icon_size?;
+    ((1..=8).contains(&view_mode) && (16..=512).contains(&icon_size))
+        .then_some((view_mode, icon_size))
+}
+
 fn ui_language(language_id: u16) -> &'static str {
     if language_id & 0x03ff == JAPANESE_PRIMARY_LANGUAGE_ID {
         "ja"
@@ -1298,5 +1499,16 @@ mod tests {
         assert!(!light.dark);
         assert_eq!(dark.background, COLORREF(0x0019_1919));
         assert_eq!(light.background, COLORREF(0x00f2_f2f2));
+    }
+
+    #[test]
+    fn explorer_view_settings_accept_only_shell_modes_and_practical_icon_sizes() {
+        assert_eq!(valid_view_settings(Some(1), Some(16)), Some((1, 16)));
+        assert_eq!(valid_view_settings(Some(8), Some(512)), Some((8, 512)));
+        assert_eq!(valid_view_settings(Some(0), Some(96)), None);
+        assert_eq!(valid_view_settings(Some(9), Some(96)), None);
+        assert_eq!(valid_view_settings(Some(5), Some(15)), None);
+        assert_eq!(valid_view_settings(Some(5), Some(513)), None);
+        assert_eq!(valid_view_settings(None, Some(96)), None);
     }
 }

@@ -533,13 +533,31 @@
   async function chooseDirectory() {
     try {
       const windowsLanguage = await invoke<Language>('windows_ui_language');
-      const selected = await invoke<string | null>('pick_video_folder', {
+      const selected = await invoke<{
+        path: string;
+        viewMode: number;
+        iconSize: number;
+      } | null>('pick_video_folder', {
         title: translate(windowsLanguage, 'chooseFolderVideo'),
         selectFolderLabel: translate(windowsLanguage, 'selectFolderButton'),
         cancelLabel: translate(windowsLanguage, 'cancel'),
-        initialDirectory: directoryPath ?? parentDirectory(media?.sourcePath),
+        initialDirectory:
+          settings.folderPicker.lastPath ?? directoryPath ?? parentDirectory(media?.sourcePath),
+        initialViewMode: settings.folderPicker.viewMode,
+        initialIconSize: settings.folderPicker.iconSize,
       });
-      if (typeof selected === 'string') await loadSelection(selected);
+      if (selected) {
+        updateSettings({
+          ...settings,
+          folderPicker: {
+            lastPath: selected.path,
+            viewMode: selected.viewMode,
+            iconSize: selected.iconSize,
+          },
+        });
+        await settingsSaveQueue;
+        await loadSelection(selected.path);
+      }
     } catch (error) {
       errorMessage = backendOrClientError('openDialogFailed', error);
     }

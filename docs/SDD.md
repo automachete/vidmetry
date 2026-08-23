@@ -251,6 +251,7 @@ AppSettings
   shortcuts: sixteen canonical physical-key chords
   loopPlayback
   explorerIntegration
+  folderPicker: last confirmed path, Shell view mode, and icon size
   export: ExportSettings
 ```
 
@@ -263,7 +264,7 @@ Crop rectangles use the displayed orientation. The backend owns the conversion t
 | `inspect_selection(path)` | UI → Rust | Resolve a selected file or sorted directory playlist |
 | `supported_video_extensions()` | UI → Rust | Return the single supported-extension list used by native file filters |
 | `windows_ui_language()` | UI → Rust | Resolve the supported locale matching the Windows UI language for native-dialog labels |
-| `pick_video_folder(title, selectFolderLabel, cancelLabel, initialDirectory?)` | UI → Rust | Host the native Explorer Shell view with supported videos visible and return the folder currently being viewed |
+| `pick_video_folder(title, selectFolderLabel, cancelLabel, initialDirectory?, initialViewMode?, initialIconSize?)` | UI → Rust | Host the native Explorer Shell view with supported videos visible and return the confirmed path plus its Shell view mode and icon size |
 | `watch_directory(path?)` | UI → Rust | Replace or stop the non-recursive watcher for the active directory |
 | `probe_video(path)` | UI → Rust | Return `MediaDescriptor` from ffprobe JSON |
 | `create_preview(path)` | UI → Rust | Create/reuse local proxy and return its path |
@@ -290,7 +291,7 @@ The main window uses three regions:
 2. A flexible, neutrally colored video stage containing optional directory navigation, the video, and crop overlay.
 3. A collapsible frame-strip footer with a playback-position handle, start/end trim-boundary handles, persistent loop, and mute, plus a collapsible spatial inspector with coordinates, dimensions, aspect ratio, and Reset.
 
-The first-run state is an accessible file/folder drop target. Common settings use one flat left-side category navigation with one detail page at a time rather than nested or cross-cutting tabs. Export settings do not interrupt each save, and all setting changes save immediately. CSS type-ramp and control-size tokens keep English and Japanese text, buttons, fields, pane controls, and status surfaces in one Windows-scaled hierarchy; the settings title is not repeated as decorative accent text. A strict Zod schema is the runtime and compile-time source for `AppSettings`; unknown, obsolete, partial, or out-of-range shapes are rejected. Valid settings are persisted in `settings.json` under Tauri's application-data directory by the official Store plugin. Windows or manual mode/accent choices are projected through CSS variables; fixed app-icon artwork is strictly achromatic. MSIX registers supported-video Open with activation and a packaged COM directory command; NSIS creates equivalent current-user video and directory registrations. The application stores and applies only the directory command's visibility state, while video Open with registration remains installed. Shell-registration changes refresh the Windows Shell cache. Keyboard focus indicators are visible, icon-only actions have accessible labels, accelerators appear in tooltips, and errors appear inline.
+The first-run state is an accessible file/folder drop target. Common settings use one flat left-side category navigation with one detail page at a time rather than nested or cross-cutting tabs. Export settings do not interrupt each save, and all setting changes save immediately. CSS type-ramp and control-size tokens keep English and Japanese text, buttons, fields, pane controls, and status surfaces in one Windows-scaled hierarchy; the settings title is not repeated as decorative accent text. The Windows folder picker combines a compact Back/Forward/Up address row with the localized Explorer navigation, content, view, and status surfaces; obsolete command/detail/preview panes are suppressed. Its address text is vertically centered, and the last confirmed directory, Shell view mode, and icon size become the next picker state across both repeated selection and application restarts. A strict Zod schema is the runtime and compile-time source for `AppSettings`; unknown, obsolete, partial, or out-of-range shapes are rejected. Valid settings are persisted in `settings.json` under Tauri's application-data directory by the official Store plugin. Windows or manual mode/accent choices are projected through CSS variables; fixed app-icon artwork is strictly achromatic. MSIX registers supported-video Open with activation and a packaged COM directory command; NSIS creates equivalent current-user video and directory registrations. The application stores and applies only the directory command's visibility state, while video Open with registration remains installed. Shell-registration changes refresh the Windows Shell cache. Keyboard focus indicators are visible, icon-only actions have accessible labels, accelerators appear in tooltips, and errors appear inline.
 
 ## 9. Preview strategy
 

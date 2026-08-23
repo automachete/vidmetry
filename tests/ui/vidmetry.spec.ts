@@ -29,6 +29,11 @@ const settings = {
   },
   loopPlayback: true,
   explorerIntegration: true,
+  folderPicker: {
+    lastPath: null,
+    viewMode: 5,
+    iconSize: 96,
+  },
   export: {
     profile: 'compatible',
     videoCodec: 'h264',
@@ -130,7 +135,9 @@ async function installTauriMock(page: Page): Promise<void> {
       if (command === 'plugin:log|log') return null;
       if (command === 'plugin:dialog|open') return sourcePath;
       if (command === 'plugin:dialog|save') return 'C:\\clips\\sample_cropped.mp4';
-      if (command === 'pick_video_folder') return 'C:\\clips';
+      if (command === 'pick_video_folder') {
+        return { path: 'C:\\clips', viewMode: 5, iconSize: 96 };
+      }
       if (command === 'watch_directory') return null;
       if (command === 'inspect_selection') {
         if (
@@ -728,6 +735,8 @@ test('folder navigation, save options, success alignment, and Explorer selection
         selectFolderLabel: 'Select folder',
         cancelLabel: 'Cancel',
         initialDirectory: null,
+        initialViewMode: 5,
+        initialIconSize: 96,
       },
     },
     inspection: { command: 'inspect_selection', args: { path: 'C:\\clips' } },

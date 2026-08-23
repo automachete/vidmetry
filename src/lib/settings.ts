@@ -57,6 +57,12 @@ const shortcutSettingsSchema = z.strictObject({
   toggleFullscreen: shortcutChordSchema,
 });
 
+const folderPickerSettingsSchema = z.strictObject({
+  lastPath: z.string().min(1).nullable(),
+  viewMode: z.number().int().min(1).max(8),
+  iconSize: z.number().int().min(16).max(512),
+});
+
 export const appSettingsSchema = z.strictObject({
   languageMode: z.enum(['system', 'manual']),
   language: z.enum(['ja', 'en']),
@@ -64,6 +70,7 @@ export const appSettingsSchema = z.strictObject({
   shortcuts: shortcutSettingsSchema,
   loopPlayback: z.boolean(),
   explorerIntegration: z.boolean(),
+  folderPicker: folderPickerSettingsSchema,
   export: exportSettingsSchema,
 });
 
@@ -93,6 +100,11 @@ export const defaultSettings: AppSettings = appSettingsSchema.parse({
   shortcuts: defaultShortcuts,
   loopPlayback: true,
   explorerIntegration: true,
+  folderPicker: {
+    lastPath: null,
+    viewMode: 5,
+    iconSize: 96,
+  },
   export: {
     profile: 'compatible',
     videoCodec: 'h264',
