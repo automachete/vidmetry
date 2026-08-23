@@ -37,7 +37,12 @@ describe('persistent settings', () => {
         shortcuts: { ...defaultSettings.shortcuts, openVideo: 'Alt+KeyO' },
         loopPlayback: false,
         explorerIntegration: false,
-        folderPicker: { lastPath: 'D:\\Videos', viewMode: 4, iconSize: 24 },
+        folderPicker: {
+          mode: 'explorerBeta',
+          lastPath: 'D:\\Videos',
+          viewMode: 4,
+          iconSize: 24,
+        },
         export: { ...defaultSettings.export, videoCodec: 'h265', encoder: 'nvidia', crf: 21 },
       },
       store,
@@ -49,7 +54,7 @@ describe('persistent settings', () => {
       shortcuts: { openVideo: 'Alt+KeyO' },
       loopPlayback: false,
       explorerIntegration: false,
-      folderPicker: { lastPath: 'D:\\Videos', viewMode: 4, iconSize: 24 },
+      folderPicker: { mode: 'explorerBeta', lastPath: 'D:\\Videos', viewMode: 4, iconSize: 24 },
       export: { videoCodec: 'h265', encoder: 'nvidia', crf: 21 },
     });
     expect(store.saveCount).toBe(1);
@@ -86,7 +91,10 @@ describe('persistent settings', () => {
     const { folderPicker: ___, ...withoutFolderPicker } = defaultSettings;
     expect(() => parseSettings(withoutFolderPicker)).toThrow();
     expect(() =>
-      parseSettings({ ...defaultSettings, folderPicker: { lastPath: 'D:\\', viewMode: 9, iconSize: 96 } }),
+      parseSettings({
+        ...defaultSettings,
+        folderPicker: { mode: 'standard', lastPath: 'D:\\', viewMode: 9, iconSize: 96 },
+      }),
     ).toThrow();
     expect(() => parseSettings({ languageMode: 'system' })).toThrow();
   });

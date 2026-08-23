@@ -58,6 +58,7 @@ const shortcutSettingsSchema = z.strictObject({
 });
 
 const folderPickerSettingsSchema = z.strictObject({
+  mode: z.enum(['standard', 'explorerBeta']),
   lastPath: z.string().min(1).nullable(),
   viewMode: z.number().int().min(1).max(8),
   iconSize: z.number().int().min(16).max(512),
@@ -77,6 +78,7 @@ export const appSettingsSchema = z.strictObject({
 export type AppSettings = z.infer<typeof appSettingsSchema>;
 export type Language = AppSettings['language'];
 export type LanguageMode = AppSettings['languageMode'];
+export type FolderPickerMode = AppSettings['folderPicker']['mode'];
 
 export interface SettingsStore {
   get<T>(key: string): Promise<T | undefined>;
@@ -101,8 +103,9 @@ export const defaultSettings: AppSettings = appSettingsSchema.parse({
   loopPlayback: true,
   explorerIntegration: true,
   folderPicker: {
+    mode: 'standard',
     lastPath: null,
-    viewMode: 5,
+    viewMode: 1,
     iconSize: 96,
   },
   export: {

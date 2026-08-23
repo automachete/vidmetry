@@ -124,6 +124,15 @@ function useEnglish(): void {
   storeState.value = { ...defaultSettings, languageMode: 'manual', language: 'en' };
 }
 
+function useEnglishExplorerBeta(): void {
+  storeState.value = {
+    ...defaultSettings,
+    languageMode: 'manual',
+    language: 'en',
+    folderPicker: { ...defaultSettings.folderPicker, mode: 'explorerBeta' },
+  };
+}
+
 function mockSelection(
   paths = videoPaths,
   failingProbePath?: string,
@@ -181,6 +190,9 @@ describe('application shell', () => {
     vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
     vi.mocked(invoke).mockReset();
     vi.mocked(dialogOpen).mockReset();
+    vi.mocked(dialogOpen).mockImplementation(async (options) =>
+      options?.directory ? 'C:\\clips' : null,
+    );
     vi.mocked(dialogSave).mockReset();
     windowState.theme.mockReset().mockResolvedValue('dark');
     windowState.onThemeChanged.mockReset().mockResolvedValue(vi.fn());
@@ -282,6 +294,12 @@ describe('application shell', () => {
     await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
     await fireEvent.click(settingsButton);
     await fireEvent.click(screen.getByRole('button', { name: 'File Explorer' }));
+    const folderPicker = screen.getByRole('combobox', { name: 'Folder picker' });
+    expect((folderPicker as HTMLSelectElement).value).toBe('standard');
+    await fireEvent.change(folderPicker, { target: { value: 'explorerBeta' } });
+    await waitFor(() =>
+      expect(storeState.value).toMatchObject({ folderPicker: { mode: 'explorerBeta' } }),
+    );
     await fireEvent.click(
       screen.getByRole('checkbox', { name: 'Show Open with Vidmetry for folders' }),
     );
@@ -366,7 +384,7 @@ describe('application shell', () => {
   });
 
   it('opens Settings and folders with conventional shortcuts, uses the Windows dialog language, and switches export profiles', async () => {
-    useEnglish();
+    useEnglishExplorerBeta();
     mockWindowsUiLanguage = 'ja';
     vi.mocked(dialogOpen).mockResolvedValue(videoPaths[0]);
     mockSelection();
@@ -394,8 +412,41 @@ describe('application shell', () => {
         selectFolderLabel: 'フォルダーの選択',
         cancelLabel: 'キャンセル',
         initialDirectory: 'C:\\clips',
-        initialViewMode: 5,
-        initialIconSize: 96,
+        initialView: { viewMode: 1, iconSize: 96 },
+        viewLabels: {
+          view: '表示',
+          extraLargeIcons: '特大アイコン',
+          largeIcons: '大アイコン',
+          mediumIcons: '中アイコン',
+          smallIcons: '小アイコン',
+          list: '一覧',
+          details: '詳細',
+          tiles: '並べて表示',
+          content: 'コンテンツ',
+        },
+      }),
+    );
+  });
+
+  it('uses the standard Windows folder picker by default and remembers its selection', async () => {
+    useEnglish();
+    mockSelection();
+    vi.mocked(dialogOpen).mockResolvedValue('D:\\Standard');
+    render(App);
+
+    const openFolder = screen.getByRole('button', { name: 'Open folder' });
+    await waitFor(() => expect((openFolder as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(openFolder);
+
+    expect(dialogOpen).toHaveBeenCalledWith({
+      multiple: false,
+      directory: true,
+      defaultPath: undefined,
+    });
+    expect(invoke).not.toHaveBeenCalledWith('pick_video_folder', expect.anything());
+    await waitFor(() =>
+      expect(storeState.value).toMatchObject({
+        folderPicker: { mode: 'standard', lastPath: 'D:\\Standard' },
       }),
     );
   });
@@ -405,7 +456,12 @@ describe('application shell', () => {
       ...defaultSettings,
       languageMode: 'manual',
       language: 'en',
-      folderPicker: { lastPath: 'D:\\Remembered', viewMode: 4, iconSize: 24 },
+      folderPicker: {
+        mode: 'explorerBeta',
+        lastPath: 'D:\\Remembered',
+        viewMode: 4,
+        iconSize: 24,
+      },
     };
     mockSelection();
     vi.mocked(invoke).mockImplementation(async (command, args) => {
@@ -421,8 +477,7 @@ describe('application shell', () => {
       if (command === 'pick_video_folder') {
         expect(args).toMatchObject({
           initialDirectory: 'D:\\Remembered',
-          initialViewMode: 4,
-          initialIconSize: 24,
+          initialView: { viewMode: 4, iconSize: 24 },
         });
         return { path: 'E:\\Selected', viewMode: 1, iconSize: 144 } as never;
       }
@@ -446,7 +501,12 @@ describe('application shell', () => {
 
     await waitFor(() =>
       expect(storeState.value).toMatchObject({
-        folderPicker: { lastPath: 'E:\\Selected', viewMode: 1, iconSize: 144 },
+        folderPicker: {
+          mode: 'explorerBeta',
+          lastPath: 'E:\\Selected',
+          viewMode: 1,
+          iconSize: 144,
+        },
       }),
     );
     expect(storeState.save).toHaveBeenCalled();
@@ -621,7 +681,7 @@ describe('application shell', () => {
   });
 
   it('localizes structured backend errors in English mode', async () => {
-    useEnglish();
+    useEnglishExplorerBeta();
     vi.mocked(invoke).mockImplementation(async (command) => {
       if (command === 'windows_ui_language') return 'en' as never;
       if (command === 'pick_video_folder') {

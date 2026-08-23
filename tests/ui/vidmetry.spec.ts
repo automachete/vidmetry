@@ -30,8 +30,9 @@ const settings = {
   loopPlayback: true,
   explorerIntegration: true,
   folderPicker: {
+    mode: 'standard',
     lastPath: null,
-    viewMode: 5,
+    viewMode: 1,
     iconSize: 96,
   },
   export: {
@@ -56,8 +57,11 @@ async function installTauriMock(page: Page): Promise<void> {
     const listeners = new Map<string, number[]>();
     let nextCallback = 1;
     const invocations: Array<{ command: string; args: unknown }> = [];
-    let storedSettings: unknown = structuredClone(persistedSettings);
+    let storedSettings: any = structuredClone(persistedSettings);
     const query = new URLSearchParams(location.search);
+    if (query.get('betaPicker') === '1') {
+      storedSettings.folderPicker.mode = 'explorerBeta';
+    }
     const sourceExtension = query.get('source') === 'mov' ? 'mov' : 'mp4';
     const requestedTheme = query.get('theme') === 'light' ? 'light' : 'dark';
     const simulatedMediaDuration = Number(query.get('mediaDuration'));
@@ -133,10 +137,12 @@ async function installTauriMock(page: Page): Promise<void> {
       }
       if (command === 'plugin:store|save') return null;
       if (command === 'plugin:log|log') return null;
-      if (command === 'plugin:dialog|open') return sourcePath;
+      if (command === 'plugin:dialog|open') {
+        return args.options?.directory ? 'C:\\clips' : sourcePath;
+      }
       if (command === 'plugin:dialog|save') return 'C:\\clips\\sample_cropped.mp4';
       if (command === 'pick_video_folder') {
-        return { path: 'C:\\clips', viewMode: 5, iconSize: 96 };
+        return { path: 'C:\\clips', viewMode: 1, iconSize: 96 };
       }
       if (command === 'watch_directory') return null;
       if (command === 'inspect_selection') {
@@ -544,6 +550,13 @@ test('settings use one-level category navigation and expose encoder availability
   await expect(encoder.locator('option[value="amd"]')).toHaveAttribute('disabled', '');
   await codec.selectOption('h264');
   await expect(page.getByRole('button', { name: 'Apply' })).toHaveCount(0);
+  await settingsNavigation.getByRole('button', { name: 'File Explorer' }).click();
+  const folderPicker = page.getByRole('combobox', { name: 'Folder picker' });
+  await expect(folderPicker).toHaveValue('standard');
+  await folderPicker.selectOption('explorerBeta');
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__getStoredSettings().folderPicker.mode))
+    .toBe('explorerBeta');
   await settingsNavigation.getByRole('button', { name: 'Language' }).click();
   await expect(page.getByRole('combobox', { name: 'Display language' })).toBeVisible();
   await expect(page.locator('.dialog-actions').getByRole('button', { name: 'Close' })).toBeVisible();
@@ -711,7 +724,7 @@ test('settings save appearance and recorded shortcuts immediately', async ({ pag
 test('folder navigation, save options, success alignment, and Explorer selection work together', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/?betaPicker=1');
   await page.getByRole('button', { name: 'Open folder' }).click();
   await expect(page.getByRole('option', { name: '2. second.mp4' })).toBeAttached();
   expect(
@@ -735,8 +748,18 @@ test('folder navigation, save options, success alignment, and Explorer selection
         selectFolderLabel: 'Select folder',
         cancelLabel: 'Cancel',
         initialDirectory: null,
-        initialViewMode: 5,
-        initialIconSize: 96,
+        initialView: { viewMode: 1, iconSize: 96 },
+        viewLabels: {
+          view: 'View',
+          extraLargeIcons: 'Extra large icons',
+          largeIcons: 'Large icons',
+          mediumIcons: 'Medium icons',
+          smallIcons: 'Small icons',
+          list: 'List',
+          details: 'Details',
+          tiles: 'Tiles',
+          content: 'Content',
+        },
       },
     },
     inspection: { command: 'inspect_selection', args: { path: 'C:\\clips' } },

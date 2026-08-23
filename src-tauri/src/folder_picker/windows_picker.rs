@@ -37,14 +37,19 @@ use windows::{
             WinRT::{RO_INIT_SINGLETHREADED, RoInitialize, RoUninitialize},
         },
         UI::{
-            Controls::{DRAWITEMSTRUCT, ODS_DISABLED, ODS_FOCUS, ODS_HOTLIGHT, ODS_SELECTED},
+            Controls::{
+                DRAWITEMSTRUCT, ODS_DISABLED, ODS_FOCUS, ODS_HOTLIGHT, ODS_SELECTED,
+                SetWindowTheme, TOOLTIPS_CLASS, TTF_IDISHWND, TTF_SUBCLASS, TTM_ADDTOOLW,
+                TTS_ALWAYSTIP, TTS_NOPREFIX, TTTOOLINFOW,
+            },
             HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow},
             Input::KeyboardAndMouse::{EnableWindow, VK_ESCAPE},
             Shell::{
                 EBO_NOBORDER, EBO_SHOWFRAMES, EP_AdvQueryPane, EP_Commands, EP_Commands_Organize,
                 EP_Commands_View, EP_DetailsPane, EP_NavPane, EP_PreviewPane, EP_QueryPane,
                 EP_Ribbon, EP_StatusBar, EPS_DEFAULT_OFF, EPS_DEFAULT_ON, EPS_FORCE,
-                ExplorerBrowser, FOLDERSETTINGS, FOLDERVIEWMODE, FVM_THUMBNAIL, FWF_AUTOARRANGE,
+                ExplorerBrowser, FOLDERSETTINGS, FOLDERVIEWMODE, FVM_CONTENT, FVM_DETAILS,
+                FVM_ICON, FVM_LIST, FVM_SMALLICON, FVM_THUMBNAIL, FVM_TILE, FWF_AUTOARRANGE,
                 FWF_FULLROWSELECT, FWF_NOWEBVIEW, ICommDlgBrowser, ICommDlgBrowser_Impl,
                 ICommDlgBrowser2, ICommDlgBrowser2_Impl, IExplorerBrowser, IExplorerBrowserEvents,
                 IExplorerBrowserEvents_Impl, IExplorerPaneVisibility, IExplorerPaneVisibility_Impl,
@@ -53,30 +58,35 @@ use windows::{
                 SHCreateItemWithParent, SIGDN_FILESYSPATH,
             },
             WindowsAndMessaging::{
-                BS_OWNERDRAW, CREATESTRUCTW, CS_DBLCLKS, CW_USEDEFAULT, CreateWindowExW,
-                DefWindowProcW, DestroyWindow, DispatchMessageW, GWLP_USERDATA, GetClientRect,
-                GetMessageW, GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW,
-                GetWindowTextW, HMENU, IDC_ARROW, IsDialogMessageW, LoadCursorW, MINMAXINFO, MSG,
-                MoveWindow, NONCLIENTMETRICSW, PostMessageW, PostQuitMessage, RegisterClassW,
+                AppendMenuW, BS_OWNERDRAW, CREATESTRUCTW, CS_DBLCLKS, CW_USEDEFAULT,
+                CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
+                DispatchMessageW, GWLP_USERDATA, GetClientRect, GetMessageW, GetWindowLongPtrW,
+                GetWindowRect, GetWindowTextLengthW, GetWindowTextW, HMENU, IDC_ARROW,
+                IsDialogMessageW, LoadCursorW, MF_CHECKED, MF_STRING, MINMAXINFO, MSG, MoveWindow,
+                NONCLIENTMETRICSW, PostMessageW, PostQuitMessage, RegisterClassW,
                 SPI_GETNONCLIENTMETRICS, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER,
                 SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SendMessageW, SetForegroundWindow,
                 SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, SystemParametersInfoW,
+                TPM_LEFTBUTTON, TPM_RETURNCMD, TPM_RIGHTALIGN, TPM_TOPALIGN, TrackPopupMenuEx,
                 TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_CLOSE, WM_COMMAND,
                 WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_DRAWITEM, WM_ERASEBKGND,
                 WM_GETMINMAXINFO, WM_KEYDOWN, WM_NCCREATE, WM_PAINT, WM_SETFONT, WM_SETTINGCHANGE,
                 WM_SIZE, WM_THEMECHANGED, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN,
-                WS_EX_CONTROLPARENT, WS_EX_DLGMODALFRAME, WS_MAXIMIZEBOX, WS_OVERLAPPED,
-                WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE,
+                WS_EX_CONTROLPARENT, WS_EX_DLGMODALFRAME, WS_EX_TOPMOST, WS_MAXIMIZEBOX,
+                WS_OVERLAPPED, WS_POPUP, WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE,
             },
         },
     },
     core::{
-        ComObject, Error as WindowsError, HRESULT, IInspectable, Interface, PCWSTR, Ref,
+        ComObject, Error as WindowsError, HRESULT, IInspectable, Interface, PCWSTR, PWSTR, Ref,
         Result as WindowsResult, implement, w,
     },
 };
 
-use crate::{folder_picker::FolderPickerSelection, selection::VIDEO_EXTENSIONS};
+use crate::{
+    folder_picker::{FolderPickerSelection, FolderPickerViewLabels, FolderPickerViewSettings},
+    selection::VIDEO_EXTENSIONS,
+};
 
 const WINDOW_CLASS: PCWSTR = w!("VidmetryExplorerFolderPicker");
 const BUTTON_CLASS: PCWSTR = w!("BUTTON");
@@ -88,6 +98,17 @@ const ID_SELECT: i32 = 1003;
 const ID_CANCEL: i32 = 1004;
 const ID_FORWARD: i32 = 1005;
 const ID_PATH: i32 = 1006;
+const ID_VIEW: i32 = 1007;
+const ID_BROWSER_HOST: i32 = 1008;
+
+const ID_VIEW_EXTRA_LARGE_ICONS: i32 = 1101;
+const ID_VIEW_LARGE_ICONS: i32 = 1102;
+const ID_VIEW_MEDIUM_ICONS: i32 = 1103;
+const ID_VIEW_SMALL_ICONS: i32 = 1104;
+const ID_VIEW_LIST: i32 = 1105;
+const ID_VIEW_DETAILS: i32 = 1106;
+const ID_VIEW_TILES: i32 = 1107;
+const ID_VIEW_CONTENT: i32 = 1108;
 
 const WM_NAVIGATION_COMPLETE: u32 = WM_APP + 1;
 const WM_COLOR_MODE_CHANGED: u32 = WM_APP + 2;
@@ -103,6 +124,9 @@ const CONTROL_HEIGHT: i32 = 36;
 const SMALL_BUTTON_WIDTH: i32 = 36;
 const ACTION_BUTTON_WIDTH: i32 = 112;
 const CONTROL_GAP: i32 = 4;
+const COMMAND_BAR_HEIGHT: i32 = 40;
+const VIEW_BUTTON_WIDTH: i32 = 48;
+const SHELL_STATUS_CLIP_HEIGHT: i32 = 26;
 
 const E_POINTER: HRESULT = HRESULT(0x80004003_u32 as i32);
 const E_NOINTERFACE: HRESULT = HRESULT(0x80004002_u32 as i32);
@@ -317,15 +341,17 @@ impl IExplorerPaneVisibility_Impl for ExplorerSite_Impl {
             return Err(WindowsError::from_hresult(E_POINTER));
         }
         let pane = unsafe { *pane };
-        let state = if pane == EP_NavPane || pane == EP_Commands_View || pane == EP_StatusBar {
+        let state = if pane == EP_NavPane {
             EPS_DEFAULT_ON.0 | EPS_FORCE.0
         } else if pane == EP_Commands
             || pane == EP_Commands_Organize
+            || pane == EP_Commands_View
             || pane == EP_DetailsPane
             || pane == EP_PreviewPane
             || pane == EP_QueryPane
             || pane == EP_AdvQueryPane
             || pane == EP_Ribbon
+            || pane == EP_StatusBar
         {
             EPS_DEFAULT_OFF.0 | EPS_FORCE.0
         } else {
@@ -430,12 +456,43 @@ impl IExplorerBrowserEvents_Impl for ExplorerSite_Impl {
     }
 }
 
+struct ViewLabelBuffers {
+    view: Vec<u16>,
+    extra_large_icons: Vec<u16>,
+    large_icons: Vec<u16>,
+    medium_icons: Vec<u16>,
+    small_icons: Vec<u16>,
+    list: Vec<u16>,
+    details: Vec<u16>,
+    tiles: Vec<u16>,
+    content: Vec<u16>,
+}
+
+impl From<FolderPickerViewLabels> for ViewLabelBuffers {
+    fn from(labels: FolderPickerViewLabels) -> Self {
+        Self {
+            view: wide_string(&labels.view),
+            extra_large_icons: wide_string(&labels.extra_large_icons),
+            large_icons: wide_string(&labels.large_icons),
+            medium_icons: wide_string(&labels.medium_icons),
+            small_icons: wide_string(&labels.small_icons),
+            list: wide_string(&labels.list),
+            details: wide_string(&labels.details),
+            tiles: wide_string(&labels.tiles),
+            content: wide_string(&labels.content),
+        }
+    }
+}
+
 struct PickerWindow {
     window: HWND,
     back_button: HWND,
     forward_button: HWND,
     up_button: HWND,
     path_box: HWND,
+    view_button: HWND,
+    tooltip: HWND,
+    browser_host: HWND,
     select_button: HWND,
     cancel_button: HWND,
     browser: Option<IExplorerBrowser>,
@@ -451,10 +508,15 @@ struct PickerWindow {
     initial_view_applied: bool,
     select_folder_label: Vec<u16>,
     cancel_label: Vec<u16>,
+    view_labels: ViewLabelBuffers,
 }
 
 impl PickerWindow {
-    fn new(select_folder_label: &str, cancel_label: &str) -> Self {
+    fn new(
+        select_folder_label: &str,
+        cancel_label: &str,
+        view_labels: FolderPickerViewLabels,
+    ) -> Self {
         let palette = ThemePalette::fallback_light();
         Self {
             window: HWND::default(),
@@ -462,6 +524,9 @@ impl PickerWindow {
             forward_button: HWND::default(),
             up_button: HWND::default(),
             path_box: HWND::default(),
+            view_button: HWND::default(),
+            tooltip: HWND::default(),
+            browser_host: HWND::default(),
             select_button: HWND::default(),
             cancel_button: HWND::default(),
             browser: None,
@@ -477,6 +542,7 @@ impl PickerWindow {
             initial_view_applied: false,
             select_folder_label: wide_string(select_folder_label),
             cancel_label: wide_string(cancel_label),
+            view_labels: view_labels.into(),
         }
     }
 
@@ -498,12 +564,12 @@ impl PickerWindow {
         unsafe { IUnknown_SetSite(&browser, &service_provider)? };
 
         let settings = FOLDERSETTINGS {
-            ViewMode: FVM_THUMBNAIL.0 as u32,
+            ViewMode: FVM_ICON.0 as u32,
             fFlags: (FWF_AUTOARRANGE | FWF_FULLROWSELECT | FWF_NOWEBVIEW).0 as u32,
         };
-        let browser_rect = self.browser_rect();
+        let browser_rect = self.browser_inner_rect();
         unsafe {
-            browser.Initialize(self.window, &browser_rect, Some(&settings))?;
+            browser.Initialize(self.browser_host, &browser_rect, Some(&settings))?;
             browser.SetOptions(EBO_SHOWFRAMES | EBO_NOBORDER)?;
         }
         let events: IExplorerBrowserEvents = site.to_interface();
@@ -573,11 +639,14 @@ impl PickerWindow {
                 RDW_FRAME | RDW_INVALIDATE | RDW_UPDATENOW,
             )
         };
+        self.apply_tooltip_theme();
         for control in [
             self.back_button,
             self.forward_button,
             self.up_button,
             self.path_box,
+            self.view_button,
+            self.browser_host,
             self.select_button,
             self.cancel_button,
         ] {
@@ -612,6 +681,7 @@ impl PickerWindow {
             self.back_button,
             self.forward_button,
             self.up_button,
+            self.view_button,
             self.select_button,
             self.cancel_button,
         ]
@@ -621,8 +691,13 @@ impl PickerWindow {
         }
 
         let has_state = |state: u32| draw.itemState.0 & state != 0;
-        let is_navigation =
-            [self.back_button, self.forward_button, self.up_button].contains(&draw.hwndItem);
+        let is_navigation = [
+            self.back_button,
+            self.forward_button,
+            self.up_button,
+            self.view_button,
+        ]
+        .contains(&draw.hwndItem);
         let brush = if has_state(ODS_SELECTED.0) {
             self.brushes.pressed
         } else if has_state(ODS_HOTLIGHT.0) {
@@ -655,7 +730,11 @@ impl PickerWindow {
             );
         }
         if is_navigation {
-            self.draw_navigation_icon(draw);
+            if draw.hwndItem == self.view_button {
+                self.draw_view_icon(draw);
+            } else {
+                self.draw_navigation_icon(draw);
+            }
             if focused {
                 let mut focus = draw.rcItem;
                 let inset = (unsafe { GetDpiForWindow(self.window) } as i32 / BASE_DPI).max(1) * 3;
@@ -743,6 +822,53 @@ impl PickerWindow {
         }
     }
 
+    fn draw_view_icon(&self, draw: &DRAWITEMSTRUCT) {
+        let dpi = unsafe { GetDpiForWindow(self.window) } as i32;
+        let scale = |value: i32| (value * dpi / BASE_DPI).max(1);
+        let mut center_x = (draw.rcItem.left + draw.rcItem.right) / 2 - scale(4);
+        let mut center_y = (draw.rcItem.top + draw.rcItem.bottom) / 2;
+        if draw.itemState.0 & ODS_SELECTED.0 != 0 {
+            center_x += 1;
+            center_y += 1;
+        }
+        let pen = unsafe { CreatePen(PS_SOLID, scale(1), self.palette.text) };
+        if pen.is_invalid() {
+            return;
+        }
+        let icon_brush = unsafe { CreateSolidBrush(self.palette.text) };
+        if icon_brush.is_invalid() {
+            let _ = unsafe { DeleteObject(pen.into()) };
+            return;
+        }
+        let previous_pen = unsafe { SelectObject(draw.hDC, pen.into()) };
+        let square = scale(3);
+        let line_left = center_x - scale(8);
+        let line_right = center_x + scale(6);
+        unsafe {
+            for offset in [-scale(6), 0, scale(6)] {
+                let top = center_y + offset - square / 2;
+                let left = line_left;
+                let rect = RECT {
+                    left,
+                    top,
+                    right: left + square,
+                    bottom: top + square,
+                };
+                FrameRect(draw.hDC, &rect, icon_brush);
+                let _ = MoveToEx(draw.hDC, left + square + scale(3), center_y + offset, None);
+                let _ = LineTo(draw.hDC, line_right, center_y + offset);
+            }
+            let chevron_x = center_x + scale(14);
+            let chevron_y = center_y - scale(1);
+            let _ = MoveToEx(draw.hDC, chevron_x - scale(3), chevron_y, None);
+            let _ = LineTo(draw.hDC, chevron_x, chevron_y + scale(3));
+            let _ = LineTo(draw.hDC, chevron_x + scale(3), chevron_y);
+            let _ = SelectObject(draw.hDC, previous_pen);
+            let _ = DeleteObject(pen.into());
+            let _ = DeleteObject(icon_brush.into());
+        }
+    }
+
     fn draw_path(&self, draw: &DRAWITEMSTRUCT) -> bool {
         unsafe {
             FillRect(draw.hDC, &draw.rcItem, self.brushes.surface);
@@ -785,6 +911,14 @@ impl PickerWindow {
         LRESULT(self.brushes.surface.0 as isize)
     }
 
+    fn browser_host_color(&self, dc: HDC) -> LRESULT {
+        unsafe {
+            SetBkMode(dc, OPAQUE);
+            SetBkColor(dc, self.palette.background);
+        }
+        LRESULT(self.brushes.background.0 as isize)
+    }
+
     fn create_controls(&mut self) -> WindowsResult<()> {
         let instance = module_instance()?;
         self.back_button = create_control(
@@ -823,6 +957,25 @@ impl PickerWindow {
             ID_PATH,
             instance,
         )?;
+        self.view_button = create_control(
+            BUTTON_CLASS,
+            PCWSTR(self.view_labels.view.as_ptr()),
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(BS_OWNERDRAW as u32),
+            WINDOW_EX_STYLE(0),
+            self.window,
+            ID_VIEW,
+            instance,
+        )?;
+        self.create_view_tooltip(instance)?;
+        self.browser_host = create_control(
+            STATIC_CLASS,
+            w!(""),
+            WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
+            WINDOW_EX_STYLE(0),
+            self.window,
+            ID_BROWSER_HOST,
+            instance,
+        )?;
         self.select_button = create_control(
             BUTTON_CLASS,
             PCWSTR(self.select_folder_label.as_ptr()),
@@ -849,6 +1002,7 @@ impl PickerWindow {
                 self.forward_button,
                 self.up_button,
                 self.path_box,
+                self.view_button,
                 self.select_button,
                 self.cancel_button,
             ] {
@@ -864,6 +1018,55 @@ impl PickerWindow {
         }
         self.layout();
         Ok(())
+    }
+
+    fn create_view_tooltip(&mut self, instance: HINSTANCE) -> WindowsResult<()> {
+        self.tooltip = unsafe {
+            CreateWindowExW(
+                WS_EX_TOPMOST,
+                TOOLTIPS_CLASS,
+                PCWSTR::null(),
+                WS_POPUP | WINDOW_STYLE(TTS_ALWAYSTIP | TTS_NOPREFIX),
+                CW_USEDEFAULT,
+                CW_USEDEFAULT,
+                CW_USEDEFAULT,
+                CW_USEDEFAULT,
+                Some(self.window),
+                None,
+                Some(instance),
+                None,
+            )?
+        };
+        let tool = TTTOOLINFOW {
+            cbSize: std::mem::size_of::<TTTOOLINFOW>() as u32,
+            uFlags: TTF_IDISHWND | TTF_SUBCLASS,
+            hwnd: self.window,
+            uId: self.view_button.0 as usize,
+            lpszText: PWSTR(self.view_labels.view.as_mut_ptr()),
+            ..Default::default()
+        };
+        unsafe {
+            SendMessageW(
+                self.tooltip,
+                TTM_ADDTOOLW,
+                Some(WPARAM(0)),
+                Some(LPARAM((&tool as *const TTTOOLINFOW) as isize)),
+            );
+        }
+        self.apply_tooltip_theme();
+        Ok(())
+    }
+
+    fn apply_tooltip_theme(&self) {
+        if self.tooltip.0.is_null() {
+            return;
+        }
+        let theme = if self.palette.dark {
+            w!("DarkMode_Explorer")
+        } else {
+            w!("Explorer")
+        };
+        let _ = unsafe { SetWindowTheme(self.tooltip, theme, PCWSTR::null()) };
     }
 
     fn layout(&self) {
@@ -929,6 +1132,18 @@ impl PickerWindow {
                 true,
             )
         };
+        let command_top = top + control_height + gap;
+        let view_width = scale(VIEW_BUTTON_WIDTH);
+        let _ = unsafe {
+            MoveWindow(
+                self.view_button,
+                width - margin - view_width,
+                command_top + (scale(COMMAND_BAR_HEIGHT) - control_height) / 2,
+                view_width,
+                control_height,
+                true,
+            )
+        };
 
         let _ = unsafe {
             MoveWindow(
@@ -951,22 +1166,41 @@ impl PickerWindow {
             )
         };
 
+        let host_rect = self.browser_host_rect();
+        let _ = unsafe {
+            MoveWindow(
+                self.browser_host,
+                host_rect.left,
+                host_rect.top,
+                host_rect.right - host_rect.left,
+                host_rect.bottom - host_rect.top,
+                true,
+            )
+        };
         if let Some(browser) = &self.browser {
-            let _ = unsafe { browser.SetRect(None, self.browser_rect()) };
+            let _ = unsafe { browser.SetRect(None, self.browser_inner_rect()) };
         }
     }
 
-    fn browser_rect(&self) -> RECT {
+    fn browser_host_rect(&self) -> RECT {
         let dpi = unsafe { GetDpiForWindow(self.window) } as i32;
         let scale = |value| value * dpi / BASE_DPI;
         let mut client = RECT::default();
         let _ = unsafe { GetClientRect(self.window, &mut client) };
         RECT {
             left: scale(MARGIN),
-            top: scale(MARGIN + CONTROL_HEIGHT + CONTROL_GAP),
+            top: scale(MARGIN + CONTROL_HEIGHT + CONTROL_GAP + COMMAND_BAR_HEIGHT + CONTROL_GAP),
             right: client.right - scale(MARGIN),
             bottom: client.bottom - scale(MARGIN + CONTROL_HEIGHT + CONTROL_GAP),
         }
+    }
+
+    fn browser_inner_rect(&self) -> RECT {
+        let dpi = unsafe { GetDpiForWindow(self.window) } as i32;
+        let mut client = RECT::default();
+        let _ = unsafe { GetClientRect(self.browser_host, &mut client) };
+        client.bottom += SHELL_STATUS_CLIP_HEIGHT * dpi / BASE_DPI;
+        client
     }
 
     fn navigate(&self, flags: u32) {
@@ -1026,12 +1260,71 @@ impl PickerWindow {
         valid_view_settings(Some(view_mode.0), Some(icon_size))
     }
 
+    fn set_view(&self, view_mode: FOLDERVIEWMODE, icon_size: i32) {
+        let Some(browser) = &self.browser else {
+            return;
+        };
+        let Ok(view) = (unsafe { browser.GetCurrentView::<IFolderView2>() }) else {
+            return;
+        };
+        let _ = unsafe { view.SetViewModeAndIconSize(view_mode, icon_size) };
+    }
+
+    fn show_view_menu(&self) {
+        let Ok(menu) = (unsafe { CreatePopupMenu() }) else {
+            return;
+        };
+        let checked = self
+            .current_view_settings()
+            .map(|(mode, size)| view_command_for_settings(FOLDERVIEWMODE(mode), size));
+        let items = [
+            (
+                ID_VIEW_EXTRA_LARGE_ICONS,
+                &self.view_labels.extra_large_icons,
+            ),
+            (ID_VIEW_LARGE_ICONS, &self.view_labels.large_icons),
+            (ID_VIEW_MEDIUM_ICONS, &self.view_labels.medium_icons),
+            (ID_VIEW_SMALL_ICONS, &self.view_labels.small_icons),
+            (ID_VIEW_LIST, &self.view_labels.list),
+            (ID_VIEW_DETAILS, &self.view_labels.details),
+            (ID_VIEW_TILES, &self.view_labels.tiles),
+            (ID_VIEW_CONTENT, &self.view_labels.content),
+        ];
+        for (command, label) in items {
+            let flags = if checked == Some(command) {
+                MF_STRING | MF_CHECKED
+            } else {
+                MF_STRING
+            };
+            if unsafe { AppendMenuW(menu, flags, command as usize, PCWSTR(label.as_ptr())) }
+                .is_err()
+            {
+                let _ = unsafe { DestroyMenu(menu) };
+                return;
+            }
+        }
+
+        let mut button = RECT::default();
+        if unsafe { GetWindowRect(self.view_button, &mut button) }.is_err() {
+            let _ = unsafe { DestroyMenu(menu) };
+            return;
+        }
+        let flags = (TPM_RIGHTALIGN | TPM_TOPALIGN | TPM_RETURNCMD | TPM_LEFTBUTTON).0;
+        let command = unsafe {
+            TrackPopupMenuEx(menu, flags, button.right, button.bottom, self.window, None).0
+        };
+        let _ = unsafe { DestroyMenu(menu) };
+        if let Some((view_mode, icon_size)) = view_settings_for_command(command) {
+            self.set_view(view_mode, icon_size);
+        }
+    }
+
     fn accept(&mut self) {
         if let Some(path) = self.current_folder_path() {
             let (view_mode, icon_size) = self
                 .current_view_settings()
                 .or_else(|| self.initial_view.map(|(mode, size)| (mode.0, size)))
-                .unwrap_or((FVM_THUMBNAIL.0, 96));
+                .unwrap_or((FVM_ICON.0, 96));
             self.selected = Some(FolderPickerSelection {
                 path,
                 view_mode,
@@ -1102,8 +1395,11 @@ unsafe extern "system" fn window_proc(
             }
         }
         WM_CTLCOLORSTATIC => {
-            if HWND(lparam.0 as *mut c_void) == state.path_box {
+            let control = HWND(lparam.0 as *mut c_void);
+            if control == state.path_box {
                 state.path_box_color(HDC(wparam.0 as *mut c_void))
+            } else if control == state.browser_host {
+                state.browser_host_color(HDC(wparam.0 as *mut c_void))
             } else {
                 unsafe { DefWindowProcW(window, message, wparam, lparam) }
             }
@@ -1117,6 +1413,7 @@ unsafe extern "system" fn window_proc(
                 ID_BACK => state.navigate(SBSP_NAVIGATEBACK),
                 ID_FORWARD => state.navigate(SBSP_NAVIGATEFORWARD),
                 ID_UP => state.navigate(SBSP_PARENT),
+                ID_VIEW => state.show_view_menu(),
                 ID_SELECT => state.accept(),
                 ID_CANCEL => {
                     let _ = unsafe { DestroyWindow(window) };
@@ -1175,8 +1472,8 @@ pub(super) fn pick(
     select_folder_label: &str,
     cancel_label: &str,
     initial_directory: Option<&str>,
-    initial_view_mode: Option<i32>,
-    initial_icon_size: Option<i32>,
+    initial_view: FolderPickerViewSettings,
+    view_labels: FolderPickerViewLabels,
 ) -> Result<Option<FolderPickerSelection>, String> {
     let initialization =
         unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) };
@@ -1187,10 +1484,18 @@ pub(super) fn pick(
 
     register_window_class().map_err(windows_error)?;
     let owner = HWND(owner as *mut c_void);
-    let mut picker = Box::new(PickerWindow::new(select_folder_label, cancel_label));
+    let mut picker = Box::new(PickerWindow::new(
+        select_folder_label,
+        cancel_label,
+        view_labels,
+    ));
     let window = create_picker_window(owner, title, picker.as_mut()).map_err(windows_error)?;
 
-    if let Err(error) = picker.initialize(initial_directory, initial_view_mode, initial_icon_size) {
+    if let Err(error) = picker.initialize(
+        initial_directory,
+        Some(initial_view.view_mode),
+        Some(initial_view.icon_size),
+    ) {
         let _ = unsafe { DestroyWindow(window) };
         return Err(windows_error(error));
     }
@@ -1413,6 +1718,34 @@ fn valid_view_settings(view_mode: Option<i32>, icon_size: Option<i32>) -> Option
         .then_some((view_mode, icon_size))
 }
 
+fn view_settings_for_command(command: i32) -> Option<(FOLDERVIEWMODE, i32)> {
+    match command {
+        ID_VIEW_EXTRA_LARGE_ICONS => Some((FVM_ICON, 256)),
+        ID_VIEW_LARGE_ICONS => Some((FVM_ICON, 96)),
+        ID_VIEW_MEDIUM_ICONS => Some((FVM_ICON, 48)),
+        ID_VIEW_SMALL_ICONS => Some((FVM_SMALLICON, 16)),
+        ID_VIEW_LIST => Some((FVM_LIST, 16)),
+        ID_VIEW_DETAILS => Some((FVM_DETAILS, 16)),
+        ID_VIEW_TILES => Some((FVM_TILE, 48)),
+        ID_VIEW_CONTENT => Some((FVM_CONTENT, 32)),
+        _ => None,
+    }
+}
+
+fn view_command_for_settings(view_mode: FOLDERVIEWMODE, icon_size: i32) -> i32 {
+    match view_mode {
+        FVM_ICON | FVM_THUMBNAIL if icon_size >= 192 => ID_VIEW_EXTRA_LARGE_ICONS,
+        FVM_ICON | FVM_THUMBNAIL if icon_size >= 72 => ID_VIEW_LARGE_ICONS,
+        FVM_ICON | FVM_THUMBNAIL => ID_VIEW_MEDIUM_ICONS,
+        FVM_SMALLICON => ID_VIEW_SMALL_ICONS,
+        FVM_LIST => ID_VIEW_LIST,
+        FVM_DETAILS => ID_VIEW_DETAILS,
+        FVM_TILE => ID_VIEW_TILES,
+        FVM_CONTENT => ID_VIEW_CONTENT,
+        _ => ID_VIEW_MEDIUM_ICONS,
+    }
+}
+
 fn ui_language(language_id: u16) -> &'static str {
     if language_id & 0x03ff == JAPANESE_PRIMARY_LANGUAGE_ID {
         "ja"
@@ -1510,5 +1843,36 @@ mod tests {
         assert_eq!(valid_view_settings(Some(5), Some(15)), None);
         assert_eq!(valid_view_settings(Some(5), Some(513)), None);
         assert_eq!(valid_view_settings(None, Some(96)), None);
+    }
+
+    #[test]
+    fn explorer_view_menu_maps_every_supported_display_mode() {
+        let cases = [
+            (ID_VIEW_EXTRA_LARGE_ICONS, FVM_ICON, 256),
+            (ID_VIEW_LARGE_ICONS, FVM_ICON, 96),
+            (ID_VIEW_MEDIUM_ICONS, FVM_ICON, 48),
+            (ID_VIEW_SMALL_ICONS, FVM_SMALLICON, 16),
+            (ID_VIEW_LIST, FVM_LIST, 16),
+            (ID_VIEW_DETAILS, FVM_DETAILS, 16),
+            (ID_VIEW_TILES, FVM_TILE, 48),
+            (ID_VIEW_CONTENT, FVM_CONTENT, 32),
+        ];
+        for (command, mode, size) in cases {
+            assert_eq!(view_settings_for_command(command), Some((mode, size)));
+            assert_eq!(view_command_for_settings(mode, size), command);
+        }
+        assert_eq!(
+            view_command_for_settings(FVM_THUMBNAIL, 256),
+            ID_VIEW_EXTRA_LARGE_ICONS
+        );
+        assert_eq!(
+            view_command_for_settings(FVM_THUMBNAIL, 96),
+            ID_VIEW_LARGE_ICONS
+        );
+        assert_eq!(
+            view_command_for_settings(FVM_THUMBNAIL, 48),
+            ID_VIEW_MEDIUM_ICONS
+        );
+        assert_eq!(view_settings_for_command(9999), None);
     }
 }

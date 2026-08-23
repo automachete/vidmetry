@@ -64,6 +64,7 @@
     persistSettings,
     resolveLanguage,
     type AppSettings,
+    type FolderPickerMode,
     type Language,
     type LanguageMode,
   } from './lib/settings';
@@ -532,6 +533,21 @@
 
   async function chooseDirectory() {
     try {
+      const initialDirectory =
+        settings.folderPicker.lastPath ?? directoryPath ?? parentDirectory(media?.sourcePath);
+      if (settings.folderPicker.mode === 'standard') {
+        const selected = await open({
+          multiple: false,
+          directory: true,
+          defaultPath: initialDirectory ?? undefined,
+        });
+        if (typeof selected === 'string') {
+          await rememberFolderPickerSelection(selected);
+          await loadSelection(selected);
+        }
+        return;
+      }
+
       const windowsLanguage = await invoke<Language>('windows_ui_language');
       const selected = await invoke<{
         path: string;
@@ -541,26 +557,42 @@
         title: translate(windowsLanguage, 'chooseFolderVideo'),
         selectFolderLabel: translate(windowsLanguage, 'selectFolderButton'),
         cancelLabel: translate(windowsLanguage, 'cancel'),
-        initialDirectory:
-          settings.folderPicker.lastPath ?? directoryPath ?? parentDirectory(media?.sourcePath),
-        initialViewMode: settings.folderPicker.viewMode,
-        initialIconSize: settings.folderPicker.iconSize,
+        initialDirectory,
+        initialView: {
+          viewMode: settings.folderPicker.viewMode,
+          iconSize: settings.folderPicker.iconSize,
+        },
+        viewLabels: {
+          view: translate(windowsLanguage, 'folderView'),
+          extraLargeIcons: translate(windowsLanguage, 'folderViewExtraLargeIcons'),
+          largeIcons: translate(windowsLanguage, 'folderViewLargeIcons'),
+          mediumIcons: translate(windowsLanguage, 'folderViewMediumIcons'),
+          smallIcons: translate(windowsLanguage, 'folderViewSmallIcons'),
+          list: translate(windowsLanguage, 'folderViewList'),
+          details: translate(windowsLanguage, 'folderViewDetails'),
+          tiles: translate(windowsLanguage, 'folderViewTiles'),
+          content: translate(windowsLanguage, 'folderViewContent'),
+        },
       });
       if (selected) {
-        updateSettings({
-          ...settings,
-          folderPicker: {
-            lastPath: selected.path,
-            viewMode: selected.viewMode,
-            iconSize: selected.iconSize,
-          },
-        });
-        await settingsSaveQueue;
+        await rememberFolderPickerSelection(selected.path, selected.viewMode, selected.iconSize);
         await loadSelection(selected.path);
       }
     } catch (error) {
       errorMessage = backendOrClientError('openDialogFailed', error);
     }
+  }
+
+  async function rememberFolderPickerSelection(
+    path: string,
+    viewMode = settings.folderPicker.viewMode,
+    iconSize = settings.folderPicker.iconSize,
+  ) {
+    updateSettings({
+      ...settings,
+      folderPicker: { ...settings.folderPicker, lastPath: path, viewMode, iconSize },
+    });
+    await settingsSaveQueue;
   }
 
   async function videoDialogFilters() {
@@ -2020,6 +2052,10 @@
               <button class="button secondary reset-shortcuts" type="button" onclick={resetShortcuts}>{text('resetShortcuts')}</button>
             </section>
           {:else if settingsCategory === 'explorer'}
+            <section class="settings-section">
+              <h3>{text('folderPicker')}</h3>
+              <label class="settings-field compact"><span>{text('folderPickerMode')}</span><select aria-label={text('folderPickerMode')} value={settingsDraft.folderPicker.mode} onchange={(event) => updateDraft('folderPicker', { ...settingsDraft.folderPicker, mode: (event.currentTarget as HTMLSelectElement).value as FolderPickerMode })}><option value="standard">{text('folderPickerStandard')}</option><option value="explorerBeta">{text('folderPickerExplorerBeta')}</option></select><small>{text('folderPickerBetaDescription')}</small></label>
+            </section>
             <section class="settings-section">
               <h3>{text('explorerIntegration')}</h3>
               <div class="check-list"><label><input type="checkbox" checked={settingsDraft.explorerIntegration} onchange={(event) => updateDraft('explorerIntegration', (event.currentTarget as HTMLInputElement).checked)} />{text('enableExplorerIntegration')}</label></div>
