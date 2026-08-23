@@ -17,10 +17,11 @@ $source = Join-Path $resultRoot 'source.mp4'
 $compatible = Join-Path $resultRoot 'compatible.mp4'
 $custom = Join-Path $resultRoot 'custom-hevc.mp4'
 $lossless = Join-Path $resultRoot 'lossless.mkv'
+$losslessStaging = Join-Path $resultRoot '.lossless.vidmetry-test.mkv.tmp'
 $metadata = Join-Path $resultRoot 'metadata.mp4'
 $trimmed = Join-Path $resultRoot 'time-trimmed.mp4'
 $inPlaceSource = Join-Path $resultRoot 'in-place-source.mp4'
-$inPlaceTemporary = Join-Path $resultRoot 'in-place-source.vidmetry-test.tmp.mp4'
+$inPlaceTemporary = Join-Path $resultRoot '.in-place-source.vidmetry-test.mp4.tmp'
 $sourceFrames = Join-Path $resultRoot 'source-crop.framemd5'
 $losslessFrames = Join-Path $resultRoot 'lossless.framemd5'
 $longSource = Join-Path $resultRoot 'long-source.mp4'
@@ -105,8 +106,12 @@ $ffv1Slices = [Math]::Min([Math]::Max(4, $ffv1Threads * 4), 64)
     -vf 'crop=w=640:h=360:x=100:y=100,setsar=1,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=limited' `
     -c:v ffv1 -level 3 -coder 1 -context 1 -slicecrc 1 -threads $ffv1Threads -slices $ffv1Slices -c:a copy -c:s copy `
     -fps_mode passthrough `
-    -metadata:s:v:0 'rotate=0' $lossless
+    -metadata:s:v:0 'rotate=0' -f matroska $losslessStaging
 if ($LASTEXITCODE -ne 0) { throw 'Lossless export failed.' }
+if ([System.IO.Path]::GetExtension($losslessStaging) -ne '.tmp') {
+    throw 'Lossless staging output must not expose a supported video extension.'
+}
+[System.IO.File]::Move($losslessStaging, $lossless, $true)
 
 & $ffmpeg -hide_banner -loglevel error -nostdin -y -noautorotate -i $source `
     -map 0 -c copy -bsf:v:0 'h264_metadata=crop_left=100:crop_right=540:crop_top=100:crop_bottom=260' $metadata
@@ -209,7 +214,7 @@ Copy-Item -LiteralPath $source -Destination $inPlaceSource -Force
 $inPlaceHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $inPlaceSource).Hash
 & $ffmpeg -hide_banner -loglevel error -nostdin -y -i $inPlaceSource `
     -map '0:v:0' -map '0:a:0?' -vf 'crop=w=640:h=360:x=100:y=100,setsar=1' `
-    -c:v libx264 -preset fast -crf 20 -pix_fmt yuv420p -c:a copy $inPlaceTemporary
+    -c:v libx264 -preset fast -crf 20 -pix_fmt yuv420p -c:a copy -f mp4 $inPlaceTemporary
 if ($LASTEXITCODE -ne 0) { throw 'In-place staging export failed.' }
 [System.IO.File]::Move($inPlaceTemporary, $inPlaceSource, $true)
 $inPlaceInfo = Get-VideoDescriptor $inPlaceSource

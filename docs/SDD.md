@@ -97,7 +97,7 @@ The following terms are distinct and must not be shortened to an unqualified “
 - **FR-036** Audio is stream-copied when the output container supports it; compatible MP4 mode may fall back to AAC.
 - **FR-037** FFmpeg progress is emitted to the UI at least twice per second when available.
 - **FR-038** The user can cancel an export. A partial temporary output is not promoted to the selected final path.
-- **FR-039** Successful export is written to a temporary sibling path and atomically renamed where the filesystem permits.
+- **FR-039** Successful export is written to a unique sibling staging path ending in `.tmp`, with the intended FFmpeg container selected explicitly, and atomically renamed where the filesystem permits. Staging paths are not treated as videos by directory synchronization or Shell content handlers. On Windows, finalization and cleanup retry only transient sharing/lock violations on the blocking-operation pool before reporting failure.
 - **FR-040** Save is enabled only when the configured output extension equals the source extension. After explicit confirmation, the completed temporary output replaces the source.
 - **FR-041** Copy and save never modifies the source and asks for a destination with an extension appropriate to the configured profile.
 - **FR-042** A successful export shows a normalized display path as a link. Activating it opens File Explorer with the output file selected without launching the video.
@@ -307,6 +307,7 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 - FFmpeg missing: display setup guidance and disable export.
 - Existing copy destination: native dialog confirmation and backend overwrite permission are both required.
 - In-place save: explicit application confirmation is required; encoding completes to a sibling temporary path before replacement.
+- Transient Windows file sharing and lock violations during staging finalization or cleanup are retried with bounded backoff off the UI thread; permission and path errors fail immediately.
 - Directory watcher unavailable: retain the opened video and report a typed localized error instead of silently presenting a stale live view.
 - Disk full or permission failure: retain the original and remove only the known partial file.
 - App closes during export: terminate owned child processes.
@@ -375,7 +376,7 @@ Proxy and timeline contact-sheet entries are stored under the operating-system c
 
 ### 13.4 Integration tests
 
-Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit output, slice-parallel FFV1, metadata-only crop, an early 60-frame trim, a late 60-frame input-seek trim, and staged in-place replacement. Tests ffprobe dimensions/codecs/pixel formats/frame count and color characteristics, compare lossless pixels plus late-trim frame/audio hashes, and verify the original fixture hashes remain unchanged.
+Generated fixtures exercise H.264 compatible output, configured HEVC 10-bit output, slice-parallel FFV1 through neutral `.tmp` staging with an explicit Matroska muxer, metadata-only crop, an early 60-frame trim, a late 60-frame input-seek trim, and staged in-place replacement. Tests ffprobe dimensions/codecs/pixel formats/frame count and color characteristics, compare lossless pixels plus late-trim frame/audio hashes, and verify the original fixture hashes remain unchanged. Windows unit coverage holds a staging file without delete sharing and verifies that finalization succeeds after the real lock is released.
 
 ### 13.5 Manual acceptance matrix
 

@@ -1,8 +1,10 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    fs,
+    fs, io,
     path::{Path, PathBuf},
     sync::Mutex,
+    thread,
+    time::Duration,
 };
 
 use serde::{Deserialize, Serialize};
@@ -24,6 +26,19 @@ const COMPLETED_EVENT: &str = "export-complete";
 const FAILED_EVENT: &str = "export-error";
 const INPUT_SEEK_THRESHOLD_SECONDS: f64 = 30.0;
 const INPUT_SEEK_PREROLL_SECONDS: f64 = 5.0;
+const FILE_LOCK_RETRY_DELAYS: [Duration; 11] = [
+    Duration::from_millis(50),
+    Duration::from_millis(100),
+    Duration::from_millis(200),
+    Duration::from_millis(400),
+    Duration::from_millis(800),
+    Duration::from_millis(1_600),
+    Duration::from_millis(3_200),
+    Duration::from_millis(5_000),
+    Duration::from_millis(8_000),
+    Duration::from_millis(10_000),
+    Duration::from_millis(15_000),
+];
 
 #[derive(Default)]
 pub struct ExportState {
@@ -350,7 +365,7 @@ pub async fn start(
                         take_job(&task_app, &task_job_id);
                         let cancelled = take_cancelled(&task_app, &task_job_id);
                         if cancelled {
-                            remove_partial_export(&temporary);
+                            remove_partial_export(&temporary).await;
                             emit_failure(
                                 &task_app,
                                 &task_job_id,
@@ -361,7 +376,18 @@ pub async fn start(
                         }
 
                         if should_retry_with_next_encoder(encoder, status.code, encoded_frame) {
-                            remove_partial_export(&temporary);
+                            if !remove_partial_export(&temporary).await {
+                                emit_failure(
+                                    &task_app,
+                                    &task_job_id,
+                                    AppError::with_detail(
+                                        ErrorCode::ExportProcessFailed,
+                                        "temporary output remained locked after the encoder attempt",
+                                    ),
+                                    false,
+                                );
+                                break 'attempts;
+                            }
                             let Some(next_encoder) = encoders.pop_front() else {
                                 unreachable!("software fallback is always the final attempt");
                             };
@@ -409,7 +435,7 @@ pub async fn start(
                                         "unable to stop a retried export after cancellation: {error}"
                                     );
                                 }
-                                remove_partial_export(&temporary);
+                                remove_partial_export(&temporary).await;
                                 emit_failure(
                                     &task_app,
                                     &task_job_id,
@@ -424,7 +450,7 @@ pub async fn start(
                         }
 
                         if status.code == Some(0) {
-                            match commit_output(&temporary, &output, overwrite) {
+                            match commit_output(&temporary, &output, overwrite).await {
                                 Ok(()) => {
                                     task_app.state::<ffmpeg::ProbeCache>().invalidate(&output);
                                     if let Err(error) = task_app.emit(
@@ -438,12 +464,12 @@ pub async fn start(
                                     }
                                 }
                                 Err(error) => {
-                                    remove_partial_export(&temporary);
+                                    remove_partial_export(&temporary).await;
                                     emit_failure(&task_app, &task_job_id, error, false);
                                 }
                             }
                         } else {
-                            remove_partial_export(&temporary);
+                            remove_partial_export(&temporary).await;
                             emit_failure(
                                 &task_app,
                                 &task_job_id,
@@ -465,7 +491,7 @@ pub async fn start(
                 log::warn!("unable to stop export after its event channel closed: {error}");
             }
             let cancelled = take_cancelled(&task_app, &task_job_id);
-            remove_partial_export(&temporary);
+            remove_partial_export(&temporary).await;
             emit_failure(
                 &task_app,
                 &task_job_id,
@@ -765,6 +791,12 @@ fn build_export_args(
         args.extend(["-t".into(), format_float(trim_end - trim_start)]);
     }
 
+    args.extend([
+        "-f".into(),
+        output_muxer(output)
+            .expect("validated export output has a supported container")
+            .into(),
+    ]);
     args.push(output.to_string_lossy().into_owned());
     args
 }
@@ -1328,7 +1360,28 @@ fn temporary_output(output: &Path, job_id: &str) -> Result<PathBuf, AppError> {
         .extension()
         .and_then(|value| value.to_str())
         .ok_or_else(|| AppError::new(ErrorCode::DestinationExtensionMissing))?;
-    Ok(parent.join(format!(".{stem}.vidmetry-{job_id}.{extension}")))
+    Ok(parent.join(format!(".{stem}.vidmetry-{job_id}.{extension}.tmp")))
+}
+
+fn output_muxer(output: &Path) -> Option<&'static str> {
+    let extension = output
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase)?;
+    let extension = if extension == "tmp" {
+        Path::new(output.file_stem()?)
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(str::to_ascii_lowercase)?
+    } else {
+        extension
+    };
+    match extension.as_str() {
+        "mp4" | "m4v" => Some("mp4"),
+        "mov" => Some("mov"),
+        "mkv" => Some("matroska"),
+        _ => None,
+    }
 }
 
 fn parse_progress_time(bytes: &[u8]) -> Option<f64> {
@@ -1383,19 +1436,81 @@ fn emit_failure(app: &AppHandle, job_id: &str, error: AppError, cancelled: bool)
     }
 }
 
-fn remove_partial_export(path: &Path) {
-    match fs::remove_file(path) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => log::warn!(
-            "unable to remove partial export {}: {error}",
-            path.display()
-        ),
+async fn remove_partial_export(path: &Path) -> bool {
+    let path = path.to_owned();
+    match tauri::async_runtime::spawn_blocking(move || remove_partial_export_blocking(&path)).await
+    {
+        Ok(removed) => removed,
+        Err(error) => {
+            log::warn!("unable to wait for partial export cleanup: {error}");
+            false
+        }
+    }
+}
+
+fn remove_partial_export_blocking(path: &Path) -> bool {
+    match retry_file_operation(|| fs::remove_file(path)) {
+        Ok(()) => true,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => true,
+        Err(error) => {
+            log::warn!(
+                "unable to remove partial export {}: {error}",
+                path.display()
+            );
+            false
+        }
+    }
+}
+
+async fn commit_output(temporary: &Path, output: &Path, overwrite: bool) -> Result<(), AppError> {
+    let temporary = temporary.to_owned();
+    let output = output.to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        commit_output_blocking(&temporary, &output, overwrite)
+    })
+    .await
+    .map_err(|error| AppError::with_detail(ErrorCode::CommitOutputFailed, error.to_string()))?
+}
+
+fn retry_file_operation<T>(operation: impl FnMut() -> io::Result<T>) -> io::Result<T> {
+    retry_file_operation_with_sleep(operation, thread::sleep)
+}
+
+fn retry_file_operation_with_sleep<T>(
+    mut operation: impl FnMut() -> io::Result<T>,
+    mut sleep: impl FnMut(Duration),
+) -> io::Result<T> {
+    let mut delays = FILE_LOCK_RETRY_DELAYS.into_iter();
+    loop {
+        match operation() {
+            Ok(value) => return Ok(value),
+            Err(error) if is_retryable_file_lock(&error) => {
+                let Some(delay) = delays.next() else {
+                    return Err(error);
+                };
+                sleep(delay);
+            }
+            Err(error) => return Err(error),
+        }
     }
 }
 
 #[cfg(windows)]
-fn commit_output(temporary: &Path, output: &Path, overwrite: bool) -> Result<(), AppError> {
+fn is_retryable_file_lock(error: &io::Error) -> bool {
+    matches!(error.raw_os_error(), Some(32 | 33))
+}
+
+#[cfg(not(windows))]
+fn is_retryable_file_lock(_error: &io::Error) -> bool {
+    false
+}
+
+#[cfg(windows)]
+fn commit_output_blocking(
+    temporary: &Path,
+    output: &Path,
+    overwrite: bool,
+) -> Result<(), AppError> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{
         MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
@@ -1415,21 +1530,26 @@ fn commit_output(temporary: &Path, output: &Path, overwrite: bool) -> Result<(),
     if overwrite {
         flags |= MOVEFILE_REPLACE_EXISTING;
     }
-    // SAFETY: Both pointers reference null-terminated UTF-16 buffers that live
-    // for the duration of this call. Paths are validated before FFmpeg starts.
-    let succeeded = unsafe { MoveFileExW(temporary_wide.as_ptr(), output_wide.as_ptr(), flags) };
-    if succeeded == 0 {
-        Err(AppError::with_detail(
-            ErrorCode::CommitOutputFailed,
-            std::io::Error::last_os_error().to_string(),
-        ))
-    } else {
-        Ok(())
-    }
+    retry_file_operation(|| {
+        // SAFETY: Both pointers reference null-terminated UTF-16 buffers that live
+        // for the duration of this call. Paths are validated before FFmpeg starts.
+        let succeeded =
+            unsafe { MoveFileExW(temporary_wide.as_ptr(), output_wide.as_ptr(), flags) };
+        if succeeded == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    })
+    .map_err(|error| AppError::with_detail(ErrorCode::CommitOutputFailed, error.to_string()))
 }
 
 #[cfg(not(windows))]
-fn commit_output(temporary: &Path, output: &Path, overwrite: bool) -> Result<(), AppError> {
+fn commit_output_blocking(
+    temporary: &Path,
+    output: &Path,
+    overwrite: bool,
+) -> Result<(), AppError> {
     if output.exists() && !overwrite {
         return Err(AppError::new(ErrorCode::DestinationAlreadyExists));
     }
@@ -1611,6 +1731,88 @@ mod tests {
         assert_eq!(parse_progress_time(b"progress=continue\n"), None);
         assert_eq!(parse_progress_frame(b"frame=42\n"), Some(42));
         assert_eq!(parse_progress_frame(b"fps=60.0\n"), None);
+    }
+
+    #[test]
+    fn stages_exports_with_a_neutral_extension_and_an_explicit_muxer() {
+        let temporary =
+            temporary_output(Path::new(r"C:\clips\output.mkv"), "job").expect("temporary output");
+        assert_eq!(
+            temporary,
+            PathBuf::from(r"C:\clips\.output.vidmetry-job.mkv.tmp")
+        );
+        assert_eq!(
+            temporary.extension().and_then(|value| value.to_str()),
+            Some("tmp")
+        );
+        assert_eq!(output_muxer(&temporary), Some("matroska"));
+        assert_eq!(output_muxer(Path::new("output.mp4")), Some("mp4"));
+        assert_eq!(output_muxer(Path::new("output.m4v")), Some("mp4"));
+        assert_eq!(output_muxer(Path::new("output.mov")), Some("mov"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn retries_windows_file_locks_without_retrying_other_io_errors() {
+        let mut attempts = 0;
+        let mut delays = Vec::new();
+        let result = retry_file_operation_with_sleep(
+            || {
+                attempts += 1;
+                if attempts < 3 {
+                    Err(io::Error::from_raw_os_error(32))
+                } else {
+                    Ok("committed")
+                }
+            },
+            |delay| delays.push(delay),
+        );
+        assert_eq!(result.expect("sharing lock should clear"), "committed");
+        assert_eq!(attempts, 3);
+        assert_eq!(delays, FILE_LOCK_RETRY_DELAYS[..2]);
+
+        let mut slept = false;
+        let result = retry_file_operation_with_sleep::<()>(
+            || Err(io::Error::new(io::ErrorKind::PermissionDenied, "denied")),
+            |_| slept = true,
+        );
+        assert_eq!(
+            result.expect_err("permission error").kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        assert!(!slept);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn commits_after_a_real_windows_sharing_lock_is_released() {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
+
+        let root = std::env::temp_dir().join(format!("vidmetry-export-lock-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create lock fixture directory");
+        let temporary = root.join(".output.vidmetry-job.mkv.tmp");
+        let output = root.join("output.mkv");
+        fs::write(&temporary, b"matroska fixture").expect("write staging fixture");
+        let locked = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ)
+            .open(&temporary)
+            .expect("lock staging fixture against rename");
+        let release = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(120));
+            drop(locked);
+        });
+
+        commit_output_blocking(&temporary, &output, false)
+            .expect("commit should retry until the sharing lock clears");
+        release.join().expect("release lock thread");
+        assert!(!temporary.exists());
+        assert_eq!(
+            fs::read(&output).expect("read committed output"),
+            b"matroska fixture"
+        );
+        fs::remove_dir_all(root).expect("remove lock fixture directory");
     }
 
     #[test]
@@ -1806,6 +2008,7 @@ mod tests {
             CompatibleEncoder::Software,
         );
         assert!(args.windows(2).any(|pair| pair == ["-c:v", "ffv1"]));
+        assert!(args.windows(2).any(|pair| pair == ["-f", "matroska"]));
         assert!(args.windows(2).any(|pair| {
             pair[0] == "-threads" && pair[1].parse::<usize>().is_ok_and(|value| value > 0)
         }));

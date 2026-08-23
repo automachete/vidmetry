@@ -96,6 +96,9 @@ mod tests {
     fn recognizes_supported_extensions_case_insensitively() {
         assert!(is_video_path(std::path::Path::new("clip.MP4")));
         assert!(is_video_path(std::path::Path::new("phone.m2ts")));
+        assert!(!is_video_path(std::path::Path::new(
+            ".clip.vidmetry-job.mkv.tmp"
+        )));
         assert!(!is_video_path(std::path::Path::new("notes.txt")));
     }
 
