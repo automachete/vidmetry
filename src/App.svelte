@@ -2054,7 +2054,7 @@
           {:else if settingsCategory === 'explorer'}
             <section class="settings-section">
               <h3>{text('folderPicker')}</h3>
-              <label class="settings-field compact"><span>{text('folderPickerMode')}</span><select aria-label={text('folderPickerMode')} value={settingsDraft.folderPicker.mode} onchange={(event) => updateDraft('folderPicker', { ...settingsDraft.folderPicker, mode: (event.currentTarget as HTMLSelectElement).value as FolderPickerMode })}><option value="standard">{text('folderPickerStandard')}</option><option value="explorerBeta">{text('folderPickerExplorerBeta')}</option></select><small>{text('folderPickerBetaDescription')}</small></label>
+              <label class="settings-field compact"><span>{text('folderPickerMode')}</span><select aria-label={text('folderPickerMode')} value={settingsDraft.folderPicker.mode} onchange={(event) => updateDraft('folderPicker', { ...settingsDraft.folderPicker, mode: (event.currentTarget as HTMLSelectElement).value as FolderPickerMode })}><option value="standard">{text('folderPickerStandard')}</option><option value="explorerBeta">{text('folderPickerExplorerBeta')}</option></select>{#if settingsDraft.folderPicker.mode === 'explorerBeta'}<small>{text('folderPickerBetaDescription')}</small>{/if}</label>
             </section>
             <section class="settings-section">
               <h3>{text('explorerIntegration')}</h3>

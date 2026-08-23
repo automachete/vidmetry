@@ -296,10 +296,16 @@ describe('application shell', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'File Explorer' }));
     const folderPicker = screen.getByRole('combobox', { name: 'Folder picker' });
     expect((folderPicker as HTMLSelectElement).value).toBe('standard');
+    expect(within(folderPicker).getByRole('option', { name: 'Windows standard' })).toBeTruthy();
+    expect(within(folderPicker).getByRole('option', { name: 'Show video files' })).toBeTruthy();
+    expect(
+      screen.queryByText('You can view supported videos in the folder (Beta).'),
+    ).toBeNull();
     await fireEvent.change(folderPicker, { target: { value: 'explorerBeta' } });
     await waitFor(() =>
       expect(storeState.value).toMatchObject({ folderPicker: { mode: 'explorerBeta' } }),
     );
+    expect(screen.getByText('You can view supported videos in the folder (Beta).')).toBeTruthy();
     await fireEvent.click(
       screen.getByRole('checkbox', { name: 'Show Open with Vidmetry for folders' }),
     );
@@ -555,6 +561,24 @@ describe('application shell', () => {
       language: 'ja',
       loopPlayback: false,
     });
+  });
+
+  it('shows the Japanese Beta folder picker description only while it is selected', async () => {
+    storeState.value = { ...defaultSettings, languageMode: 'manual', language: 'ja' };
+    render(App);
+
+    const settingsButton = await screen.findByRole('button', { name: '共通設定' });
+    await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(settingsButton);
+    await fireEvent.click(screen.getByRole('button', { name: 'エクスプローラー' }));
+
+    const folderPicker = screen.getByRole('combobox', { name: 'フォルダー選択方式' });
+    expect(within(folderPicker).getByRole('option', { name: 'Windows標準' })).toBeTruthy();
+    expect(within(folderPicker).getByRole('option', { name: '動画ファイルを表示' })).toBeTruthy();
+    expect(screen.queryByText('フォルダー内の対応動画を確認できます（Beta）')).toBeNull();
+
+    await fireEvent.change(folderPicker, { target: { value: 'explorerBeta' } });
+    expect(screen.getByText('フォルダー内の対応動画を確認できます（Beta）')).toBeTruthy();
   });
 
   it('navigates a folder and requires two clicks to save when extensions match', async () => {

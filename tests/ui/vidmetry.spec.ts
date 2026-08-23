@@ -553,7 +553,11 @@ test('settings use one-level category navigation and expose encoder availability
   await settingsNavigation.getByRole('button', { name: 'File Explorer' }).click();
   const folderPicker = page.getByRole('combobox', { name: 'Folder picker' });
   await expect(folderPicker).toHaveValue('standard');
+  await expect(folderPicker.locator('option[value="standard"]')).toHaveText('Windows standard');
+  await expect(folderPicker.locator('option[value="explorerBeta"]')).toHaveText('Show video files');
+  await expect(page.getByText('You can view supported videos in the folder (Beta).')).toHaveCount(0);
   await folderPicker.selectOption('explorerBeta');
+  await expect(page.getByText('You can view supported videos in the folder (Beta).')).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => (window as any).__getStoredSettings().folderPicker.mode))
     .toBe('explorerBeta');

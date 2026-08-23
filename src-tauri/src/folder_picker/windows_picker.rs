@@ -14,18 +14,18 @@ use windows::{
     Win32::{
         Foundation::{
             COLORREF, ERROR_CANCELLED, ERROR_CLASS_ALREADY_EXISTS, GetLastError, HINSTANCE, HWND,
-            LPARAM, LRESULT, RECT, S_FALSE, WPARAM,
+            LPARAM, LRESULT, POINT, RECT, S_FALSE, WPARAM,
         },
         Globalization::GetUserDefaultUILanguage,
         Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute},
         Graphics::Gdi::{
-            BeginPaint, CreateFontIndirectW, CreatePen, CreateSolidBrush, DT_CENTER,
-            DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_PATH_ELLIPSIS, DT_SINGLELINE, DT_VCENTER,
-            DeleteObject, DrawFocusRect, DrawTextW, EndPaint, FillRect, FrameRect, GetMonitorInfoW,
-            HBRUSH, HDC, HFONT, InvalidateRect, LineTo, MONITOR_DEFAULTTONEAREST, MONITORINFO,
-            MonitorFromWindow, MoveToEx, OPAQUE, PAINTSTRUCT, PS_SOLID, RDW_FRAME, RDW_INVALIDATE,
-            RDW_UPDATENOW, RedrawWindow, SelectObject, SetBkColor, SetBkMode, SetTextColor,
-            TRANSPARENT, UpdateWindow,
+            BeginPaint, CreateFontIndirectW, CreatePen, CreateSolidBrush, DT_CALCRECT, DT_CENTER,
+            DT_END_ELLIPSIS, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawFocusRect,
+            DrawTextW, EndPaint, FillRect, FrameRect, GetDC, GetMonitorInfoW, HBRUSH, HDC, HFONT,
+            InvalidateRect, LineTo, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
+            MoveToEx, OPAQUE, PAINTSTRUCT, PS_SOLID, RDW_FRAME, RDW_INVALIDATE, RDW_UPDATENOW,
+            RedrawWindow, ReleaseDC, ScreenToClient, SelectObject, SetBkColor, SetBkMode,
+            SetTextColor, TRANSPARENT, UpdateWindow,
         },
         System::{
             Com::{
@@ -33,7 +33,7 @@ use windows::{
                 CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, IServiceProvider,
                 IServiceProvider_Impl,
             },
-            SystemServices::{SFGAO_FILESYSTEM, SFGAO_FOLDER, SS_OWNERDRAW},
+            SystemServices::{SFGAO_FILESYSTEM, SFGAO_FOLDER},
             WinRT::{RO_INIT_SINGLETHREADED, RoInitialize, RoUninitialize},
         },
         UI::{
@@ -60,10 +60,10 @@ use windows::{
             WindowsAndMessaging::{
                 AppendMenuW, BS_OWNERDRAW, CREATESTRUCTW, CS_DBLCLKS, CW_USEDEFAULT,
                 CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-                DispatchMessageW, GWLP_USERDATA, GetClientRect, GetMessageW, GetWindowLongPtrW,
-                GetWindowRect, GetWindowTextLengthW, GetWindowTextW, HMENU, IDC_ARROW,
-                IsDialogMessageW, LoadCursorW, MF_CHECKED, MF_STRING, MINMAXINFO, MSG, MoveWindow,
-                NONCLIENTMETRICSW, PostMessageW, PostQuitMessage, RegisterClassW,
+                DispatchMessageW, GWLP_USERDATA, GetClientRect, GetCursorPos, GetMessageW,
+                GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW, HMENU,
+                IDC_ARROW, IsDialogMessageW, LoadCursorW, MF_CHECKED, MF_STRING, MINMAXINFO, MSG,
+                MoveWindow, NONCLIENTMETRICSW, PostMessageW, PostQuitMessage, RegisterClassW,
                 SPI_GETNONCLIENTMETRICS, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER,
                 SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SendMessageW, SetForegroundWindow,
                 SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, SystemParametersInfoW,
@@ -127,6 +127,8 @@ const CONTROL_GAP: i32 = 4;
 const COMMAND_BAR_HEIGHT: i32 = 40;
 const VIEW_BUTTON_WIDTH: i32 = 48;
 const SHELL_STATUS_CLIP_HEIGHT: i32 = 26;
+const BREADCRUMB_HORIZONTAL_PADDING: i32 = 8;
+const BREADCRUMB_SEPARATOR_WIDTH: i32 = 16;
 
 const E_POINTER: HRESULT = HRESULT(0x80004003_u32 as i32);
 const E_NOINTERFACE: HRESULT = HRESULT(0x80004002_u32 as i32);
@@ -504,11 +506,23 @@ struct PickerWindow {
     palette: ThemePalette,
     brushes: ThemeBrushes,
     selected: Option<FolderPickerSelection>,
-    initial_view: Option<(FOLDERVIEWMODE, i32)>,
-    initial_view_applied: bool,
+    desired_view: Option<(FOLDERVIEWMODE, i32)>,
+    breadcrumbs: Vec<BreadcrumbSegment>,
     select_folder_label: Vec<u16>,
     cancel_label: Vec<u16>,
     view_labels: ViewLabelBuffers,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct BreadcrumbSegment {
+    label: String,
+    path: String,
+}
+
+#[derive(Clone, Copy)]
+struct BreadcrumbPlacement {
+    segment_index: usize,
+    rect: RECT,
 }
 
 impl PickerWindow {
@@ -538,8 +552,8 @@ impl PickerWindow {
             palette,
             brushes: ThemeBrushes::new(palette),
             selected: None,
-            initial_view: None,
-            initial_view_applied: false,
+            desired_view: None,
+            breadcrumbs: Vec::new(),
             select_folder_label: wide_string(select_folder_label),
             cancel_label: wide_string(cancel_label),
             view_labels: view_labels.into(),
@@ -554,7 +568,7 @@ impl PickerWindow {
     ) -> WindowsResult<()> {
         self.initialize_color_mode_tracking();
         self.create_controls()?;
-        self.initial_view = valid_view_settings(initial_view_mode, initial_icon_size)
+        self.desired_view = valid_view_settings(initial_view_mode, initial_icon_size)
             .map(|(mode, size)| (FOLDERVIEWMODE(mode), size));
 
         let browser: IExplorerBrowser =
@@ -870,45 +884,161 @@ impl PickerWindow {
     }
 
     fn draw_path(&self, draw: &DRAWITEMSTRUCT) -> bool {
+        let has_state = |state: u32| draw.itemState.0 & state != 0;
         unsafe {
-            FillRect(draw.hDC, &draw.rcItem, self.brushes.surface);
-            FrameRect(draw.hDC, &draw.rcItem, self.brushes.border);
+            FillRect(
+                draw.hDC,
+                &draw.rcItem,
+                if has_state(ODS_SELECTED.0) {
+                    self.brushes.pressed
+                } else if has_state(ODS_HOTLIGHT.0) {
+                    self.brushes.hover
+                } else {
+                    self.brushes.surface
+                },
+            );
+            FrameRect(
+                draw.hDC,
+                &draw.rcItem,
+                if has_state(ODS_FOCUS.0) {
+                    self.brushes.accent
+                } else {
+                    self.brushes.border
+                },
+            );
             SetBkMode(draw.hDC, TRANSPARENT);
             SetTextColor(draw.hDC, self.palette.text);
         }
         let previous_font = self
             .font
             .map(|font| unsafe { SelectObject(draw.hDC, font.into()) });
-        let length = unsafe { GetWindowTextLengthW(draw.hwndItem) }.max(0) as usize;
-        let mut text = vec![0_u16; length + 1];
-        let copied = unsafe { GetWindowTextW(draw.hwndItem, &mut text) }.max(0) as usize;
-        text.truncate(copied);
+        let (overflow, placements) = self.breadcrumb_placements(draw.hDC, draw.rcItem);
         let dpi = unsafe { GetDpiForWindow(self.window) } as i32;
-        let horizontal_padding = (12 * dpi / BASE_DPI).max(8);
-        let mut text_rect = draw.rcItem;
-        text_rect.left += horizontal_padding;
-        text_rect.right -= horizontal_padding;
-        unsafe {
-            DrawTextW(
-                draw.hDC,
-                &mut text,
-                &mut text_rect,
-                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_PATH_ELLIPSIS,
-            );
+        let scale = |value: i32| (value * dpi / BASE_DPI).max(1);
+        let separator_width = scale(BREADCRUMB_SEPARATOR_WIDTH);
+        let mut cursor = draw.rcItem.left + scale(BREADCRUMB_HORIZONTAL_PADDING);
+        if overflow {
+            let overflow_width = self.breadcrumb_text_width(draw.hDC, "…")
+                + scale(BREADCRUMB_HORIZONTAL_PADDING) * 2;
+            let mut overflow_rect = RECT {
+                left: cursor,
+                top: draw.rcItem.top,
+                right: cursor + overflow_width,
+                bottom: draw.rcItem.bottom,
+            };
+            let mut overflow_text = "…".encode_utf16().collect::<Vec<_>>();
+            unsafe {
+                DrawTextW(
+                    draw.hDC,
+                    &mut overflow_text,
+                    &mut overflow_rect,
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+                );
+            }
+            cursor += overflow_width;
+        }
+        for (placement_index, placement) in placements.iter().enumerate() {
+            if overflow || placement_index > 0 {
+                let mut separator_rect = RECT {
+                    left: cursor,
+                    top: draw.rcItem.top,
+                    right: cursor + separator_width,
+                    bottom: draw.rcItem.bottom,
+                };
+                let mut separator = ">".encode_utf16().collect::<Vec<_>>();
+                unsafe {
+                    DrawTextW(
+                        draw.hDC,
+                        &mut separator,
+                        &mut separator_rect,
+                        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+                    );
+                }
+            }
+            let segment = &self.breadcrumbs[placement.segment_index];
+            let mut text = segment.label.encode_utf16().collect::<Vec<_>>();
+            let mut text_rect = placement.rect;
+            unsafe {
+                DrawTextW(
+                    draw.hDC,
+                    &mut text,
+                    &mut text_rect,
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS,
+                );
+            }
+            cursor = placement.rect.right;
         }
         if let Some(previous_font) = previous_font {
             let _ = unsafe { SelectObject(draw.hDC, previous_font) };
         }
+        if has_state(ODS_FOCUS.0) {
+            let mut focus = draw.rcItem;
+            let inset = scale(3);
+            focus.left += inset;
+            focus.top += inset;
+            focus.right -= inset;
+            focus.bottom -= inset;
+            let _ = unsafe { DrawFocusRect(draw.hDC, &focus) };
+        }
         true
     }
 
-    fn path_box_color(&self, dc: HDC) -> LRESULT {
+    fn breadcrumb_text_width(&self, dc: HDC, text: &str) -> i32 {
+        let mut text = text.encode_utf16().collect::<Vec<_>>();
+        let mut bounds = RECT::default();
         unsafe {
-            SetBkMode(dc, OPAQUE);
-            SetBkColor(dc, self.palette.surface);
-            SetTextColor(dc, self.palette.text);
+            DrawTextW(
+                dc,
+                &mut text,
+                &mut bounds,
+                DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX,
+            );
         }
-        LRESULT(self.brushes.surface.0 as isize)
+        bounds.right.max(1)
+    }
+
+    fn breadcrumb_placements(&self, dc: HDC, bounds: RECT) -> (bool, Vec<BreadcrumbPlacement>) {
+        if self.breadcrumbs.is_empty() {
+            return (false, Vec::new());
+        }
+        let dpi = unsafe { GetDpiForWindow(self.window) } as i32;
+        let scale = |value: i32| (value * dpi / BASE_DPI).max(1);
+        let outer_padding = scale(BREADCRUMB_HORIZONTAL_PADDING);
+        let text_padding = outer_padding;
+        let separator_width = scale(BREADCRUMB_SEPARATOR_WIDTH);
+        let available_width = (bounds.right - bounds.left - outer_padding * 2).max(1);
+        let widths = self
+            .breadcrumbs
+            .iter()
+            .map(|segment| self.breadcrumb_text_width(dc, &segment.label) + text_padding * 2)
+            .collect::<Vec<_>>();
+        let overflow_width =
+            self.breadcrumb_text_width(dc, "…") + text_padding * 2 + separator_width;
+        let start =
+            visible_breadcrumb_start(&widths, available_width, separator_width, overflow_width);
+        let overflow = start > 0;
+        let mut cursor = bounds.left + outer_padding;
+        if overflow {
+            cursor += overflow_width - separator_width;
+        }
+        let mut placements = Vec::with_capacity(self.breadcrumbs.len() - start);
+        for (visible_index, segment_index) in (start..self.breadcrumbs.len()).enumerate() {
+            if overflow || visible_index > 0 {
+                cursor += separator_width;
+            }
+            let width = widths[segment_index].min((bounds.right - outer_padding - cursor).max(1));
+            placements.push(BreadcrumbPlacement {
+                segment_index,
+                rect: RECT {
+                    left: cursor,
+                    top: bounds.top,
+                    right: cursor + width,
+                    bottom: bounds.bottom,
+                },
+            });
+            cursor += width;
+        }
+        (overflow, placements)
     }
 
     fn browser_host_color(&self, dc: HDC) -> LRESULT {
@@ -949,9 +1079,9 @@ impl PickerWindow {
             instance,
         )?;
         self.path_box = create_control(
-            STATIC_CLASS,
+            BUTTON_CLASS,
             w!(""),
-            WS_CHILD | WS_VISIBLE | WINDOW_STYLE(SS_OWNERDRAW.0),
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(BS_OWNERDRAW as u32),
             WINDOW_EX_STYLE(0),
             self.window,
             ID_PATH,
@@ -1210,8 +1340,9 @@ impl PickerWindow {
     }
 
     fn update_current_folder(&mut self) {
-        self.apply_initial_view();
+        self.apply_desired_view();
         let path = self.current_folder_path();
+        self.breadcrumbs = path.as_deref().map(breadcrumb_segments).unwrap_or_default();
         let label = wide_string(path.as_deref().unwrap_or(""));
         let _ = unsafe { SetWindowTextW(self.path_box, PCWSTR(label.as_ptr())) };
         let _ = unsafe {
@@ -1225,12 +1356,49 @@ impl PickerWindow {
         let _ = unsafe { EnableWindow(self.select_button, path.is_some()) };
     }
 
-    fn apply_initial_view(&mut self) {
-        if self.initial_view_applied {
+    fn navigate_breadcrumb_at_cursor(&self) {
+        let mut point = POINT::default();
+        if unsafe { GetCursorPos(&mut point) }.is_err()
+            || !unsafe { ScreenToClient(self.path_box, &mut point) }.as_bool()
+        {
             return;
         }
-        let Some((view_mode, icon_size)) = self.initial_view else {
-            self.initial_view_applied = true;
+        let dc = unsafe { GetDC(Some(self.path_box)) };
+        if dc.is_invalid() {
+            return;
+        }
+        let previous_font = self
+            .font
+            .map(|font| unsafe { SelectObject(dc, font.into()) });
+        let mut bounds = RECT::default();
+        let placements = if unsafe { GetClientRect(self.path_box, &mut bounds) }.is_ok() {
+            self.breadcrumb_placements(dc, bounds).1
+        } else {
+            Vec::new()
+        };
+        if let Some(previous_font) = previous_font {
+            let _ = unsafe { SelectObject(dc, previous_font) };
+        }
+        let _ = unsafe { ReleaseDC(Some(self.path_box), dc) };
+
+        let target = placements
+            .iter()
+            .find(|placement| point_in_rect(point, placement.rect))
+            .and_then(|placement| self.breadcrumbs.get(placement.segment_index))
+            .map(|segment| segment.path.clone());
+        let Some(target) = target else {
+            return;
+        };
+        let Ok(item) = shell_item_from_path(&target) else {
+            return;
+        };
+        if let Some(browser) = &self.browser {
+            let _ = unsafe { browser.BrowseToObject(&item, 0) };
+        }
+    }
+
+    fn apply_desired_view(&self) {
+        let Some((view_mode, icon_size)) = self.desired_view else {
             return;
         };
         let Some(browser) = &self.browser else {
@@ -1239,9 +1407,7 @@ impl PickerWindow {
         let Ok(view) = (unsafe { browser.GetCurrentView::<IFolderView2>() }) else {
             return;
         };
-        if unsafe { view.SetViewModeAndIconSize(view_mode, icon_size) }.is_ok() {
-            self.initial_view_applied = true;
-        }
+        let _ = unsafe { view.SetViewModeAndIconSize(view_mode, icon_size) };
     }
 
     fn current_folder_path(&self) -> Option<String> {
@@ -1260,17 +1426,19 @@ impl PickerWindow {
         valid_view_settings(Some(view_mode.0), Some(icon_size))
     }
 
-    fn set_view(&self, view_mode: FOLDERVIEWMODE, icon_size: i32) {
+    fn set_view(&mut self, view_mode: FOLDERVIEWMODE, icon_size: i32) {
         let Some(browser) = &self.browser else {
             return;
         };
         let Ok(view) = (unsafe { browser.GetCurrentView::<IFolderView2>() }) else {
             return;
         };
-        let _ = unsafe { view.SetViewModeAndIconSize(view_mode, icon_size) };
+        if unsafe { view.SetViewModeAndIconSize(view_mode, icon_size) }.is_ok() {
+            self.desired_view = Some((view_mode, icon_size));
+        }
     }
 
-    fn show_view_menu(&self) {
+    fn show_view_menu(&mut self) {
         let Ok(menu) = (unsafe { CreatePopupMenu() }) else {
             return;
         };
@@ -1323,7 +1491,7 @@ impl PickerWindow {
         if let Some(path) = self.current_folder_path() {
             let (view_mode, icon_size) = self
                 .current_view_settings()
-                .or_else(|| self.initial_view.map(|(mode, size)| (mode.0, size)))
+                .or_else(|| self.desired_view.map(|(mode, size)| (mode.0, size)))
                 .unwrap_or((FVM_ICON.0, 96));
             self.selected = Some(FolderPickerSelection {
                 path,
@@ -1396,9 +1564,7 @@ unsafe extern "system" fn window_proc(
         }
         WM_CTLCOLORSTATIC => {
             let control = HWND(lparam.0 as *mut c_void);
-            if control == state.path_box {
-                state.path_box_color(HDC(wparam.0 as *mut c_void))
-            } else if control == state.browser_host {
+            if control == state.browser_host {
                 state.browser_host_color(HDC(wparam.0 as *mut c_void))
             } else {
                 unsafe { DefWindowProcW(window, message, wparam, lparam) }
@@ -1409,16 +1575,19 @@ unsafe extern "system" fn window_proc(
             LRESULT(0)
         }
         WM_COMMAND => {
-            match (wparam.0 & 0xffff) as i32 {
-                ID_BACK => state.navigate(SBSP_NAVIGATEBACK),
-                ID_FORWARD => state.navigate(SBSP_NAVIGATEFORWARD),
-                ID_UP => state.navigate(SBSP_PARENT),
-                ID_VIEW => state.show_view_menu(),
-                ID_SELECT => state.accept(),
-                ID_CANCEL => {
-                    let _ = unsafe { DestroyWindow(window) };
+            let command = (wparam.0 & 0xffff) as i32;
+            if let Some(flags) = navigation_flags_for_command(command) {
+                state.navigate(flags);
+            } else {
+                match command {
+                    ID_PATH => state.navigate_breadcrumb_at_cursor(),
+                    ID_VIEW => state.show_view_menu(),
+                    ID_SELECT => state.accept(),
+                    ID_CANCEL => {
+                        let _ = unsafe { DestroyWindow(window) };
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
             LRESULT(0)
         }
@@ -1711,6 +1880,59 @@ fn default_initial_directory() -> String {
     std::env::var("USERPROFILE").unwrap_or_else(|_| String::from("C:\\"))
 }
 
+fn breadcrumb_segments(path: &str) -> Vec<BreadcrumbSegment> {
+    let mut ancestors = Path::new(path)
+        .ancestors()
+        .filter(|ancestor| !ancestor.as_os_str().is_empty())
+        .map(|ancestor| {
+            let label = ancestor
+                .file_name()
+                .filter(|name| !name.is_empty())
+                .unwrap_or(ancestor.as_os_str())
+                .to_string_lossy()
+                .into_owned();
+            BreadcrumbSegment {
+                label,
+                path: ancestor.to_string_lossy().into_owned(),
+            }
+        })
+        .collect::<Vec<_>>();
+    ancestors.reverse();
+    ancestors
+}
+
+fn visible_breadcrumb_start(
+    widths: &[i32],
+    available_width: i32,
+    separator_width: i32,
+    overflow_width: i32,
+) -> usize {
+    if widths.is_empty() {
+        return 0;
+    }
+    let complete_width =
+        widths.iter().sum::<i32>() + separator_width * (widths.len().saturating_sub(1) as i32);
+    if complete_width <= available_width {
+        return 0;
+    }
+
+    let mut start = widths.len() - 1;
+    let mut used = overflow_width + widths[start];
+    while start > 0 {
+        let candidate = used + separator_width + widths[start - 1];
+        if candidate > available_width {
+            break;
+        }
+        start -= 1;
+        used = candidate;
+    }
+    start.max(1)
+}
+
+fn point_in_rect(point: POINT, rect: RECT) -> bool {
+    point.x >= rect.left && point.x < rect.right && point.y >= rect.top && point.y < rect.bottom
+}
+
 fn valid_view_settings(view_mode: Option<i32>, icon_size: Option<i32>) -> Option<(i32, i32)> {
     let view_mode = view_mode?;
     let icon_size = icon_size?;
@@ -1728,6 +1950,15 @@ fn view_settings_for_command(command: i32) -> Option<(FOLDERVIEWMODE, i32)> {
         ID_VIEW_DETAILS => Some((FVM_DETAILS, 16)),
         ID_VIEW_TILES => Some((FVM_TILE, 48)),
         ID_VIEW_CONTENT => Some((FVM_CONTENT, 32)),
+        _ => None,
+    }
+}
+
+fn navigation_flags_for_command(command: i32) -> Option<u32> {
+    match command {
+        ID_BACK => Some(SBSP_NAVIGATEBACK),
+        ID_UP => Some(SBSP_PARENT),
+        ID_FORWARD => Some(SBSP_NAVIGATEFORWARD),
         _ => None,
     }
 }
@@ -1874,5 +2105,51 @@ mod tests {
             ID_VIEW_MEDIUM_ICONS
         );
         assert_eq!(view_settings_for_command(9999), None);
+    }
+
+    #[test]
+    fn picker_navigation_keeps_history_and_parent_actions_distinct() {
+        assert_eq!(
+            navigation_flags_for_command(ID_BACK),
+            Some(SBSP_NAVIGATEBACK)
+        );
+        assert_eq!(navigation_flags_for_command(ID_UP), Some(SBSP_PARENT));
+        assert_eq!(
+            navigation_flags_for_command(ID_FORWARD),
+            Some(SBSP_NAVIGATEFORWARD)
+        );
+        assert_eq!(navigation_flags_for_command(ID_VIEW), None);
+    }
+
+    #[test]
+    fn folder_paths_are_exposed_as_clickable_breadcrumb_targets() {
+        assert_eq!(
+            breadcrumb_segments(r"C:\Users\dwarf\Videos"),
+            vec![
+                BreadcrumbSegment {
+                    label: String::from(r"C:\"),
+                    path: String::from(r"C:\"),
+                },
+                BreadcrumbSegment {
+                    label: String::from("Users"),
+                    path: String::from(r"C:\Users"),
+                },
+                BreadcrumbSegment {
+                    label: String::from("dwarf"),
+                    path: String::from(r"C:\Users\dwarf"),
+                },
+                BreadcrumbSegment {
+                    label: String::from("Videos"),
+                    path: String::from(r"C:\Users\dwarf\Videos"),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn long_breadcrumbs_keep_the_current_and_nearest_parent_visible() {
+        assert_eq!(visible_breadcrumb_start(&[40, 50, 60], 200, 16, 40), 0);
+        assert_eq!(visible_breadcrumb_start(&[80, 80, 80], 190, 16, 40), 2);
+        assert_eq!(visible_breadcrumb_start(&[80, 40, 40], 160, 16, 40), 1);
     }
 }
