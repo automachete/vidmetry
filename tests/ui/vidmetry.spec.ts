@@ -427,18 +427,26 @@ test('Windows desktop type ramp and scaled panes stay balanced', async ({ page }
     cropHandleSize: 16,
   });
 
-  await page.setViewportSize({ width: 3840, height: 1080 });
-  const maximizedHeaderAlignment = await page.evaluate(() => {
-    const header = document.querySelector('.app-header')!.getBoundingClientRect();
-    const summary = document.querySelector('.source-summary')!;
-    const summaryBox = summary.getBoundingClientRect();
-    return {
-      centerOffset: summaryBox.left + summaryBox.width / 2 - (header.left + header.width / 2),
-      textAlign: getComputedStyle(summary).textAlign,
-    };
-  });
-  expect(Math.abs(maximizedHeaderAlignment.centerOffset)).toBeLessThanOrEqual(0.5);
-  expect(maximizedHeaderAlignment.textAlign).toBe('center');
+  for (const width of [1024, 1280, 1920, 2560, 3840]) {
+    await page.setViewportSize({ width, height: 1080 });
+    const headerAlignment = await page.evaluate(() => {
+      const header = document.querySelector('.app-header')!.getBoundingClientRect();
+      const brand = document.querySelector('.brand')!.getBoundingClientRect();
+      const summary = document.querySelector('.source-summary')!;
+      const summaryBox = summary.getBoundingClientRect();
+      const actions = document.querySelector('.header-actions')!.getBoundingClientRect();
+      return {
+        centerOffset: summaryBox.left + summaryBox.width / 2 - (header.left + header.width / 2),
+        leftClearance: summaryBox.left - brand.right,
+        rightClearance: actions.left - summaryBox.right,
+        textAlign: getComputedStyle(summary).textAlign,
+      };
+    });
+    expect(Math.abs(headerAlignment.centerOffset)).toBeLessThanOrEqual(0.5);
+    expect(headerAlignment.leftClearance).toBeGreaterThanOrEqual(0);
+    expect(headerAlignment.rightClearance).toBeGreaterThanOrEqual(0);
+    expect(headerAlignment.textAlign).toBe('center');
+  }
 
   await page.setViewportSize({ width: 960, height: 720 });
   await expect
