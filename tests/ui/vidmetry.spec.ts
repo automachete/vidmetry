@@ -555,9 +555,41 @@ test('settings use one-level category navigation and expose encoder availability
   await expect(folderPicker).toHaveValue('standard');
   await expect(folderPicker.locator('option[value="standard"]')).toHaveText('Windows standard');
   await expect(folderPicker.locator('option[value="explorerBeta"]')).toHaveText('Show video files');
-  await expect(page.getByText('You can view supported videos in the folder (Beta).')).toHaveCount(0);
+  const integrationHeading = page.getByRole('heading', { name: 'File Explorer integration' });
+  const integrationTopBefore = await integrationHeading.evaluate(
+    (heading) => heading.getBoundingClientRect().top,
+  );
+  await expect(page.getByText('You can view supported videos in the folder')).toHaveCount(0);
+  await expect(page.getByText('Beta', { exact: true })).toHaveCount(0);
   await folderPicker.selectOption('explorerBeta');
-  await expect(page.getByText('You can view supported videos in the folder (Beta).')).toBeVisible();
+  await expect(page.getByText('You can view supported videos in the folder')).toBeVisible();
+  const betaBadge = page.getByText('Beta', { exact: true });
+  await expect(betaBadge).toBeVisible();
+  await expect(betaBadge).toHaveCSS('border-top-style', 'solid');
+  await expect(betaBadge).toHaveCSS('border-top-width', '1px');
+  const badgeGeometry = await betaBadge.evaluate((badge) => {
+    const box = badge.getBoundingClientRect();
+    const style = getComputedStyle(badge);
+    return {
+      width: box.width,
+      height: box.height,
+      radius: style.borderRadius,
+      fontFamily: style.fontFamily,
+      fontSize: style.fontSize,
+      lineHeight: style.lineHeight,
+      fontWeight: style.fontWeight,
+    };
+  });
+  expect(badgeGeometry.width).toBeGreaterThan(badgeGeometry.height);
+  expect(Number.parseFloat(badgeGeometry.radius)).toBeGreaterThanOrEqual(badgeGeometry.height / 2);
+  expect(badgeGeometry.fontFamily).toContain('Segoe UI Variable');
+  expect(badgeGeometry.fontSize).toBe('12px');
+  expect(badgeGeometry.lineHeight).toBe('16px');
+  expect(badgeGeometry.fontWeight).toBe('650');
+  const integrationTopAfter = await integrationHeading.evaluate(
+    (heading) => heading.getBoundingClientRect().top,
+  );
+  expect(Math.abs(integrationTopAfter - integrationTopBefore)).toBeLessThanOrEqual(0.5);
   await expect
     .poll(() => page.evaluate(() => (window as any).__getStoredSettings().folderPicker.mode))
     .toBe('explorerBeta');
