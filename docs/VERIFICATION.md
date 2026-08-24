@@ -8,6 +8,7 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 
 | Check | Result |
 |---|---|
+| `npm run test:release-version` | Pass — tag-derived npm/Cargo/Tauri/SDD/verification version synchronization, strict validation, and idempotency |
 | `npm run check:contracts` | Pass — generated TypeScript/Rust error-code contracts match the shared source |
 | `npm run check:licenses` | Pass — production JavaScript dependencies are inside the reviewed license allowlist |
 | `cargo deny --manifest-path src-tauri\Cargo.toml check licenses` | Pass — the complete Rust graph is inside the reviewed license allowlist |
@@ -17,7 +18,7 @@ Media engine: FFmpeg/ffprobe N-126168-gb16b5f2a01-20260815 `win64-gpl` build
 | `npm run check` | Pass — 0 errors, 0 warnings |
 | `npm run test:assets` | Pass — SVG, generated PNG/ICO pixels, and legacy tint list |
 | `npm run test:shell` | Pass — MSIX and NSIS cover all 16 supported video extensions and selected directories; MSI bundling remains absent |
-| `npm run test:nsis` | Pass — package filename and version contract |
+| `npm run test:nsis` | Pass — fixed package filename and embedded product/version metadata contract |
 | `npm run test:nsis -- --LiveInstall` | Not run locally — the existing current-user Vidmetry 0.4.7 installation was preserved; the clean Release runner performs this test before publication |
 | `npm run test:msix` | Pass — unpacked manifest, classic-app activation, all 16 file associations, packaged COM directory command, x64 PE and unmarked Tauri payload, locked FFmpeg sidecars, license/source payloads, and build-file exclusions |
 | `npm run test:runtime` | Pass — pinned Node/npm/Rust, immutable FFmpeg manifest, sidecar hashes/notices, and full-SHA GitHub Actions references |
@@ -82,7 +83,7 @@ These artifacts were generated from the verified 0.4.8 source tree. The unsigned
 
 | Artifact | Size | SHA-256 |
 |---|---:|---|
-| `Vidmetry_0.4.8_x64-setup.exe` | 81.49 MiB | `D93D76D91D8FA6A01B325B2FE12E88750E1D583220E905E86355D17839EB965E` |
+| `Vidmetry_x64-setup.exe` | 81.55 MiB | `E43F425BBEE8C2AF7F691AE44991AE730AAF3338F8DB5D256FA9E2354408A4CC` |
 | `Vidmetry_0.4.8.0_x64.msix` | 114.36 MiB | `2DF62482ABFE5F1AE2950BA09BF0C55441CF81BEAD01E1365BCD02AFC9E79EEF` |
 
 ## Remaining manual acceptance

@@ -130,15 +130,20 @@ function Remove-TestRegistry {
 
 $version = (Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw | ConvertFrom-Json).version
 if ([string]::IsNullOrWhiteSpace($PackagePath)) {
-    $PackagePath = Join-Path $projectRoot "src-tauri\target\release\bundle\nsis\Vidmetry_$($version)_x64-setup.exe"
+    $PackagePath = Join-Path $projectRoot 'src-tauri\target\release\bundle\nsis\Vidmetry_x64-setup.exe'
 } else {
     $PackagePath = [System.IO.Path]::GetFullPath($PackagePath)
 }
 if (-not (Test-Path -LiteralPath $PackagePath -PathType Leaf)) {
     throw "NSIS package not found: $PackagePath"
 }
-if ((Split-Path -Leaf $PackagePath) -cne "Vidmetry_$($version)_x64-setup.exe") {
+if ((Split-Path -Leaf $PackagePath) -cne 'Vidmetry_x64-setup.exe') {
     throw "Unexpected NSIS package name: $(Split-Path -Leaf $PackagePath)"
+}
+$versionInfo = (Get-Item -LiteralPath $PackagePath).VersionInfo
+if ($versionInfo.ProductName -cne 'Vidmetry' -or $versionInfo.ProductVersion -cne $version -or
+    $versionInfo.FileVersion -cne $version) {
+    throw "Unexpected NSIS embedded product/version metadata: $($versionInfo.ProductName) $($versionInfo.ProductVersion) $($versionInfo.FileVersion)"
 }
 
 $selectionSource = Get-Content -LiteralPath (Join-Path $projectRoot 'src-tauri\src\selection.rs') -Raw

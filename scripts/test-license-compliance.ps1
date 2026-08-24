@@ -104,6 +104,13 @@ Assert-FileContainsLiteral $sourceRepackerTest 'outer-absolute.tar.xz' 'Correspo
 Assert-FileContainsLiteral $sourceRepackerTest 'chmod 0664' 'Corresponding-source permission normalization test'
 
 $releaseWorkflow = Join-Path $projectRoot '.github\workflows\release.yml'
+$releaseTagScript = Join-Path $PSScriptRoot 'create-release-tag.ps1'
+$nsisBuildScript = Join-Path $PSScriptRoot 'build-nsis.ps1'
+Assert-FileContainsLiteral $releaseTagScript "& git -C `$projectRoot push --atomic origin" 'Release-tag command'
+Assert-FileContainsLiteral $releaseTagScript "& git -C `$projectRoot tag `$Tag" 'Release-tag command'
+Assert-FileContainsLiteral $releaseTagScript "'set-release-version.ps1'" 'Release-tag command'
+Assert-FileContainsLiteral $nsisBuildScript 'npm run tauri bundle -- --bundles nsis' 'NSIS build wrapper'
+Assert-FileContainsLiteral $nsisBuildScript "`$fixedPackageName = 'Vidmetry_x64-setup.exe'" 'NSIS build wrapper'
 Assert-FileContainsLiteral $releaseWorkflow 'preflight:' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'source-assets:' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'build-windows:' 'Release workflow'
@@ -119,15 +126,16 @@ Assert-FileContainsLiteral $releaseWorkflow '.correspondingSource.archiveSha256'
 Assert-FileContainsLiteral $releaseWorkflow '.correspondingSource.assetTag' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'EmbarkStudios/cargo-deny-action@' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'persist-credentials: false' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow './scripts/set-release-version.ps1 -Tag $env:RELEASE_TAG' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'setup-copyleft-sources.ps1' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'generate-third-party-licenses.ps1' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow './scripts/build-msix.ps1' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'npm run test:msix' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'npm run tauri build -- --no-bundle' 'Release workflow'
-Assert-FileContainsLiteral $releaseWorkflow 'npm run tauri bundle -- --bundles nsis' 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow 'npm run nsis:build' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'npm run test:nsis -- --LiveInstall' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow "-Filter '*.msix'" 'Release workflow'
-Assert-FileContainsLiteral $releaseWorkflow "-Filter '*-setup.exe'" 'Release workflow'
+Assert-FileContainsLiteral $releaseWorkflow 'Vidmetry_x64-setup.exe' 'Release workflow'
 Assert-FileContainsLiteral $releaseWorkflow 'Expected four publication assets' 'Release workflow'
 Assert-FileDoesNotContainLiteral $releaseWorkflow "-Filter '*.msi'" 'Release workflow'
 Assert-FileDoesNotContainLiteral $releaseWorkflow 'package-ffmpeg-corresponding-source.sh' 'Release workflow'
@@ -135,7 +143,7 @@ $releaseWorkflowText = Get-Content -LiteralPath $releaseWorkflow -Raw
 if ($releaseWorkflowText.IndexOf('npm run tauri build -- --no-bundle', [StringComparison]::Ordinal) -ge
         $releaseWorkflowText.IndexOf('./scripts/build-msix.ps1', [StringComparison]::Ordinal) -or
     $releaseWorkflowText.IndexOf('./scripts/build-msix.ps1', [StringComparison]::Ordinal) -ge
-        $releaseWorkflowText.IndexOf('npm run tauri bundle -- --bundles nsis', [StringComparison]::Ordinal)) {
+        $releaseWorkflowText.IndexOf('npm run nsis:build', [StringComparison]::Ordinal)) {
     throw 'Release must package the unpatched application into MSIX before applying the NSIS bundle type.'
 }
 Assert-FileDoesNotContainLiteral $releaseWorkflow 'npm run tauri build -- --bundles nsis' 'Release workflow'
@@ -203,13 +211,13 @@ Assert-FileContainsLiteral $ciWorkflow 'npm run test:licenses' 'CI workflow'
 Assert-FileContainsLiteral $ciWorkflow 'setup-copyleft-sources.ps1' 'CI workflow'
 Assert-FileContainsLiteral $ciWorkflow 'generate-third-party-licenses.ps1' 'CI workflow'
 Assert-FileContainsLiteral $ciWorkflow 'npm run tauri build -- --no-bundle' 'CI workflow'
-Assert-FileContainsLiteral $ciWorkflow 'npm run tauri bundle -- --bundles nsis' 'CI workflow'
+Assert-FileContainsLiteral $ciWorkflow 'npm run nsis:build' 'CI workflow'
 Assert-FileContainsLiteral $ciWorkflow 'npm run test:nsis -- --LiveInstall' 'CI workflow'
 $ciWorkflowText = Get-Content -LiteralPath $ciWorkflow -Raw
 if ($ciWorkflowText.IndexOf('npm run tauri build -- --no-bundle', [StringComparison]::Ordinal) -ge
         $ciWorkflowText.IndexOf('./scripts/build-msix.ps1', [StringComparison]::Ordinal) -or
     $ciWorkflowText.IndexOf('./scripts/build-msix.ps1', [StringComparison]::Ordinal) -ge
-        $ciWorkflowText.IndexOf('npm run tauri bundle -- --bundles nsis', [StringComparison]::Ordinal)) {
+        $ciWorkflowText.IndexOf('npm run nsis:build', [StringComparison]::Ordinal)) {
     throw 'CI must verify MSIX before applying the NSIS bundle type to the application binary.'
 }
 

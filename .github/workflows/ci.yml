@@ -137,5 +137,5 @@ jobs:
       - name: Build and verify NSIS
         shell: pwsh
         run: |
-          npm run tauri bundle -- --bundles nsis
+          npm run nsis:build
           npm run test:nsis -- --LiveInstall

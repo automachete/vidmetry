@@ -40,6 +40,12 @@ jobs:
           RELEASE_REF: ${{ github.ref }}
         run: ./scripts/privacy-guard.ps1 -Mode Repository -Revision $env:RELEASE_COMMIT -RefName $env:RELEASE_REF
 
+      - name: Synchronize release version from tag
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: ./scripts/set-release-version.ps1 -Tag $env:RELEASE_TAG
+
       - name: Verify release version
         shell: pwsh
         env:
@@ -140,6 +146,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Synchronize release version from tag
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: ./scripts/set-release-version.ps1 -Tag $env:RELEASE_TAG
+
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -230,7 +242,7 @@ jobs:
         run: npm run test:msix
 
       - name: Build GitHub NSIS
-        run: npm run tauri bundle -- --bundles nsis
+        run: npm run nsis:build
 
       - name: Verify GitHub NSIS
         run: npm run test:nsis -- --LiveInstall
@@ -240,12 +252,12 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path windows-assets | Out-Null
           $msix = @(Get-ChildItem -Path 'src-tauri/target/release/bundle/msix' -Filter '*.msix' -File)
-          $nsis = @(Get-ChildItem -Path 'src-tauri/target/release/bundle/nsis' -Filter '*-setup.exe' -File)
-          if ($msix.Count -ne 1 -or $nsis.Count -ne 1) {
-            throw "Expected one MSIX and one NSIS package but found $($msix.Count) and $($nsis.Count)."
+          $nsisPath = 'src-tauri/target/release/bundle/nsis/Vidmetry_x64-setup.exe'
+          if ($msix.Count -ne 1 -or -not (Test-Path -LiteralPath $nsisPath -PathType Leaf)) {
+            throw "Expected one MSIX and the fixed-name NSIS package $nsisPath."
           }
           Copy-Item -LiteralPath $msix[0].FullName -Destination windows-assets
-          Copy-Item -LiteralPath $nsis[0].FullName -Destination windows-assets
+          Copy-Item -LiteralPath $nsisPath -Destination windows-assets
 
       - name: Transfer Windows packages to publisher
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -287,6 +299,7 @@ jobs:
           actual_sha256="$(sha256sum "release-assets/$ARCHIVE_NAME" | cut -d ' ' -f 1)"
           [[ "$actual_sha256" == "$ARCHIVE_SHA256" ]]
           test "$(find release-assets -maxdepth 1 -type f -name '*.msix' | wc -l)" -eq 1
+          test -f release-assets/Vidmetry_x64-setup.exe
           test "$(find release-assets -maxdepth 1 -type f -name '*-setup.exe' | wc -l)" -eq 1
           test "$(find release-assets -maxdepth 1 -type f -name '*.msi' | wc -l)" -eq 0
           test "$(find release-assets -maxdepth 1 -type f -name '*.exe' | wc -l)" -eq 1
@@ -336,7 +349,7 @@ jobs:
             if ($required -notin $assetNames) { throw "Draft Release is missing $required." }
           }
           if (@($assetNames | Where-Object { $_ -match '\.msix$' }).Count -ne 1 -or
-              @($assetNames | Where-Object { $_ -match '-setup\.exe$' }).Count -ne 1 -or
+              @($assetNames | Where-Object { $_ -ceq 'Vidmetry_x64-setup.exe' }).Count -ne 1 -or
               @($assetNames | Where-Object { $_ -match '\.msi$' }).Count -ne 0) {
             throw 'Draft Release must contain exactly one MSIX and one NSIS setup EXE, with no MSI.'
           }
