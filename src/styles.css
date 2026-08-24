@@ -93,6 +93,7 @@ select:focus-visible {
 }
 
 .app-header {
+  position: relative;
   z-index: 20;
   display: grid;
   grid-template-columns: minmax(150px, 0.55fr) minmax(240px, 1.4fr) auto;
@@ -127,8 +128,13 @@ select:focus-visible {
 }
 
 .source-summary {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(42vw, 720px);
   min-width: 0;
   text-align: center;
+  transform: translate(-50%, -50%);
 }
 
 .source-summary strong,
@@ -165,6 +171,8 @@ select:focus-visible {
 
 .header-actions {
   position: relative;
+  grid-column: -2 / -1;
+  justify-self: end;
   display: flex;
   align-items: center;
   gap: 8px;
