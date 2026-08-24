@@ -551,30 +551,31 @@ test('settings use one-level category navigation and expose encoder availability
   await codec.selectOption('h264');
   await expect(page.getByRole('button', { name: 'Apply' })).toHaveCount(0);
   await settingsNavigation.getByRole('button', { name: 'File Explorer' }).click();
-  const folderPicker = page.getByRole('combobox', { name: 'Folder picker' });
-  await expect(folderPicker).toHaveValue('standard');
-  await expect(folderPicker.locator('option[value="standard"]')).toHaveText('Windows standard');
-  await expect(folderPicker.locator('option[value="explorerBeta"]')).toHaveText('Show video files');
+  const folderPicker = page.getByRole('group', { name: 'Folder picker' });
+  const standardPicker = folderPicker.getByRole('radio', { name: 'Windows standard' });
+  const betaPicker = folderPicker.getByRole('radio', { name: 'Show video files Beta' });
+  await expect(standardPicker).toBeChecked();
+  await expect(betaPicker).not.toBeChecked();
+  await expect(page.getByRole('combobox', { name: 'Folder picker' })).toHaveCount(0);
   const integrationHeading = page.getByRole('heading', { name: 'File Explorer integration' });
   const integrationTopBefore = await integrationHeading.evaluate(
     (heading) => heading.getBoundingClientRect().top,
   );
   const description = page.getByText('You can view supported videos in the folder');
   const betaBadge = page.getByText('Beta', { exact: true });
-  await expect(description).toBeHidden();
-  await expect(betaBadge).toBeHidden();
-  await expect(folderPicker).not.toHaveAttribute('aria-describedby');
-  const pickerGeometryBefore = await folderPicker.evaluate((select) => {
-    const box = select.getBoundingClientRect();
-    return { x: box.x, y: box.y, width: box.width, height: box.height };
-  });
-  await folderPicker.selectOption('explorerBeta');
   await expect(description).toBeVisible();
   await expect(betaBadge).toBeVisible();
-  await expect(folderPicker).toHaveAttribute(
-    'aria-describedby',
-    'folder-picker-beta-description folder-picker-beta-status',
-  );
+  await expect(betaPicker).toHaveAttribute('aria-describedby', 'folder-picker-beta-description');
+  const pickerGeometryBefore = await folderPicker.evaluate((group) => {
+    const box = group.getBoundingClientRect();
+    return { x: box.x, y: box.y, width: box.width, height: box.height };
+  });
+  await standardPicker.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(standardPicker).not.toBeChecked();
+  await expect(betaPicker).toBeChecked();
+  await expect(description).toBeVisible();
+  await expect(betaBadge).toBeVisible();
   await expect(betaBadge).toHaveCSS('border-top-style', 'solid');
   await expect(betaBadge).toHaveCSS('border-top-width', '1px');
   const badgeGeometry = await betaBadge.evaluate((badge) => {
@@ -592,8 +593,12 @@ test('settings use one-level category navigation and expose encoder availability
       fontWeight: style.fontWeight,
     };
   });
-  const pickerGeometryAfter = await folderPicker.evaluate((select) => {
-    const box = select.getBoundingClientRect();
+  const betaLabelGeometry = await page.locator('#folder-picker-beta-label').evaluate((label) => {
+    const box = label.getBoundingClientRect();
+    return { x: box.x, y: box.y, width: box.width, height: box.height };
+  });
+  const pickerGeometryAfter = await folderPicker.evaluate((group) => {
+    const box = group.getBoundingClientRect();
     return { x: box.x, y: box.y, width: box.width, height: box.height };
   });
   expect(badgeGeometry.width).toBeGreaterThan(badgeGeometry.height);
@@ -607,11 +612,11 @@ test('settings use one-level category navigation and expose encoder availability
   expect(Math.abs(pickerGeometryAfter.y - pickerGeometryBefore.y)).toBeLessThanOrEqual(0.5);
   expect(Math.abs(pickerGeometryAfter.width - pickerGeometryBefore.width)).toBeLessThanOrEqual(0.5);
   expect(Math.abs(pickerGeometryAfter.height - pickerGeometryBefore.height)).toBeLessThanOrEqual(0.5);
-  expect(Math.abs(badgeGeometry.x - (pickerGeometryAfter.x + pickerGeometryAfter.width + 8))).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(badgeGeometry.x - (betaLabelGeometry.x + betaLabelGeometry.width + 8))).toBeLessThanOrEqual(0.5);
   expect(
     Math.abs(
       badgeGeometry.y + badgeGeometry.height / 2
-        - (pickerGeometryAfter.y + pickerGeometryAfter.height / 2),
+        - (betaLabelGeometry.y + betaLabelGeometry.height / 2),
     ),
   ).toBeLessThanOrEqual(0.5);
   const integrationTopAfter = await integrationHeading.evaluate(

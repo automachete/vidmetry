@@ -314,21 +314,22 @@ describe('application shell', () => {
     await waitFor(() => expect((settingsButton as HTMLButtonElement).disabled).toBe(false));
     await fireEvent.click(settingsButton);
     await fireEvent.click(screen.getByRole('button', { name: 'File Explorer' }));
-    const folderPicker = screen.getByRole('combobox', { name: 'Folder picker' });
-    expect((folderPicker as HTMLSelectElement).value).toBe('standard');
-    expect(within(folderPicker).getByRole('option', { name: 'Windows standard' })).toBeTruthy();
-    expect(within(folderPicker).getByRole('option', { name: 'Show video files' })).toBeTruthy();
+    const folderPicker = screen.getByRole('group', { name: 'Folder picker' });
+    const standardPicker = within(folderPicker).getByRole('radio', { name: 'Windows standard' });
+    const betaPicker = within(folderPicker).getByRole('radio', { name: 'Show video files Beta' });
+    expect((standardPicker as HTMLInputElement).checked).toBe(true);
+    expect((betaPicker as HTMLInputElement).checked).toBe(false);
     const betaDescription = screen.getByText('You can view supported videos in the folder');
     const betaBadge = screen.getByText('Beta');
-    expect(betaDescription.classList.contains('settings-support-hidden')).toBe(true);
-    expect(betaBadge.closest('.settings-badge-slot')?.getAttribute('aria-hidden')).toBe('true');
-    await fireEvent.change(folderPicker, { target: { value: 'explorerBeta' } });
+    expect(betaDescription).toBeTruthy();
+    expect(betaBadge.classList.contains('status-badge')).toBe(true);
+    expect(betaPicker.getAttribute('aria-describedby')).toBe('folder-picker-beta-description');
+    await fireEvent.click(betaPicker);
     await waitFor(() =>
       expect(storeState.value).toMatchObject({ folderPicker: { mode: 'explorerBeta' } }),
     );
-    expect(betaDescription.classList.contains('settings-support-hidden')).toBe(false);
-    expect(betaBadge.classList.contains('status-badge')).toBe(true);
-    expect(betaBadge.closest('.settings-badge-slot')?.getAttribute('aria-hidden')).toBe('false');
+    expect((standardPicker as HTMLInputElement).checked).toBe(false);
+    expect((betaPicker as HTMLInputElement).checked).toBe(true);
     await fireEvent.click(
       screen.getByRole('checkbox', { name: 'Show Open with Vidmetry for folders' }),
     );
@@ -586,7 +587,7 @@ describe('application shell', () => {
     });
   });
 
-  it('shows the Japanese Beta folder picker description only while it is selected', async () => {
+  it('keeps the Japanese Beta folder picker description visible for either selection', async () => {
     storeState.value = { ...defaultSettings, languageMode: 'manual', language: 'ja' };
     render(App);
 
@@ -595,18 +596,20 @@ describe('application shell', () => {
     await fireEvent.click(settingsButton);
     await fireEvent.click(screen.getByRole('button', { name: 'エクスプローラー' }));
 
-    const folderPicker = screen.getByRole('combobox', { name: 'フォルダー選択方式' });
-    expect(within(folderPicker).getByRole('option', { name: 'Windows標準' })).toBeTruthy();
-    expect(within(folderPicker).getByRole('option', { name: '動画ファイルを表示' })).toBeTruthy();
+    const folderPicker = screen.getByRole('group', { name: 'フォルダー選択方式' });
+    const standardPicker = within(folderPicker).getByRole('radio', { name: 'Windows標準' });
+    const betaPicker = within(folderPicker).getByRole('radio', { name: '動画ファイルを表示 Beta' });
+    expect((standardPicker as HTMLInputElement).checked).toBe(true);
+    expect((betaPicker as HTMLInputElement).checked).toBe(false);
     const betaDescription = screen.getByText('フォルダー内の対応動画を確認できます');
     const betaBadge = screen.getByText('Beta');
-    expect(betaDescription.classList.contains('settings-support-hidden')).toBe(true);
-    expect(betaBadge.closest('.settings-badge-slot')?.getAttribute('aria-hidden')).toBe('true');
-
-    await fireEvent.change(folderPicker, { target: { value: 'explorerBeta' } });
-    expect(betaDescription.classList.contains('settings-support-hidden')).toBe(false);
+    expect(betaDescription).toBeTruthy();
     expect(betaBadge.classList.contains('status-badge')).toBe(true);
-    expect(betaBadge.closest('.settings-badge-slot')?.getAttribute('aria-hidden')).toBe('false');
+
+    await fireEvent.click(betaPicker);
+    expect((standardPicker as HTMLInputElement).checked).toBe(false);
+    expect((betaPicker as HTMLInputElement).checked).toBe(true);
+    expect(betaDescription).toBeTruthy();
   });
 
   it('navigates a folder and requires two clicks to save when extensions match', async () => {

@@ -1412,30 +1412,73 @@ select:focus-visible {
   line-height: var(--line-caption);
 }
 
-.settings-field.compact.folder-picker-field {
-  max-width: 320px;
+.folder-picker-radio-group {
+  min-width: 0;
+  max-width: 360px;
+  margin: 12px 0 0;
+  padding: 0;
+  border: 0;
 }
 
-.settings-control-with-badge {
+.folder-picker-radio-group legend {
+  padding: 0;
+  color: var(--muted);
+  font-size: var(--type-caption);
+  line-height: var(--line-caption);
+  font-weight: 650;
+}
+
+.folder-picker-options {
   display: grid;
-  grid-template-columns: minmax(0, 260px) max-content;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.folder-picker-option {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--text-soft);
+  cursor: pointer;
+}
+
+.folder-picker-option:hover {
+  background: var(--input-hover);
+}
+
+.folder-picker-option input {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.folder-picker-option-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.folder-picker-option-title {
+  display: flex;
+  min-width: 0;
+  min-height: 20px;
   align-items: center;
   gap: 8px;
+  font-size: var(--type-body);
+  line-height: var(--line-body);
+  font-weight: 500;
 }
 
-.settings-badge-slot {
-  display: flex;
-  align-items: center;
-}
-
-.settings-support-text {
-  display: block;
-  width: 260px;
-  min-height: 32px;
-}
-
-.settings-support-hidden {
-  visibility: hidden;
+.folder-picker-option small {
+  color: var(--muted);
+  font-size: var(--type-caption);
+  line-height: var(--line-caption);
+  font-weight: 500;
 }
 
 .unit-input {

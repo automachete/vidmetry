@@ -2081,33 +2081,38 @@
           {:else if settingsCategory === 'explorer'}
             <section class="settings-section">
               <h3>{text('folderPicker')}</h3>
-              <label class="settings-field compact folder-picker-field">
-                <span>{text('folderPickerMode')}</span>
-                <span class="settings-control-with-badge">
-                  <select
-                    aria-label={text('folderPickerMode')}
-                    aria-describedby={settingsDraft.folderPicker.mode === 'explorerBeta' ? 'folder-picker-beta-description folder-picker-beta-status' : undefined}
-                    value={settingsDraft.folderPicker.mode}
-                    onchange={(event) => updateDraft('folderPicker', { ...settingsDraft.folderPicker, mode: (event.currentTarget as HTMLSelectElement).value as FolderPickerMode })}
-                  >
-                    <option value="standard">{text('folderPickerStandard')}</option>
-                    <option value="explorerBeta">{text('folderPickerExplorerBeta')}</option>
-                  </select>
-                  <span
-                    id="folder-picker-beta-status"
-                    class:settings-support-hidden={settingsDraft.folderPicker.mode !== 'explorerBeta'}
-                    class="settings-badge-slot"
-                    aria-hidden={settingsDraft.folderPicker.mode !== 'explorerBeta'}
-                  >
-                    <StatusBadge label={text('betaBadge')} />
-                  </span>
-                </span>
-                <small
-                  id="folder-picker-beta-description"
-                  class:settings-support-hidden={settingsDraft.folderPicker.mode !== 'explorerBeta'}
-                  class="settings-support-text"
-                >{text('folderPickerBetaDescription')}</small>
-              </label>
+              <fieldset class="folder-picker-radio-group">
+                <legend>{text('folderPickerMode')}</legend>
+                <div class="folder-picker-options">
+                  <label class="folder-picker-option">
+                    <input
+                      type="radio"
+                      name="folder-picker-mode"
+                      aria-labelledby="folder-picker-standard-label"
+                      checked={settingsDraft.folderPicker.mode === 'standard'}
+                      onchange={() => updateDraft('folderPicker', { ...settingsDraft.folderPicker, mode: 'standard' as FolderPickerMode })}
+                    />
+                    <span id="folder-picker-standard-label" class="folder-picker-option-title">{text('folderPickerStandard')}</span>
+                  </label>
+                  <label class="folder-picker-option">
+                    <input
+                      type="radio"
+                      name="folder-picker-mode"
+                      aria-labelledby="folder-picker-beta-label folder-picker-beta-status"
+                      aria-describedby="folder-picker-beta-description"
+                      checked={settingsDraft.folderPicker.mode === 'explorerBeta'}
+                      onchange={() => updateDraft('folderPicker', { ...settingsDraft.folderPicker, mode: 'explorerBeta' as FolderPickerMode })}
+                    />
+                    <span class="folder-picker-option-copy">
+                      <span class="folder-picker-option-title">
+                        <span id="folder-picker-beta-label">{text('folderPickerExplorerBeta')}</span>
+                        <span id="folder-picker-beta-status"><StatusBadge label={text('betaBadge')} /></span>
+                      </span>
+                      <small id="folder-picker-beta-description">{text('folderPickerBetaDescription')}</small>
+                    </span>
+                  </label>
+                </div>
+              </fieldset>
             </section>
             <section class="settings-section">
               <h3>{text('explorerIntegration')}</h3>
