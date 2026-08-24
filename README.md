@@ -41,20 +41,24 @@ MP4 for everyday sharing, lossless saving that preserves pixels, and metadata-on
 | Saving method | Advantages | Disadvantages |
 |---|---|---|
 | Compatible MP4 | Works well with many devices and players, with detailed control over the balance between quality, file size, and compatibility. | Because the video is re-encoded, some settings may cause quality loss from additional compression. |
-| Lossless | Saves the cropped frame and playback range without degrading the decoded pixels. | Produces large files and can be played by only a limited range of software. |
+| Lossless FFV1 / MKV | Saves the cropped frame and playback range without degrading the decoded pixels. | Produces large files and can be played by only a limited range of software. |
 | Metadata only | Keeps the original compressed video for supported H.264/HEVC files without re-encoding. | Players that do not interpret crop metadata will not apply the crop, and this method cannot be combined with playback-range trimming. |
 
 ## Main shortcuts
 
 | Key | Action |
 |---|---|
-| `Space` | Play/pause |
-| `←` / `→` | Move the selected position by one frame |
-| `Shift` + `←` / `→` | Move the start/end position by ten frames |
-| `Page Up` / `Page Down` | Move to the previous/next video in the folder |
+| `Space` | Play / pause |
+| `←` | Seek back 1 frame |
+| `→` | Seek forward 1 frame |
+| `Shift` + `←` | Seek back 10 frames |
+| `Shift` + `→` | Seek forward 10 frames |
+| `Page Up` | Previous video |
+| `Page Down` | Next video |
 | `Ctrl` + `S` | Save a copy |
-| `Ctrl` + `Shift` + `S` | Save to the original video |
-| `F11` / `Esc` | Enter/exit full-screen preview |
+| `Ctrl` + `Shift` + `S` | Save over the source video |
+| `F11` | Toggle fullscreen preview |
+| `Esc` | Exit fullscreen preview |
 
 ## License and development
 
