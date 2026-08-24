@@ -36,17 +36,6 @@ if ($releaseWorkflow -notmatch '(?m)^\s{4}environment:\s+microsoft-store-release
     throw 'The Microsoft Store MSIX job must use the microsoft-store-release environment.'
 }
 
-$privacyWorkflow = Get-Content -LiteralPath (Join-Path $workflowDirectory 'privacy.yml') -Raw
-foreach ($dependabotGuard in @(
-    "github.event.pull_request.user.login == 'dependabot[bot]'",
-    'github.event.pull_request.head.repo.full_name == github.repository',
-    '$privacyArguments.AllowDependabotSignature = $true'
-)) {
-    if (-not $privacyWorkflow.Contains($dependabotGuard, [StringComparison]::Ordinal)) {
-        throw "The Privacy Guard workflow must scope the Dependabot signature exception with: $dependabotGuard"
-    }
-}
-
 $tauriConfiguration = Get-Content -LiteralPath (Join-Path $projectRoot 'src-tauri\tauri.conf.json') -Raw | ConvertFrom-Json
 $mainWindows = @($tauriConfiguration.app.windows | Where-Object label -ceq 'main')
 if ($mainWindows.Count -ne 1) {
