@@ -34,10 +34,16 @@ jobs:
           PRIVACY_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
           PRIVACY_HEAD_SHA: ${{ github.sha }}
           PRIVACY_REF_NAME: ${{ github.ref }}
+          ALLOW_DEPENDABOT_SIGNATURE: ${{ github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository }}
         run: |
-          ./scripts/privacy-guard.ps1 `
-            -Mode Range `
-            -BaseSha $env:PRIVACY_BASE_SHA `
-            -HeadSha $env:PRIVACY_HEAD_SHA `
-            -RefName $env:PRIVACY_REF_NAME `
-            -ScanRepository
+          $privacyArguments = @{
+            Mode = 'Range'
+            BaseSha = $env:PRIVACY_BASE_SHA
+            HeadSha = $env:PRIVACY_HEAD_SHA
+            RefName = $env:PRIVACY_REF_NAME
+            ScanRepository = $true
+          }
+          if ($env:ALLOW_DEPENDABOT_SIGNATURE -ceq 'true') {
+            $privacyArguments.AllowDependabotSignature = $true
+          }
+          ./scripts/privacy-guard.ps1 @privacyArguments

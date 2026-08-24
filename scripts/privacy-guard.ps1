@@ -8,7 +8,8 @@ param(
     [string]$InputPath,
     [string]$RefName,
     [string]$RemoteName,
-    [switch]$ScanRepository
+    [switch]$ScanRepository,
+    [switch]$AllowDependabotSignature
 )
 
 $ErrorActionPreference = 'Stop'
@@ -137,6 +138,31 @@ function Test-PrivacyText {
     }
 }
 
+function Get-ScannableCommitMessage {
+    param(
+        [AllowEmptyString()][string]$Message,
+        [Parameter(Mandatory)][string]$AuthorName,
+        [Parameter(Mandatory)][string]$AuthorEmail,
+        [Parameter(Mandatory)][string]$CommitterName,
+        [Parameter(Mandatory)][string]$CommitterEmail,
+        [switch]$PermitDependabotSignature
+    )
+
+    if (-not $PermitDependabotSignature -or
+        $AuthorName -cne 'dependabot[bot]' -or
+        $AuthorEmail -cne '49699333+dependabot[bot]@users.noreply.github.com' -or
+        $CommitterName -cne 'GitHub' -or
+        $CommitterEmail -cne 'noreply@github.com') {
+        return $Message
+    }
+
+    return [regex]::Replace(
+        $Message,
+        '(?m)^Signed-off-by: dependabot\[bot\] <support@github\.com>\r?$',
+        ''
+    )
+}
+
 function Test-IdentityValues {
     param(
         [Parameter(Mandatory)][string]$Name,
@@ -202,7 +228,14 @@ function Test-Commit {
     Test-IdentityValues -Name $committerName -Email $committerEmail -Context "$context committer"
 
     $message = @(Invoke-GitCommand -Arguments @('show', '-s', '--format=%B', $Commit)) -join "`n"
-    Test-PrivacyText -Text $message -Context "$context message"
+    $scannableMessage = Get-ScannableCommitMessage `
+        -Message $message `
+        -AuthorName $authorName `
+        -AuthorEmail $authorEmail `
+        -CommitterName $committerName `
+        -CommitterEmail $committerEmail `
+        -PermitDependabotSignature:$AllowDependabotSignature
+    Test-PrivacyText -Text $scannableMessage -Context "$context message"
 
     $changedPaths = @(Invoke-GitCommand -Arguments @('diff-tree', '--root', '--no-commit-id', '--name-only', '-r', '--diff-filter=ACMR', $Commit))
     foreach ($path in $changedPaths) {
@@ -367,12 +400,30 @@ function Invoke-SelfTest {
     $separator = [char]92
     $safeEmail = '123456+public-handle' + $at + 'users.noreply.github.com'
     $privateEmail = 'private.person' + $at + 'example.test'
+    $dependabotSignature = 'Signed-off-by: dependabot[bot] <support' + $at + 'github.com>'
     $placeholderPath = 'C:' + $separator + 'Users' + $separator + 'Example User' + $separator + 'clip.mp4'
     $privatePath = 'C:' + $separator + 'Users' + $separator + 'Private Person' + $separator + 'clip.mp4'
     $internalIdentifier = 'u' + '7654321'
 
     if (@(Get-PrivacyIssueCategories -Text $safeEmail).Count -ne 0) { throw 'privacy guard self-test failed (safe email).' }
     if (@(Get-PrivacyIssueCategories -Text $privateEmail).Count -eq 0) { throw 'privacy guard self-test failed (email).' }
+    if (@(Get-PrivacyIssueCategories -Text $dependabotSignature).Count -eq 0) { throw 'privacy guard self-test failed (Dependabot signature default).' }
+    $permittedDependabotMessage = Get-ScannableCommitMessage `
+        -Message $dependabotSignature `
+        -AuthorName 'dependabot[bot]' `
+        -AuthorEmail ('49699333+dependabot[bot]' + $at + 'users.noreply.github.com') `
+        -CommitterName 'GitHub' `
+        -CommitterEmail ('noreply' + $at + 'github.com') `
+        -PermitDependabotSignature
+    if (@(Get-PrivacyIssueCategories -Text $permittedDependabotMessage).Count -ne 0) { throw 'privacy guard self-test failed (Dependabot signature exception).' }
+    $untrustedDependabotMessage = Get-ScannableCommitMessage `
+        -Message $dependabotSignature `
+        -AuthorName 'other-user' `
+        -AuthorEmail ('other-user' + $at + 'users.noreply.github.com') `
+        -CommitterName 'GitHub' `
+        -CommitterEmail ('noreply' + $at + 'github.com') `
+        -PermitDependabotSignature
+    if (@(Get-PrivacyIssueCategories -Text $untrustedDependabotMessage).Count -eq 0) { throw 'privacy guard self-test failed (untrusted Dependabot signature).' }
     if (@(Get-PrivacyIssueCategories -Text $placeholderPath).Count -ne 0) { throw 'privacy guard self-test failed (placeholder path).' }
     if (@(Get-PrivacyIssueCategories -Text $privatePath).Count -eq 0) { throw 'privacy guard self-test failed (profile path).' }
     if (@(Get-PrivacyIssueCategories -Text $internalIdentifier).Count -eq 0) { throw 'privacy guard self-test failed (account identifier).' }
