@@ -1712,7 +1712,7 @@ fn register_window_class() -> WindowsResult<()> {
     if unsafe { RegisterClassW(&class) } == 0 {
         let error = unsafe { GetLastError() };
         if error != ERROR_CLASS_ALREADY_EXISTS {
-            return Err(WindowsError::from_win32());
+            return Err(WindowsError::from_thread());
         }
     }
     Ok(())
