@@ -4128,7 +4128,7 @@ dependencies = [
  "tauri-plugin-store",
  "uuid",
  "windows",
- "windows-core 0.61.2",
+ "windows-core 0.62.2",
  "windows-sys 0.61.2",
  "winreg",
 ]
