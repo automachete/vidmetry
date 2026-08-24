@@ -1,61 +1,63 @@
 # Vidmetry
 
+English | [日本語](README.ja.md)
+
 <p align="center">
 <img src="src-tauri/icons/128x128.png" width="80" height="80" alt="Vidmetry">
 </p>
 
-Vidmetryは、動画の画面サイズと再生区間を、プレビューで確認しながら切り取って保存する、軽量なWindows向けアプリです。
+Vidmetry is a lightweight Windows app for cropping and saving a video's frame and playback range while checking the result in a preview.
 
-重たい動画編集ソフトの複雑な設定を操作する必要はなく、スマートフォンの標準アプリのようにお手軽に切り取りができます。
+You can crop videos as easily as with a standard smartphone app, without having to navigate the complex settings of heavyweight video-editing software.
 
-Windows標準アプリでは扱えない画面サイズの切り取りにも対応しているほか、切り取った動画を「再生しやすさ」「ファイル容量」「画質」のいずれかを優先して保存できます。
+It supports frame cropping that standard Windows apps cannot handle, and lets you save cropped videos with priority given to playback compatibility, file size, or image quality.
 
-## インストール
+## Installation
 
-| ファイル | 説明 |
+| File | Description |
 |---|---|
-| [Vidmetry_x64-setup.exe](https://github.com/automachete/vidmetry/releases/latest/download/Vidmetry_x64-setup.exe) | Windows11 NSISインストーラ |
+| [Vidmetry_x64-setup.exe](https://github.com/automachete/vidmetry/releases/latest/download/Vidmetry_x64-setup.exe) | Windows 11 NSIS installer |
 
-## 使い方
+## Usage
 
-1. 編集したい動画ファイルまたは動画フォルダーをVidmetryへドロップ（または選択）します。
-2. プレビュー上の枠を動かして、画面サイズを決めます。
-3. 画面下のフレーム列で開始位置と終了位置を調整します。
-4. 再生またはスクロール操作で内容を確認し、「コピーして保存」または「保存」を選びます。
+1. Drop a video file or video folder that you want to edit onto Vidmetry, or select it.
+2. Move the frame in the preview to set the crop dimensions.
+3. Adjust the start and end positions in the frame strip at the bottom of the screen.
+4. Check the content by playing or scrolling through it, then choose "Save a copy" or "Save."
 
-## Vidmetryでできること
+## What you can do with Vidmetry
 
-- 座標と大きさをピクセル単位で指定したり、縦横比を固定できる
-- 動画の開始位置と終了位置をフレーム単位で調整する
-- ループ再生や再生開始タイミングを変えたり、全画面表示で保存前に内容を確認する
-- フォルダー内の動画を簡単に切り替えて再生・編集できる
+- Set crop coordinates and dimensions in pixels, or lock the aspect ratio
+- Adjust the start and end positions of a video frame by frame
+- Change loop playback and playback start behavior, and check the content in full-screen view before saving
+- Easily switch between videos in a folder for playback and editing
 
-## 画質と保存方法
+## Quality and saving methods
 
-Vidmetryでは、再生しやすさ、ファイル容量、画質のどれを優先するかに応じて、三つの保存方法を選べます。
+Vidmetry offers three saving methods, depending on whether you prioritize playback compatibility, file size, or image quality.
 
-普段の共有に使いやすいMP4、画素を保つ可逆保存、圧縮済みの映像をそのまま維持するメタデータのみの保存には、それぞれ次のような長所と短所があります。
+MP4 for everyday sharing, lossless saving that preserves pixels, and metadata-only saving that keeps the original compressed video each have the following advantages and disadvantages.
 
-| 保存方法 | メリット | デメリット |
+| Saving method | Advantages | Disadvantages |
 |---|---|---|
-| 互換MP4 | 多くの端末やプレイヤーで扱いやすく、画質、ファイルサイズ、互換性のバランスを詳細に調整できます。 | 映像を再エンコードするため、設定によっては追加の圧縮による画質劣化が生じます。 |
-| 可逆保存 | 画面サイズや再生時間を切り取ったうえで、デコード後の画素を劣化させずに保存できます。 | ファイルサイズが大きくなり、再生できるソフトも限られます。 |
-| メタデータのみ | 対応するH.264／HEVC動画を再エンコードせず、元の圧縮済み映像をそのまま維持できます。 | クロップ情報を解釈しないプレイヤーでは切り取りが反映されず、再生時間のトリミングとも併用できません。 |
+| Compatible MP4 | Works well with many devices and players, with detailed control over the balance between quality, file size, and compatibility. | Because the video is re-encoded, some settings may cause quality loss from additional compression. |
+| Lossless | Saves the cropped frame and playback range without degrading the decoded pixels. | Produces large files and can be played by only a limited range of software. |
+| Metadata only | Keeps the original compressed video for supported H.264/HEVC files without re-encoding. | Players that do not interpret crop metadata will not apply the crop, and this method cannot be combined with playback-range trimming. |
 
-## 主なショートカット
+## Main shortcuts
 
-| キー | 操作 |
+| Key | Action |
 |---|---|
-| `Space` | 再生／一時停止 |
-| `←` / `→` | 選択中の位置を1フレーム調整 |
-| `Shift` + `←` / `→` | 開始／終了位置を10フレーム調整 |
-| `Page Up` / `Page Down` | フォルダー内の前／次の動画へ移動 |
-| `Ctrl` + `S` | コピーして保存 |
-| `Ctrl` + `Shift` + `S` | 元動画へ保存 |
-| `F11` / `Esc` | 全画面プレビューの開始／終了 |
+| `Space` | Play/pause |
+| `←` / `→` | Move the selected position by one frame |
+| `Shift` + `←` / `→` | Move the start/end position by ten frames |
+| `Page Up` / `Page Down` | Move to the previous/next video in the folder |
+| `Ctrl` + `S` | Save a copy |
+| `Ctrl` + `Shift` + `S` | Save to the original video |
+| `F11` / `Esc` | Enter/exit full-screen preview |
 
-## ライセンスと開発
+## License and development
 
-Vidmetry本体は[MIT License](LICENSE)です。同梱するFFmpeg／ffprobeなど第三者ソフトウェアのライセンスと対応ソースについては[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)を確認してください。
+Vidmetry itself is available under the [MIT License](LICENSE). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the licenses and corresponding source of bundled third-party software such as FFmpeg/ffprobe.
 
-開発環境の構築やコントリビューションについては[CONTRIBUTING.md](CONTRIBUTING.md)、詳細な設計は[docs/SDD.md](docs/SDD.md)にまとめています。
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development-environment setup and contribution information, and [docs/SDD.md](docs/SDD.md) for the detailed design.
