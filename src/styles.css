@@ -1412,15 +1412,29 @@ select:focus-visible {
   line-height: var(--line-caption);
 }
 
-.settings-support-slot {
+.settings-field.compact.folder-picker-field {
+  max-width: 320px;
+}
+
+.settings-control-with-badge {
   display: grid;
-  min-height: 32px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+  grid-template-columns: minmax(0, 260px) max-content;
+  align-items: center;
   gap: 8px;
 }
 
-.settings-support-slot:empty {
+.settings-badge-slot {
+  display: flex;
+  align-items: center;
+}
+
+.settings-support-text {
+  display: block;
+  width: 260px;
+  min-height: 32px;
+}
+
+.settings-support-hidden {
   visibility: hidden;
 }
 

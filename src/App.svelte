@@ -2081,7 +2081,33 @@
           {:else if settingsCategory === 'explorer'}
             <section class="settings-section">
               <h3>{text('folderPicker')}</h3>
-              <label class="settings-field compact"><span>{text('folderPickerMode')}</span><select aria-label={text('folderPickerMode')} value={settingsDraft.folderPicker.mode} onchange={(event) => updateDraft('folderPicker', { ...settingsDraft.folderPicker, mode: (event.currentTarget as HTMLSelectElement).value as FolderPickerMode })}><option value="standard">{text('folderPickerStandard')}</option><option value="explorerBeta">{text('folderPickerExplorerBeta')}</option></select><span class="settings-support-slot">{#if settingsDraft.folderPicker.mode === 'explorerBeta'}<small>{text('folderPickerBetaDescription')}</small><StatusBadge label={text('betaBadge')} />{/if}</span></label>
+              <label class="settings-field compact folder-picker-field">
+                <span>{text('folderPickerMode')}</span>
+                <span class="settings-control-with-badge">
+                  <select
+                    aria-label={text('folderPickerMode')}
+                    aria-describedby={settingsDraft.folderPicker.mode === 'explorerBeta' ? 'folder-picker-beta-description folder-picker-beta-status' : undefined}
+                    value={settingsDraft.folderPicker.mode}
+                    onchange={(event) => updateDraft('folderPicker', { ...settingsDraft.folderPicker, mode: (event.currentTarget as HTMLSelectElement).value as FolderPickerMode })}
+                  >
+                    <option value="standard">{text('folderPickerStandard')}</option>
+                    <option value="explorerBeta">{text('folderPickerExplorerBeta')}</option>
+                  </select>
+                  <span
+                    id="folder-picker-beta-status"
+                    class:settings-support-hidden={settingsDraft.folderPicker.mode !== 'explorerBeta'}
+                    class="settings-badge-slot"
+                    aria-hidden={settingsDraft.folderPicker.mode !== 'explorerBeta'}
+                  >
+                    <StatusBadge label={text('betaBadge')} />
+                  </span>
+                </span>
+                <small
+                  id="folder-picker-beta-description"
+                  class:settings-support-hidden={settingsDraft.folderPicker.mode !== 'explorerBeta'}
+                  class="settings-support-text"
+                >{text('folderPickerBetaDescription')}</small>
+              </label>
             </section>
             <section class="settings-section">
               <h3>{text('explorerIntegration')}</h3>

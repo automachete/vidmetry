@@ -559,18 +559,30 @@ test('settings use one-level category navigation and expose encoder availability
   const integrationTopBefore = await integrationHeading.evaluate(
     (heading) => heading.getBoundingClientRect().top,
   );
-  await expect(page.getByText('You can view supported videos in the folder')).toHaveCount(0);
-  await expect(page.getByText('Beta', { exact: true })).toHaveCount(0);
-  await folderPicker.selectOption('explorerBeta');
-  await expect(page.getByText('You can view supported videos in the folder')).toBeVisible();
+  const description = page.getByText('You can view supported videos in the folder');
   const betaBadge = page.getByText('Beta', { exact: true });
+  await expect(description).toBeHidden();
+  await expect(betaBadge).toBeHidden();
+  await expect(folderPicker).not.toHaveAttribute('aria-describedby');
+  const pickerGeometryBefore = await folderPicker.evaluate((select) => {
+    const box = select.getBoundingClientRect();
+    return { x: box.x, y: box.y, width: box.width, height: box.height };
+  });
+  await folderPicker.selectOption('explorerBeta');
+  await expect(description).toBeVisible();
   await expect(betaBadge).toBeVisible();
+  await expect(folderPicker).toHaveAttribute(
+    'aria-describedby',
+    'folder-picker-beta-description folder-picker-beta-status',
+  );
   await expect(betaBadge).toHaveCSS('border-top-style', 'solid');
   await expect(betaBadge).toHaveCSS('border-top-width', '1px');
   const badgeGeometry = await betaBadge.evaluate((badge) => {
     const box = badge.getBoundingClientRect();
     const style = getComputedStyle(badge);
     return {
+      x: box.x,
+      y: box.y,
       width: box.width,
       height: box.height,
       radius: style.borderRadius,
@@ -580,12 +592,28 @@ test('settings use one-level category navigation and expose encoder availability
       fontWeight: style.fontWeight,
     };
   });
+  const pickerGeometryAfter = await folderPicker.evaluate((select) => {
+    const box = select.getBoundingClientRect();
+    return { x: box.x, y: box.y, width: box.width, height: box.height };
+  });
   expect(badgeGeometry.width).toBeGreaterThan(badgeGeometry.height);
+  expect(badgeGeometry.height).toBe(20);
   expect(Number.parseFloat(badgeGeometry.radius)).toBeGreaterThanOrEqual(badgeGeometry.height / 2);
   expect(badgeGeometry.fontFamily).toContain('Segoe UI Variable');
   expect(badgeGeometry.fontSize).toBe('12px');
   expect(badgeGeometry.lineHeight).toBe('16px');
-  expect(badgeGeometry.fontWeight).toBe('650');
+  expect(badgeGeometry.fontWeight).toBe('600');
+  expect(Math.abs(pickerGeometryAfter.x - pickerGeometryBefore.x)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(pickerGeometryAfter.y - pickerGeometryBefore.y)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(pickerGeometryAfter.width - pickerGeometryBefore.width)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(pickerGeometryAfter.height - pickerGeometryBefore.height)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(badgeGeometry.x - (pickerGeometryAfter.x + pickerGeometryAfter.width + 8))).toBeLessThanOrEqual(0.5);
+  expect(
+    Math.abs(
+      badgeGeometry.y + badgeGeometry.height / 2
+        - (pickerGeometryAfter.y + pickerGeometryAfter.height / 2),
+    ),
+  ).toBeLessThanOrEqual(0.5);
   const integrationTopAfter = await integrationHeading.evaluate(
     (heading) => heading.getBoundingClientRect().top,
   );

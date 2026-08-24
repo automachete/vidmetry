@@ -318,14 +318,17 @@ describe('application shell', () => {
     expect((folderPicker as HTMLSelectElement).value).toBe('standard');
     expect(within(folderPicker).getByRole('option', { name: 'Windows standard' })).toBeTruthy();
     expect(within(folderPicker).getByRole('option', { name: 'Show video files' })).toBeTruthy();
-    expect(screen.queryByText('You can view supported videos in the folder')).toBeNull();
-    expect(screen.queryByText('Beta')).toBeNull();
+    const betaDescription = screen.getByText('You can view supported videos in the folder');
+    const betaBadge = screen.getByText('Beta');
+    expect(betaDescription.classList.contains('settings-support-hidden')).toBe(true);
+    expect(betaBadge.closest('.settings-badge-slot')?.getAttribute('aria-hidden')).toBe('true');
     await fireEvent.change(folderPicker, { target: { value: 'explorerBeta' } });
     await waitFor(() =>
       expect(storeState.value).toMatchObject({ folderPicker: { mode: 'explorerBeta' } }),
     );
-    expect(screen.getByText('You can view supported videos in the folder')).toBeTruthy();
-    expect(screen.getByText('Beta').classList.contains('status-badge')).toBe(true);
+    expect(betaDescription.classList.contains('settings-support-hidden')).toBe(false);
+    expect(betaBadge.classList.contains('status-badge')).toBe(true);
+    expect(betaBadge.closest('.settings-badge-slot')?.getAttribute('aria-hidden')).toBe('false');
     await fireEvent.click(
       screen.getByRole('checkbox', { name: 'Show Open with Vidmetry for folders' }),
     );
@@ -595,12 +598,15 @@ describe('application shell', () => {
     const folderPicker = screen.getByRole('combobox', { name: 'フォルダー選択方式' });
     expect(within(folderPicker).getByRole('option', { name: 'Windows標準' })).toBeTruthy();
     expect(within(folderPicker).getByRole('option', { name: '動画ファイルを表示' })).toBeTruthy();
-    expect(screen.queryByText('フォルダー内の対応動画を確認できます')).toBeNull();
-    expect(screen.queryByText('Beta')).toBeNull();
+    const betaDescription = screen.getByText('フォルダー内の対応動画を確認できます');
+    const betaBadge = screen.getByText('Beta');
+    expect(betaDescription.classList.contains('settings-support-hidden')).toBe(true);
+    expect(betaBadge.closest('.settings-badge-slot')?.getAttribute('aria-hidden')).toBe('true');
 
     await fireEvent.change(folderPicker, { target: { value: 'explorerBeta' } });
-    expect(screen.getByText('フォルダー内の対応動画を確認できます')).toBeTruthy();
-    expect(screen.getByText('Beta').classList.contains('status-badge')).toBe(true);
+    expect(betaDescription.classList.contains('settings-support-hidden')).toBe(false);
+    expect(betaBadge.classList.contains('status-badge')).toBe(true);
+    expect(betaBadge.closest('.settings-badge-slot')?.getAttribute('aria-hidden')).toBe('false');
   });
 
   it('navigates a folder and requires two clicks to save when extensions match', async () => {
