@@ -12,11 +12,9 @@ Windows標準アプリでは扱えない画面サイズの切り取りにも対�
 
 ## インストール
 
-対応環境はWindows 11 x64のみとなります。
-
-[GitHub Releases](https://github.com/automachete/vidmetry/releases/latest)の`Vidmetry_0.x.x_x64-setup.exe`をダウンロードしてインストールしてください。
-
-Microsoft Store版は近日中に公開予定です。
+| ファイル | 説明 |
+|---|---|
+| [Vidmetry_x64-setup.exe](https://github.com/automachete/vidmetry/releases/latest/download/Vidmetry_x64-setup.exe) | Windows11 NSISインストーラ |
 
 ## 使い方
 
