@@ -51,7 +51,7 @@
     "@tauri-apps/cli": "^2.11.4",
     "@testing-library/svelte": "^5.4.2",
     "@tsconfig/svelte": "^5.0.8",
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.4.0",
     "@vitest/coverage-v8": "^4.1.11",
     "jsdom": "^29.1.1",
     "license-checker-rseidelsohn": "5.0.1",
