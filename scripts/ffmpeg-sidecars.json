@@ -25,6 +25,7 @@
     "provider": "BtbN/FFmpeg-Builds",
     "releaseTag": "autobuild-2026-08-15-13-02",
     "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-15-13-02/ffmpeg-N-126168-gb16b5f2a01-win64-gpl.zip",
+    "mirrorBaseUrl": "https://github.com/automachete/vidmetry/releases/download/ffmpeg-binaries-N-126168-gb16b5f2a01-20260815",
     "sha256": "70dc4194cf95d10036b3951f3ddbfa0604fb9208767b8dbbdc4f8a657fb3f292",
     "rootDirectory": "ffmpeg-N-126168-gb16b5f2a01-win64-gpl"
   },

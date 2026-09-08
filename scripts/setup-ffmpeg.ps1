@@ -104,6 +104,7 @@ Build variant: $($Manifest.engine.variant)
 Binary provider: $($Manifest.archive.provider)
 Binary release: https://github.com/$($Manifest.archive.provider)/releases/tag/$($Manifest.archive.releaseTag)
 Binary archive: $($Manifest.archive.url)
+Binary mirror: $($Manifest.archive.mirrorBaseUrl)
 Binary archive SHA-256: $($Manifest.archive.sha256)
 Build scripts: $($Manifest.correspondingSource.buildRepository) at $($Manifest.correspondingSource.buildCommit)
 FFmpeg source: $($Manifest.correspondingSource.ffmpegRepository) at $($Manifest.correspondingSource.ffmpegCommit)
@@ -140,7 +141,7 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 Assert-ExactProperties $manifest @('schemaVersion', 'engine', 'archive', 'targets', 'notices', 'correspondingSource') 'manifest'
 Assert-ExactProperties $manifest.engine @('id', 'versionPrefix', 'license', 'variant', 'requiredConfigurationFlags', 'forbiddenConfigurationFlags', 'requiredEncoders') 'engine'
-Assert-ExactProperties $manifest.archive @('provider', 'releaseTag', 'url', 'sha256', 'rootDirectory') 'archive'
+Assert-ExactProperties $manifest.archive @('provider', 'releaseTag', 'url', 'mirrorBaseUrl', 'sha256', 'rootDirectory') 'archive'
 Assert-ExactProperties $manifest.notices @('license', 'buildInfoFileName', 'correspondingSourceFileName') 'notices'
 Assert-ExactProperties $manifest.notices.license @('archivePath', 'sha256', 'fileName') 'notices.license'
 Assert-ExactProperties $manifest.correspondingSource @('archiveName', 'archiveSha256', 'assetTag', 'sourceToolchainImage', 'buildRepository', 'buildCommit', 'ffmpegRepository', 'ffmpegCommit', 'officialReleaseBaseUrl') 'correspondingSource'
@@ -180,6 +181,10 @@ if ($manifest.correspondingSource.buildRepository -cne 'https://github.com/BtbN/
     $manifest.correspondingSource.ffmpegRepository -cne 'https://github.com/FFmpeg/FFmpeg.git' -or
     $manifest.correspondingSource.officialReleaseBaseUrl -cne 'https://github.com/automachete/vidmetry/releases/download') {
     throw 'Corresponding-source repositories or official release location are not approved.'
+}
+$expectedMirrorBaseUrl = "$($manifest.correspondingSource.officialReleaseBaseUrl)/ffmpeg-binaries-$($manifest.engine.id)"
+if ($manifest.archive.mirrorBaseUrl -cne $expectedMirrorBaseUrl) {
+    throw 'FFmpeg binary mirror must use the immutable engine-specific Vidmetry release.'
 }
 if ($manifest.correspondingSource.buildCommit -cnotmatch '^[0-9a-f]{40}$' -or
     $manifest.correspondingSource.ffmpegCommit -cnotmatch '^[0-9a-f]{40}$') {
@@ -256,22 +261,37 @@ if (-not $resolvedExtract.StartsWith($resolvedTemp, [StringComparison]::OrdinalI
 $stagedFiles = @()
 try {
     Write-Output "Downloading pinned FFmpeg $($manifest.engine.id) GPL build..."
-    & curl.exe --fail --location --retry 5 --retry-all-errors --connect-timeout 15 --max-time 900 --silent --show-error --output $archivePath $manifest.archive.url
-    if ($LASTEXITCODE -ne 0) {
-        throw "FFmpeg download failed with curl exit code $LASTEXITCODE."
-    }
-    $actualArchiveHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($actualArchiveHash -ne $manifest.archive.sha256) {
-        throw "FFmpeg archive checksum mismatch. Expected $($manifest.archive.sha256) but received $actualArchiveHash."
-    }
+    & curl.exe --fail --location --retry 2 --retry-all-errors --connect-timeout 15 --max-time 900 --silent --show-error --output $archivePath $manifest.archive.url
+    $archiveDownloaded = $LASTEXITCODE -eq 0
+    if ($archiveDownloaded) {
+        $actualArchiveHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualArchiveHash -ne $manifest.archive.sha256) {
+            throw "FFmpeg archive checksum mismatch. Expected $($manifest.archive.sha256) but received $actualArchiveHash."
+        }
 
-    New-Item -ItemType Directory -Path $extractDirectory | Out-Null
-    Expand-Archive -LiteralPath $archivePath -DestinationPath $extractDirectory
-    $sources = @(
-        @{ Path = Resolve-ArchiveFile $extractDirectory $target.ffmpeg.archivePath; Hash = $target.ffmpeg.sha256; Target = $ffmpegTarget },
-        @{ Path = Resolve-ArchiveFile $extractDirectory $target.ffprobe.archivePath; Hash = $target.ffprobe.sha256; Target = $ffprobeTarget },
-        @{ Path = Resolve-ArchiveFile $extractDirectory $manifest.notices.license.archivePath; Hash = $manifest.notices.license.sha256; Target = $licenseTarget }
-    )
+        New-Item -ItemType Directory -Path $extractDirectory | Out-Null
+        Expand-Archive -LiteralPath $archivePath -DestinationPath $extractDirectory
+        $sources = @(
+            @{ Path = Resolve-ArchiveFile $extractDirectory $target.ffmpeg.archivePath; Hash = $target.ffmpeg.sha256; Target = $ffmpegTarget },
+            @{ Path = Resolve-ArchiveFile $extractDirectory $target.ffprobe.archivePath; Hash = $target.ffprobe.sha256; Target = $ffprobeTarget },
+            @{ Path = Resolve-ArchiveFile $extractDirectory $manifest.notices.license.archivePath; Hash = $manifest.notices.license.sha256; Target = $licenseTarget }
+        )
+    } else {
+        Write-Warning 'The upstream dated FFmpeg archive is unavailable; using the immutable Vidmetry release mirror.'
+        $sources = @(
+            @{ Asset = "ffmpeg-$targetTriple.exe"; Hash = $target.ffmpeg.sha256; Target = $ffmpegTarget },
+            @{ Asset = "ffprobe-$targetTriple.exe"; Hash = $target.ffprobe.sha256; Target = $ffprobeTarget },
+            @{ Asset = $manifest.notices.license.fileName; Hash = $manifest.notices.license.sha256; Target = $licenseTarget }
+        )
+        foreach ($source in $sources) {
+            $source.Path = Join-Path $temporaryRoot "vidmetry-ffmpeg-$operationId-$($source.Asset)"
+            $assetUrl = "$($manifest.archive.mirrorBaseUrl)/$($source.Asset)"
+            & curl.exe --fail --location --retry 5 --retry-all-errors --connect-timeout 15 --max-time 900 --silent --show-error --output $source.Path $assetUrl
+            if ($LASTEXITCODE -ne 0) {
+                throw "FFmpeg mirror download failed for $($source.Asset) with curl exit code $LASTEXITCODE."
+            }
+        }
+    }
     foreach ($source in $sources) {
         $actualHash = (Get-FileHash -LiteralPath $source.Path -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($actualHash -ne $source.Hash) {
@@ -284,7 +304,6 @@ try {
     foreach ($staged in $stagedFiles) {
         Move-Item -LiteralPath $staged.Path -Destination $staged.Target -Force
     }
-
     $runtime = Get-EngineRuntime $ffmpegTarget $manifest.engine
     $notices = Get-NoticeContents $manifest $runtime $releaseTag $sourceUrl
     Write-Utf8NoBom $buildInfoTarget $notices.BuildInfo
@@ -293,6 +312,13 @@ try {
     Write-Output "Installed and verified FFmpeg $($manifest.engine.id) sidecars for $targetTriple."
     Write-Output ($runtime -split "`n", 2)[0]
 } finally {
+    if ($null -ne $sources) {
+        foreach ($source in $sources) {
+            if ($null -ne $source.Asset -and $null -ne $source.Path -and (Test-Path -LiteralPath $source.Path)) {
+                Remove-Item -LiteralPath $source.Path -Force
+            }
+        }
+    }
     foreach ($staged in $stagedFiles) {
         if (Test-Path -LiteralPath $staged.Path) {
             Remove-Item -LiteralPath $staged.Path -Force

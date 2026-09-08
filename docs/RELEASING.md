@@ -43,6 +43,8 @@ FFmpegエンジンまたは対応ソースを決める入力が変わった場�
 
 通常のアプリケーションリリースでは対応ソースを再生成せず、`scripts/ffmpeg-sidecars.json`に固定された資産を再検証して利用します。バイナリ、ソース、ライセンスの対応関係は[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)にも反映してください。
 
+BtbNの日次Releaseには保持期限があるため、固定した`ffmpeg.exe`、`ffprobe.exe`、`LICENSE.txt`は`ffmpeg-binaries-<engine-id>`という専用の変更不能なReleaseへミラーし、対応ソースReleaseを説明文から参照します。`setup-ffmpeg.ps1`は上流アーカイブを優先し、削除済みの場合だけ各ファイルをSHA-256検証付きでこのミラーから取得します。
+
 ## GitHub Actionsの保守
 
 外部Actionは完全なコミットSHAへ固定します。Dependabotが提出する更新では、上流のRelease内容と権限差分を確認してから固定SHAを更新してください。

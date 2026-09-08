@@ -32,6 +32,10 @@ if ($manifest.archive.url -match '/latest/' -or
     $manifest.archive.url -notmatch '/releases/download/autobuild-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}/') {
     throw 'FFmpeg must be downloaded from an immutable dated release asset.'
 }
+$expectedMirrorBaseUrl = "$($manifest.correspondingSource.officialReleaseBaseUrl)/ffmpeg-binaries-$($manifest.engine.id)"
+if ($manifest.archive.mirrorBaseUrl -cne $expectedMirrorBaseUrl) {
+    throw 'The immutable FFmpeg binary mirror must use its engine-specific Vidmetry release.'
+}
 if ($manifest.correspondingSource.buildCommit -cnotmatch '^[0-9a-f]{40}$' -or
     $manifest.correspondingSource.ffmpegCommit -cnotmatch '^[0-9a-f]{40}$') {
     throw 'Complete corresponding source must pin full build and FFmpeg commits.'

@@ -36,20 +36,47 @@ jobs:
           set -euo pipefail
           archive_name="$(jq -er '.correspondingSource.archiveName' scripts/ffmpeg-sidecars.json)"
           archive_sha256="$(jq -er '.correspondingSource.archiveSha256' scripts/ffmpeg-sidecars.json)"
+          asset_tag="$(jq -er '.correspondingSource.assetTag' scripts/ffmpeg-sidecars.json)"
           engine_id="$(jq -er '.engine.id' scripts/ffmpeg-sidecars.json)"
           build_commit="$(jq -er '.correspondingSource.buildCommit' scripts/ffmpeg-sidecars.json)"
           toolchain_digest="$(jq -er '.correspondingSource.sourceToolchainImage' scripts/ffmpeg-sidecars.json | sed -E 's/^.+@sha256://')"
           [[ "$archive_name" =~ ^vidmetry-ffmpeg-[A-Za-z0-9.-]+-corresponding-source\.tar\.xz$ ]]
           [[ "$archive_sha256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$asset_tag" =~ ^ffmpeg-source-[A-Za-z0-9.-]+$ ]]
           [[ "$engine_id" =~ ^[A-Za-z0-9.-]+$ ]]
           [[ "$build_commit" =~ ^[0-9a-f]{40}$ ]]
           [[ "$toolchain_digest" =~ ^[0-9a-f]{64}$ ]]
           echo "archive_name=$archive_name" >> "$GITHUB_OUTPUT"
           echo "archive_sha256=$archive_sha256" >> "$GITHUB_OUTPUT"
+          echo "asset_tag=$asset_tag" >> "$GITHUB_OUTPUT"
           echo "cache_key=ffmpeg-source-v1-$engine_id-$build_commit-$toolchain_digest" >> "$GITHUB_OUTPUT"
+
+      - name: Reuse existing immutable source release
+        id: existing
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARCHIVE_NAME: ${{ steps.source.outputs.archive_name }}
+          ARCHIVE_SHA256: ${{ steps.source.outputs.archive_sha256 }}
+          ASSET_TAG: ${{ steps.source.outputs.asset_tag }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$ASSET_TAG" >/dev/null 2>&1; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir -p release-assets
+          gh release download "$ASSET_TAG" \
+            --pattern "$ARCHIVE_NAME" \
+            --pattern "$ARCHIVE_NAME.sha256" \
+            --dir release-assets
+          (cd release-assets && sha256sum --check "$ARCHIVE_NAME.sha256")
+          test "$(sha256sum "release-assets/$ARCHIVE_NAME" | cut -d ' ' -f 1)" = "$ARCHIVE_SHA256"
+          echo "available=true" >> "$GITHUB_OUTPUT"
 
       - name: Restore pinned dependency sources
         id: source-cache
+        if: steps.existing.outputs.available != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .cache/ffmpeg-source-downloads
@@ -57,6 +84,7 @@ jobs:
 
       - name: Assemble complete corresponding source
         id: assemble
+        if: steps.existing.outputs.available != 'true'
         continue-on-error: true
         shell: bash
         env:
@@ -69,7 +97,7 @@ jobs:
 
       - name: Inspect source acquisition cache
         id: cache-state
-        if: always()
+        if: always() && steps.existing.outputs.available != 'true'
         shell: bash
         run: |
           if [[ -s .cache/ffmpeg-source-downloads/.vidmetry-source-cache-v1 ]]; then
@@ -86,7 +114,7 @@ jobs:
           key: ${{ steps.source.outputs.cache_key }}
 
       - name: Enforce source assembly result
-        if: steps.assemble.outcome != 'success'
+        if: steps.existing.outputs.available != 'true' && steps.assemble.outcome != 'success'
         shell: bash
         run: exit 1
 
