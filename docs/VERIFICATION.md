@@ -1,4 +1,4 @@
-# Vidmetry 0.4.8 Verification Record
+# Vidmetry 0.4.9 Verification Record
 
 Verification date: 2026-08-24
 Platform: Windows x64  
@@ -79,12 +79,12 @@ A 60-frame trim near the end of a 5-minute 640×360 CFR H.264 source averaged 0.
 
 ## Local release artifacts
 
-These artifacts were generated from the verified 0.4.8 source tree. The unsigned MSIX uses the Partner Center `automachete.Vidmetry` / `CN=253F7C9B-963E-4633-A199-6AD8D2D25034` identity. The NSIS is the unsigned direct-download package. Build outputs are intentionally not committed.
+These artifacts were generated from the verified 0.4.9 source tree. The unsigned MSIX uses the Partner Center `automachete.Vidmetry` / `CN=253F7C9B-963E-4633-A199-6AD8D2D25034` identity. The NSIS is the unsigned direct-download package. Build outputs are intentionally not committed.
 
 | Artifact | Size | SHA-256 |
 |---|---:|---|
 | `Vidmetry_x64-setup.exe` | 81.55 MiB | `E43F425BBEE8C2AF7F691AE44991AE730AAF3338F8DB5D256FA9E2354408A4CC` |
-| `Vidmetry_0.4.8.0_x64.msix` | 114.36 MiB | `2DF62482ABFE5F1AE2950BA09BF0C55441CF81BEAD01E1365BCD02AFC9E79EEF` |
+| `Vidmetry_0.4.9.0_x64.msix` | 114.36 MiB | `2DF62482ABFE5F1AE2950BA09BF0C55441CF81BEAD01E1365BCD02AFC9E79EEF` |
 
 ## Remaining manual acceptance
 

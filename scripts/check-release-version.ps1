@@ -15,7 +15,15 @@ if ($Tag -notmatch '^v(?<Version>\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$') {
 $expectedVersion = $Matches.Version
 $repositoryRoot = [System.IO.Path]::GetFullPath($RepositoryRoot)
 $packageVersion = (Get-Content -LiteralPath (Join-Path $repositoryRoot 'package.json') -Raw | ConvertFrom-Json).version
-$packageLock = Get-Content -LiteralPath (Join-Path $repositoryRoot 'package-lock.json') -Raw | ConvertFrom-Json -AsHashtable
+$packageLockContent = Get-Content -LiteralPath (Join-Path $repositoryRoot 'package-lock.json') -Raw
+$packageLockRootMatch = [regex]::Match(
+    $packageLockContent,
+    '(?m)^  "version":\s*"(?<Version>[^"]+)",\r?$'
+)
+$packageLockWorkspaceMatch = [regex]::Match(
+    $packageLockContent,
+    '(?s)"packages"\s*:\s*\{\s*""\s*:\s*\{\s*"name"\s*:\s*"vidmetry"\s*,\s*"version"\s*:\s*"(?<Version>[^"]+)"'
+)
 $tauriVersion = (Get-Content -LiteralPath (Join-Path $repositoryRoot 'src-tauri/tauri.conf.json') -Raw | ConvertFrom-Json).version
 $cargoContent = Get-Content -LiteralPath (Join-Path $repositoryRoot 'src-tauri/Cargo.toml') -Raw
 $cargoMatch = [regex]::Match($cargoContent, '(?m)^version\s*=\s*"(?<Version>[^"]+)"')
@@ -31,11 +39,17 @@ if (-not $cargoMatch.Success) {
 if (-not $cargoLockMatch.Success) {
     throw 'Could not read the package version from src-tauri/Cargo.lock.'
 }
+if (-not $packageLockRootMatch.Success) {
+    throw 'Could not read the root version from package-lock.json.'
+}
+if (-not $packageLockWorkspaceMatch.Success) {
+    throw 'Could not read the workspace version from package-lock.json.'
+}
 
 $versions = [ordered]@{
     'package.json' = $packageVersion
-    'package-lock.json root' = $packageLock['version']
-    'package-lock.json workspace' = $packageLock['packages']['']['version']
+    'package-lock.json root' = $packageLockRootMatch.Groups['Version'].Value
+    'package-lock.json workspace' = $packageLockWorkspaceMatch.Groups['Version'].Value
     'src-tauri/Cargo.toml' = $cargoMatch.Groups['Version'].Value
     'src-tauri/Cargo.lock' = $cargoLockMatch.Groups['Version'].Value
     'src-tauri/tauri.conf.json' = $tauriVersion
