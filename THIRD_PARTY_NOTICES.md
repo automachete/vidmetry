@@ -7,6 +7,7 @@ Vidmetry distributes FFmpeg and ffprobe as separate command-line programs. Vidme
 - Build variant: `win64-gpl`
 - License: GNU General Public License version 3 or later (`GPL-3.0-or-later`)
 - Binary provider release: <https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-08-15-13-02>
+- Immutable binary mirror: <https://github.com/automachete/vidmetry/releases/tag/ffmpeg-binaries-N-126168-gb16b5f2a01-20260815>
 - Binary archive SHA-256: `70dc4194cf95d10036b3951f3ddbfa0604fb9208767b8dbbdc4f8a657fb3f292`
 - Build definition: <https://github.com/BtbN/FFmpeg-Builds/tree/590a6612d7d961e9258429e501619e0b7d7cbedf>
 - FFmpeg source: <https://github.com/FFmpeg/FFmpeg/tree/b16b5f2a01f3c4f8c9a7769d7a35e8b193946d3e>
